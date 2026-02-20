@@ -1,5 +1,5 @@
-import { MetricRow } from '../lib/api';
-import { fmt } from '../lib/formatters';
+import { MetricRow } from '../../lib/api';
+import { fmt } from '../../lib/formatters';
 
 interface Column {
   key: string;
@@ -40,44 +40,17 @@ interface MetricsTableProps {
 
 export default function MetricsTable({ data, sortCol, sortDir, onSort }: MetricsTableProps) {
   return (
-    <div style={{
-      overflowX: 'auto',
-      WebkitOverflowScrolling: 'touch',
-      borderRadius: 12,
-      border: '1px solid #1f2937',
-    }}>
-      <table style={{
-        width: 'max-content',
-        minWidth: '100%',
-        borderCollapse: 'collapse',
-        fontSize: 12,
-      }}>
+    <div className="overflow-x-auto rounded-xl border border-ats-border">
+      <table className="w-max min-w-full border-collapse text-xs">
         <thead>
           <tr>
             {COLUMNS.map((col) => (
               <th
                 key={col.key}
                 onClick={() => onSort(col.key)}
-                style={{
-                  padding: '12px 14px',
-                  textAlign: 'left',
-                  minHeight: 44,
-                  background: '#111827',
-                  color: '#9ca3af',
-                  fontWeight: 600,
-                  fontSize: 11,
-                  textTransform: 'uppercase',
-                  letterSpacing: 0.5,
-                  cursor: 'pointer',
-                  whiteSpace: 'nowrap',
-                  borderBottom: '1px solid #1f2937',
-                  position: col.sticky ? 'sticky' : 'static',
-                  left: col.sticky ? 0 : 'auto',
-                  zIndex: col.sticky ? 2 : 1,
-                  boxShadow: col.sticky ? '2px 0 4px rgba(0,0,0,0.3)' : 'none',
-                  fontFamily: "'JetBrains Mono', monospace",
-                  userSelect: 'none',
-                }}
+                className={`px-3.5 py-3 text-left bg-ats-card text-ats-text-muted font-semibold text-[11px] uppercase tracking-wide cursor-pointer whitespace-nowrap border-b border-ats-border font-mono select-none ${
+                  col.sticky ? 'sticky left-0 z-[2] shadow-[2px_0_4px_rgba(0,0,0,0.3)]' : 'z-[1]'
+                }`}
               >
                 {col.label} {sortCol === col.key ? (sortDir === 'asc' ? '↑' : '↓') : ''}
               </th>
@@ -86,7 +59,7 @@ export default function MetricsTable({ data, sortCol, sortDir, onSort }: Metrics
         </thead>
         <tbody>
           {data.map((row, i) => (
-            <tr key={`${row.offer_name}-${row.account_name}-${i}`} style={{ background: i % 2 === 0 ? '#030712' : '#0a0f1a' }}>
+            <tr key={`${row.offer_name}-${row.account_name}-${i}`} className={i % 2 === 0 ? 'bg-ats-bg' : 'bg-ats-row-alt'}>
               {COLUMNS.map((col) => {
                 const val = (row as unknown as Record<string, unknown>)[col.key];
                 const numVal = typeof val === 'number' ? val : 0;
@@ -95,24 +68,18 @@ export default function MetricsTable({ data, sortCol, sortDir, onSort }: Metrics
                 return (
                   <td
                     key={col.key}
-                    style={{
-                      padding: '12px 14px',
-                      whiteSpace: 'nowrap',
-                      borderBottom: '1px solid #111827',
-                      color: col.color ? col.color(numVal) : '#d1d5db',
-                      fontWeight: col.key === 'offer_name' ? 600 : 400,
-                      fontFamily: typeof val === 'number' ? "'JetBrains Mono', monospace" : 'inherit',
-                      position: col.sticky ? 'sticky' : 'static',
-                      left: col.sticky ? 0 : 'auto',
-                      background: col.sticky ? (i % 2 === 0 ? '#030712' : '#0a0f1a') : 'transparent',
-                      zIndex: col.sticky ? 1 : 0,
-                      boxShadow: col.sticky ? '2px 0 4px rgba(0,0,0,0.3)' : 'none',
-                      minHeight: 44,
-                    }}
+                    className={`px-3.5 py-3 whitespace-nowrap border-b border-ats-card min-h-[44px] ${
+                      col.key === 'offer_name' ? 'font-semibold' : ''
+                    } ${typeof val === 'number' ? 'font-mono' : ''} ${
+                      col.sticky
+                        ? `sticky left-0 z-[1] shadow-[2px_0_4px_rgba(0,0,0,0.3)] ${i % 2 === 0 ? 'bg-ats-bg' : 'bg-ats-row-alt'}`
+                        : ''
+                    }`}
+                    style={{ color: col.color ? col.color(numVal) : '#d1d5db' }}
                     title={overrideInfo ? `Original: ${col.format(overrideInfo.original)} → Override: ${col.format(overrideInfo.override)} by ${overrideInfo.set_by}` : undefined}
                   >
                     {overrideInfo && (
-                      <span style={{ color: '#f59e0b', marginRight: 4, fontSize: 10 }}>*</span>
+                      <span className="text-ats-yellow mr-1 text-[10px]">*</span>
                     )}
                     {col.format(val as number | string)}
                   </td>

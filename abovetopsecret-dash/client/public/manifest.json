@@ -1,7 +1,7 @@
 {
-  "name": "AboveTopSecret Dash",
-  "short_name": "ATS Dash",
-  "description": "Ad performance tracking dashboard",
+  "name": "OpticData Command Center",
+  "short_name": "OpticData",
+  "description": "AI-powered media buying command center",
   "start_url": "/",
   "display": "standalone",
   "theme_color": "#030712",

@@ -15,25 +15,12 @@ export default function Filters({
   onOfferChange,
   onAccountChange,
 }: FiltersProps) {
-  const selectStyle: React.CSSProperties = {
-    background: '#111827',
-    color: '#d1d5db',
-    border: '1px solid #374151',
-    borderRadius: 8,
-    padding: '12px 16px',
-    fontSize: 13,
-    flex: 1,
-    minWidth: 120,
-    appearance: 'none',
-    WebkitAppearance: 'none',
-  };
-
   return (
-    <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+    <div className="flex gap-2 mb-3 flex-wrap">
       <select
         value={filterOffer}
         onChange={(e) => onOfferChange(e.target.value)}
-        style={selectStyle}
+        className="bg-ats-card text-ats-text-secondary border border-[#374151] rounded-lg px-4 py-3 text-sm flex-1 min-w-[120px] appearance-none"
       >
         {offers.map((o) => (
           <option key={o} value={o}>
@@ -44,7 +31,7 @@ export default function Filters({
       <select
         value={filterAccount}
         onChange={(e) => onAccountChange(e.target.value)}
-        style={selectStyle}
+        className="bg-ats-card text-ats-text-secondary border border-[#374151] rounded-lg px-4 py-3 text-sm flex-1 min-w-[120px] appearance-none"
       >
         {accounts.map((a) => (
           <option key={a} value={a}>

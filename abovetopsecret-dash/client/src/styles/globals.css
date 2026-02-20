@@ -57,3 +57,10 @@ select {
   background-position: right 12px center;
   padding-right: 32px !important;
 }
+
+/* Sidebar transition utilities */
+@layer utilities {
+  .sidebar-transition {
+    transition: margin-left 200ms ease, width 200ms ease;
+  }
+}

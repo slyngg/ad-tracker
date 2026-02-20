@@ -1,5 +1,5 @@
-import { MetricRow } from '../lib/api';
-import { fmt } from '../lib/formatters';
+import { MetricRow } from '../../lib/api';
+import { fmt } from '../../lib/formatters';
 
 interface ExportButtonProps {
   data: MetricRow[];
@@ -39,7 +39,7 @@ export default function ExportButton({ data }: ExportButtonProps) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `ats-metrics-${new Date().toISOString().split('T')[0]}.csv`;
+    a.download = `opticdata-metrics-${new Date().toISOString().split('T')[0]}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -47,15 +47,7 @@ export default function ExportButton({ data }: ExportButtonProps) {
   return (
     <button
       onClick={handleExport}
-      style={{
-        background: '#1f2937',
-        border: 'none',
-        color: '#9ca3af',
-        padding: '6px 10px',
-        borderRadius: 6,
-        fontSize: 12,
-        cursor: 'pointer',
-      }}
+      className="bg-ats-border border-none text-ats-text-muted px-2.5 py-1.5 rounded-md text-xs cursor-pointer hover:bg-ats-hover transition-colors"
     >
       CSV
     </button>

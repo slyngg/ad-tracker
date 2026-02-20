@@ -1,8 +1,36 @@
-import { useState, Component, ReactNode } from 'react';
-import { useAuth } from './hooks/useAuth';
-import Dashboard from './components/Dashboard';
+import { Suspense, lazy, Component, ReactNode } from 'react';
+import { Routes, Route, Navigate } from 'react-router-dom';
+import AuthGate from './components/auth/AuthGate';
+import LoadingSpinner from './components/shared/LoadingSpinner';
+import AppLayout from './components/layout/AppLayout';
 
-// Error boundary to catch React rendering errors
+// Lazy-loaded pages
+const SummaryDashboard = lazy(() => import('./pages/SummaryDashboard'));
+const OperatorPage = lazy(() => import('./pages/operator/OperatorPage'));
+const AttributionDashboard = lazy(() => import('./pages/acquisition/AttributionDashboard'));
+const SourceMediumPage = lazy(() => import('./pages/acquisition/SourceMediumPage'));
+const WebsitePerformancePage = lazy(() => import('./pages/website/WebsitePerformancePage'));
+const WebsiteFunnelPage = lazy(() => import('./pages/website/WebsiteFunnelPage'));
+const SiteSearchPage = lazy(() => import('./pages/website/SiteSearchPage'));
+const CustomerSegmentsPage = lazy(() => import('./pages/customers/CustomerSegmentsPage'));
+const CohortAnalysisPage = lazy(() => import('./pages/customers/CohortAnalysisPage'));
+const LTVAnalysisPage = lazy(() => import('./pages/customers/LTVAnalysisPage'));
+const SocialMonitoringPage = lazy(() => import('./pages/discovery/SocialMonitoringPage'));
+const AIVisibilityPage = lazy(() => import('./pages/discovery/AIVisibilityPage'));
+const KeywordIntelligencePage = lazy(() => import('./pages/discovery/KeywordIntelligencePage'));
+const IntegrationsPage = lazy(() => import('./pages/data/IntegrationsPage'));
+const SQLBuilderPage = lazy(() => import('./pages/data/SQLBuilderPage'));
+const APIKeysPage = lazy(() => import('./pages/data/APIKeysPage'));
+const DataUploadPage = lazy(() => import('./pages/data/DataUploadPage'));
+const ConnectionsPage = lazy(() => import('./pages/settings/ConnectionsPage'));
+const OverridesPage = lazy(() => import('./pages/settings/OverridesPage'));
+const GeneralSettingsPage = lazy(() => import('./pages/settings/GeneralSettingsPage'));
+const CostSettingsPage = lazy(() => import('./pages/settings/CostSettingsPage'));
+const NotificationsPage = lazy(() => import('./pages/settings/NotificationsPage'));
+const TrackingSettingsPage = lazy(() => import('./pages/settings/TrackingSettingsPage'));
+const RulesEnginePage = lazy(() => import('./pages/rules/RulesEnginePage'));
+
+// Error boundary
 interface ErrorBoundaryState {
   hasError: boolean;
   error: Error | null;
@@ -21,42 +49,15 @@ class ErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryStat
   render() {
     if (this.state.hasError) {
       return (
-        <div style={{
-          background: '#030712',
-          minHeight: '100vh',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-        }}>
-          <div style={{
-            background: '#111827',
-            borderRadius: 16,
-            padding: 32,
-            width: '100%',
-            maxWidth: 400,
-            margin: '0 16px',
-            border: '1px solid #1f2937',
-            textAlign: 'center',
-          }}>
-            <div style={{ fontSize: 18, fontWeight: 700, color: '#ef4444', marginBottom: 8 }}>
-              Something went wrong
-            </div>
-            <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 16 }}>
+        <div className="bg-ats-bg min-h-screen flex items-center justify-center font-sans">
+          <div className="bg-ats-card rounded-2xl p-8 w-full max-w-[400px] mx-4 border border-ats-border text-center">
+            <div className="text-lg font-bold text-ats-red mb-2">Something went wrong</div>
+            <div className="text-sm text-ats-text-muted mb-4">
               {this.state.error?.message || 'An unexpected error occurred'}
             </div>
             <button
               onClick={() => window.location.reload()}
-              style={{
-                padding: '12px 24px',
-                background: '#3b82f6',
-                border: 'none',
-                borderRadius: 8,
-                color: '#fff',
-                fontSize: 14,
-                fontWeight: 600,
-                cursor: 'pointer',
-              }}
+              className="px-6 py-3 bg-ats-accent rounded-lg text-white text-sm font-semibold cursor-pointer hover:bg-blue-600 transition-colors"
             >
               Reload
             </button>
@@ -68,117 +69,72 @@ class ErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryStat
   }
 }
 
-function LoginScreen({ onLogin, error }: { onLogin: (token: string) => Promise<boolean>; error: string | null }) {
-  const [token, setToken] = useState('');
-  const [loading, setLoading] = useState(false);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!token.trim()) return;
-    setLoading(true);
-    await onLogin(token.trim());
-    setLoading(false);
-  };
-
+// 404 page
+function NotFoundPage() {
   return (
-    <div style={{
-      background: '#030712',
-      minHeight: '100vh',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-    }}>
-      <div style={{
-        background: '#111827',
-        borderRadius: 16,
-        padding: 32,
-        width: '100%',
-        maxWidth: 400,
-        margin: '0 16px',
-        border: '1px solid #1f2937',
-      }}>
-        <h1 style={{ fontSize: 24, fontWeight: 800, marginBottom: 4, color: '#f9fafb' }}>
-          <span style={{ color: '#3b82f6' }}>AboveTopSecret</span> Dash
-        </h1>
-        <p style={{ color: '#6b7280', fontSize: 13, marginBottom: 24 }}>
-          Enter your access token to continue
-        </p>
-
-        <form onSubmit={handleSubmit}>
-          <input
-            type="password"
-            value={token}
-            onChange={(e) => setToken(e.target.value)}
-            placeholder="Access token"
-            autoFocus
-            style={{
-              width: '100%',
-              padding: '12px 16px',
-              background: '#030712',
-              border: '1px solid #374151',
-              borderRadius: 8,
-              color: '#f9fafb',
-              fontSize: 14,
-              fontFamily: "'JetBrains Mono', monospace",
-              outline: 'none',
-              marginBottom: 12,
-            }}
-          />
-          {error && (
-            <div style={{ color: '#ef4444', fontSize: 12, marginBottom: 12 }}>{error}</div>
-          )}
-          <button
-            type="submit"
-            disabled={loading || !token.trim()}
-            style={{
-              width: '100%',
-              padding: '12px',
-              background: token.trim() ? '#3b82f6' : '#1f2937',
-              border: 'none',
-              borderRadius: 8,
-              color: '#fff',
-              fontSize: 14,
-              fontWeight: 600,
-              cursor: token.trim() ? 'pointer' : 'default',
-              opacity: loading ? 0.7 : 1,
-            }}
-          >
-            {loading ? 'Authenticating...' : 'Sign In'}
-          </button>
-        </form>
+    <div className="flex items-center justify-center min-h-[60vh]">
+      <div className="bg-ats-card border border-ats-border rounded-2xl p-8 text-center max-w-md">
+        <div className="text-4xl mb-4">🔍</div>
+        <h2 className="text-lg font-bold text-ats-text mb-2">Page Not Found</h2>
+        <p className="text-sm text-ats-text-muted">The page you're looking for doesn't exist.</p>
       </div>
     </div>
   );
 }
 
 export default function App() {
-  const { isAuthenticated, checking, error, login, handleUnauthorized } = useAuth();
-
-  if (checking) {
-    return (
-      <div style={{
-        background: '#030712',
-        minHeight: '100vh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        color: '#6b7280',
-        fontFamily: "'JetBrains Mono', monospace",
-        fontSize: 14,
-      }}>
-        Connecting...
-      </div>
-    );
-  }
-
-  if (!isAuthenticated) {
-    return <LoginScreen onLogin={login} error={error} />;
-  }
-
   return (
     <ErrorBoundary>
-      <Dashboard onUnauthorized={handleUnauthorized} />
+      <AuthGate>
+        <Suspense fallback={<LoadingSpinner />}>
+          <Routes>
+            <Route element={<AppLayout />}>
+              <Route index element={<Navigate to="/summary" replace />} />
+              <Route path="/summary" element={<SummaryDashboard />} />
+              <Route path="/operator" element={<OperatorPage />} />
+
+              {/* Marketing Acquisition */}
+              <Route path="/acquisition/attribution" element={<AttributionDashboard />} />
+              <Route path="/acquisition/source-medium" element={<SourceMediumPage />} />
+
+              {/* Website Conversion */}
+              <Route path="/website/performance" element={<WebsitePerformancePage />} />
+              <Route path="/website/funnel" element={<WebsiteFunnelPage />} />
+              <Route path="/website/search" element={<SiteSearchPage />} />
+
+              {/* Customer Retention */}
+              <Route path="/customers/segments" element={<CustomerSegmentsPage />} />
+              <Route path="/customers/cohorts" element={<CohortAnalysisPage />} />
+              <Route path="/customers/ltv" element={<LTVAnalysisPage />} />
+
+              {/* Discovery */}
+              <Route path="/discovery/social" element={<SocialMonitoringPage />} />
+              <Route path="/discovery/ai-visibility" element={<AIVisibilityPage />} />
+              <Route path="/discovery/keywords" element={<KeywordIntelligencePage />} />
+
+              {/* Data */}
+              <Route path="/data/integrations" element={<IntegrationsPage />} />
+              <Route path="/data/sql-builder" element={<SQLBuilderPage />} />
+              <Route path="/data/api-keys" element={<APIKeysPage />} />
+              <Route path="/data/upload" element={<DataUploadPage />} />
+
+              {/* Settings */}
+              <Route path="/settings/connections" element={<ConnectionsPage />} />
+              <Route path="/settings/overrides" element={<OverridesPage />} />
+              <Route path="/settings/general" element={<GeneralSettingsPage />} />
+              <Route path="/settings/costs" element={<CostSettingsPage />} />
+              <Route path="/settings/notifications" element={<NotificationsPage />} />
+              <Route path="/settings/tracking" element={<TrackingSettingsPage />} />
+
+              {/* Rules */}
+              <Route path="/rules" element={<RulesEnginePage />} />
+
+              {/* 404 */}
+              <Route path="*" element={<NotFoundPage />} />
+            </Route>
+          </Routes>
+        </Suspense>
+      </AuthGate>
     </ErrorBoundary>
   );
 }

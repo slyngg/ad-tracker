@@ -1,23 +1,16 @@
+import { getAuthToken } from '../stores/authStore';
+
 const BASE_URL = '/api';
 
-let authToken: string | null = null;
-
-export function setToken(token: string | null): void {
-  authToken = token;
-}
-
-export function getToken(): string | null {
-  return authToken;
-}
-
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const token = getAuthToken();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(options.headers as Record<string, string> || {}),
   };
 
-  if (authToken) {
-    headers['Authorization'] = `Bearer ${authToken}`;
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
   }
 
   const res = await fetch(`${BASE_URL}${path}`, {
@@ -127,7 +120,7 @@ export function triggerFBSync(): Promise<{ synced: number; accounts: number; ski
 }
 
 export function getExportUrl(): string {
-  const token = getToken();
+  const token = getAuthToken();
   return `${BASE_URL}/export/csv${token ? `?token=${encodeURIComponent(token)}` : ''}`;
 }
 
