@@ -104,8 +104,8 @@ const server = http.createServer((req, res) => {
   });
 });
 
-server.listen(PORT, '127.0.0.1', () => {
-  console.log(`[webhook] Listening on 127.0.0.1:${PORT}`);
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`[webhook] Listening on 0.0.0.0:${PORT}`);
   console.log(`[webhook] POST /webhook — GitHub push events`);
   console.log(`[webhook] GET  /health  — Health check`);
 });
