@@ -6,11 +6,11 @@ Wants=docker.service
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/opt/abovetopsecret-dash/deploy
-ExecStart=/usr/bin/node /opt/abovetopsecret-dash/deploy/webhook-listener.js
+WorkingDirectory=/opt/abovetopsecret-dash/abovetopsecret-dash/deploy
+ExecStart=/usr/bin/node /opt/abovetopsecret-dash/abovetopsecret-dash/deploy/webhook-listener.js
 Restart=always
 RestartSec=5
-EnvironmentFile=/opt/abovetopsecret-dash/deploy/.env.webhook
+EnvironmentFile=/opt/abovetopsecret-dash/abovetopsecret-dash/deploy/.env.webhook
 
 [Install]
 WantedBy=multi-user.target

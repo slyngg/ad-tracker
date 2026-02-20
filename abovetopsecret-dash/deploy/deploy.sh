@@ -5,8 +5,8 @@ set -e
 # Called by the webhook listener on git push to main
 # Pulls latest code, rebuilds containers, and restarts services
 
-APP_DIR="/opt/abovetopsecret-dash"
-DEPLOY_DIR="$APP_DIR/deploy"
+REPO_DIR="/opt/abovetopsecret-dash"
+DEPLOY_DIR="$REPO_DIR/abovetopsecret-dash/deploy"
 LOG_FILE="/var/log/opticdata-deploy.log"
 
 log() {
@@ -15,7 +15,7 @@ log() {
 
 log "=== Deploy triggered ==="
 
-cd "$APP_DIR"
+cd "$REPO_DIR"
 
 # Pull latest code
 log "Pulling latest from origin/main..."

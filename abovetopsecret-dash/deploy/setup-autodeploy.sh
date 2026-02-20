@@ -3,10 +3,10 @@ set -e
 
 # OpticData — Auto-Deploy Setup
 # Run this ON the VPS to enable automatic deploys on git push
-# Usage: bash /opt/abovetopsecret-dash/deploy/setup-autodeploy.sh
+# Usage: bash /opt/abovetopsecret-dash/abovetopsecret-dash/deploy/setup-autodeploy.sh
 
-APP_DIR="/opt/abovetopsecret-dash"
-DEPLOY_DIR="$APP_DIR/deploy"
+REPO_DIR="/opt/abovetopsecret-dash"
+DEPLOY_DIR="$REPO_DIR/abovetopsecret-dash/deploy"
 
 echo "=== OpticData Auto-Deploy Setup ==="
 
