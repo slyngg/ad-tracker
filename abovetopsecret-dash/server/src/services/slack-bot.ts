@@ -139,8 +139,8 @@ export function initSlackBot(): void {
   });
 
   // @mention handler for AI questions
-  slackApp.event('app_mention', async ({ event, say }) => {
-    const text = event.text.replace(/<@[^>]+>/g, '').trim();
+  slackApp.event('app_mention', async ({ event, say }: { event: any; say: any }) => {
+    const text = (event.text || '').replace(/<@[^>]+>/g, '').trim();
     if (!text) {
       await say('Hi! Ask me anything about your ad performance. Try: "What\'s my ROAS today?"');
       return;
