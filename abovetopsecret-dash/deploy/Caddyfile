@@ -1,8 +1,12 @@
-:80 {
+optic-data.com {
     handle /api/* {
         reverse_proxy server:4000
     }
     handle {
         reverse_proxy client:80
     }
+}
+
+www.optic-data.com {
+    redir https://optic-data.com{uri} permanent
 }
