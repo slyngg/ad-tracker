@@ -6,7 +6,7 @@ set -e
 # Usage: curl -sSL <raw-url> | bash
 # Or: chmod +x setup-vps.sh && ./setup-vps.sh
 
-echo "=== AboveTopSecret Dash — VPS Setup ==="
+echo "=== OpticData Command Center — VPS Setup ==="
 
 # 1. System updates
 echo "[1/6] Updating system packages..."
