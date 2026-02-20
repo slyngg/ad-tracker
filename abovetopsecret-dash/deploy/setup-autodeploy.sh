@@ -10,6 +10,16 @@ DEPLOY_DIR="$REPO_DIR/abovetopsecret-dash/deploy"
 
 echo "=== OpticData Auto-Deploy Setup ==="
 
+# 0. Ensure Node.js is installed on the host (needed for webhook listener)
+if ! command -v node &> /dev/null; then
+  echo "[0/5] Installing Node.js..."
+  curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+  apt-get install -y -qq nodejs
+  echo "  Installed: $(node --version)"
+else
+  echo "[0/5] Node.js already installed: $(node --version)"
+fi
+
 # 1. Generate webhook secret if not already set
 if [ ! -f "$DEPLOY_DIR/.env.webhook" ]; then
   WEBHOOK_SECRET=$(openssl rand -hex 32)
@@ -17,36 +27,36 @@ if [ ! -f "$DEPLOY_DIR/.env.webhook" ]; then
 WEBHOOK_SECRET=${WEBHOOK_SECRET}
 WEBHOOK_PORT=9000
 EOF
-  echo "[1/4] Generated webhook secret"
+  echo "[1/5] Generated webhook secret"
   echo ""
   echo "  IMPORTANT: Copy this webhook secret — you'll need it for GitHub:"
   echo "  $WEBHOOK_SECRET"
   echo ""
 else
-  echo "[1/4] Webhook config already exists at $DEPLOY_DIR/.env.webhook"
+  echo "[1/5] Webhook config already exists at $DEPLOY_DIR/.env.webhook"
   WEBHOOK_SECRET=$(grep WEBHOOK_SECRET "$DEPLOY_DIR/.env.webhook" | cut -d= -f2)
 fi
 
 # 2. Make deploy script executable
 chmod +x "$DEPLOY_DIR/deploy.sh"
-echo "[2/4] Deploy script is executable"
+echo "[2/5] Deploy script is executable"
 
 # 3. Install and enable systemd service
 cp "$DEPLOY_DIR/opticdata-webhook.service" /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable opticdata-webhook
 systemctl restart opticdata-webhook
-echo "[3/4] Webhook listener service installed and started"
+echo "[3/5] Webhook listener service installed and started"
 
-# 4. Open webhook port in firewall (internal only — Caddy proxies from 443)
-# Port 9000 stays on 127.0.0.1, no firewall rule needed
+# 4. Port 9000 stays on 127.0.0.1, no firewall rule needed
+echo "[4/5] Webhook port is localhost-only (proxied through Caddy)"
 
-# Verify it's running
+# 5. Verify it's running
 sleep 2
 if systemctl is-active --quiet opticdata-webhook; then
-  echo "[4/4] Webhook listener is running on port 9000"
+  echo "[5/5] Webhook listener is running on port 9000"
 else
-  echo "[4/4] WARNING: Webhook listener failed to start. Check: journalctl -u opticdata-webhook"
+  echo "[5/5] WARNING: Webhook listener failed to start. Check: journalctl -u opticdata-webhook"
 fi
 
 echo ""
