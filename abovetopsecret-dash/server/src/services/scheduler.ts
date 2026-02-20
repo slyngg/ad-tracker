@@ -3,8 +3,6 @@ import { syncFacebook } from './facebook-sync';
 import { pollCheckoutChamp } from './cc-polling';
 import { getSetting } from './settings';
 import pool from '../db';
-import fs from 'fs';
-import path from 'path';
 
 export function startScheduler(): void {
   // Facebook sync every 10 minutes
@@ -37,31 +35,20 @@ export function startScheduler(): void {
   cron.schedule('0 0 * * *', async () => {
     console.log('[Scheduler] Running daily reset...');
     try {
-      const resetSql = fs.readFileSync(
-        path.join(__dirname, '../../db/reset-daily.sql'),
-        'utf-8'
-      );
-      await pool.query(resetSql);
+      await pool.query(`
+        INSERT INTO fb_ads_archive (archived_date, ad_data)
+        SELECT CURRENT_DATE, row_to_json(fb_ads_today)::jsonb FROM fb_ads_today;
+
+        INSERT INTO orders_archive (archived_date, order_data)
+        SELECT CURRENT_DATE, row_to_json(cc_orders_today)::jsonb FROM cc_orders_today;
+
+        TRUNCATE fb_ads_today RESTART IDENTITY;
+        TRUNCATE cc_orders_today RESTART IDENTITY;
+        TRUNCATE cc_upsells_today RESTART IDENTITY;
+      `);
       console.log('[Scheduler] Daily reset complete');
     } catch (err) {
-      // Fallback: run inline if file not found
-      console.warn('[Scheduler] Could not read reset-daily.sql, running inline reset');
-      try {
-        await pool.query(`
-          INSERT INTO fb_ads_archive (archived_date, ad_data)
-          SELECT CURRENT_DATE, row_to_json(fb_ads_today)::jsonb FROM fb_ads_today;
-
-          INSERT INTO orders_archive (archived_date, order_data)
-          SELECT CURRENT_DATE, row_to_json(cc_orders_today)::jsonb FROM cc_orders_today;
-
-          TRUNCATE fb_ads_today RESTART IDENTITY;
-          TRUNCATE cc_orders_today RESTART IDENTITY;
-          TRUNCATE cc_upsells_today RESTART IDENTITY;
-        `);
-        console.log('[Scheduler] Inline daily reset complete');
-      } catch (innerErr) {
-        console.error('[Scheduler] Daily reset failed:', innerErr);
-      }
+      console.error('[Scheduler] Daily reset failed:', err);
     }
   });
 

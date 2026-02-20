@@ -20,7 +20,7 @@ export default function Filters({
     color: '#d1d5db',
     border: '1px solid #374151',
     borderRadius: 8,
-    padding: '8px 12px',
+    padding: '12px 16px',
     fontSize: 13,
     flex: 1,
     minWidth: 120,

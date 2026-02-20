@@ -5,6 +5,7 @@ interface UseMetricsReturn {
   data: MetricRow[];
   summary: SummaryData | null;
   loading: boolean;
+  refreshing: boolean;
   error: string | null;
   lastFetched: Date | null;
   refresh: () => Promise<void>;
@@ -18,13 +19,19 @@ export function useMetrics(
   const [data, setData] = useState<MetricRow[]>([]);
   const [summary, setSummary] = useState<SummaryData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastFetched, setLastFetched] = useState<Date | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const hasLoaded = useRef(false);
 
   const refresh = useCallback(async () => {
     try {
-      setLoading(true);
+      if (hasLoaded.current) {
+        setRefreshing(true);
+      } else {
+        setLoading(true);
+      }
       const [metricsData, summaryData] = await Promise.all([
         fetchMetrics(offer, account),
         fetchSummary(),
@@ -33,6 +40,7 @@ export function useMetrics(
       setSummary(summaryData);
       setLastFetched(new Date());
       setError(null);
+      hasLoaded.current = true;
     } catch (err) {
       if (err instanceof Error && err.message === 'UNAUTHORIZED') {
         onUnauthorized?.();
@@ -41,6 +49,7 @@ export function useMetrics(
       setError(err instanceof Error ? err.message : 'Failed to fetch metrics');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, [offer, account, onUnauthorized]);
 
@@ -57,5 +66,5 @@ export function useMetrics(
     };
   }, [refresh]);
 
-  return { data, summary, loading, error, lastFetched, refresh };
+  return { data, summary, loading, refreshing, error, lastFetched, refresh };
 }

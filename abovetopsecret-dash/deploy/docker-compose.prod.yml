@@ -25,6 +25,7 @@ services:
       FB_AD_ACCOUNT_IDS: ${FB_AD_ACCOUNT_IDS:-}
       CC_WEBHOOK_SECRET: ${CC_WEBHOOK_SECRET:-}
       SHOPIFY_WEBHOOK_SECRET: ${SHOPIFY_WEBHOOK_SECRET:-}
+      ALLOWED_ORIGIN: ${ALLOWED_ORIGIN:-}
       NODE_ENV: production
     depends_on:
       db:

@@ -29,36 +29,13 @@ router.post('/', async (req: Request, res: Response) => {
     const result = await pool.query(
       `INSERT INTO manual_overrides (metric_key, offer_name, override_value, set_by)
        VALUES ($1, $2, $3, $4)
-       ON CONFLICT DO NOTHING
+       ON CONFLICT (metric_key, offer_name) DO UPDATE SET
+         override_value = EXCLUDED.override_value,
+         set_by = EXCLUDED.set_by,
+         set_at = NOW()
        RETURNING *`,
       [metric_key, offer_name || 'ALL', override_value, set_by || 'admin']
     );
-
-    // If no conflict-based insert, do an update approach
-    if (result.rows.length === 0) {
-      const updateResult = await pool.query(
-        `UPDATE manual_overrides
-         SET override_value = $3, set_by = $4, set_at = NOW()
-         WHERE metric_key = $1 AND offer_name = $2
-         RETURNING *`,
-        [metric_key, offer_name || 'ALL', override_value, set_by || 'admin']
-      );
-
-      if (updateResult.rows.length === 0) {
-        // Truly insert
-        const insertResult = await pool.query(
-          `INSERT INTO manual_overrides (metric_key, offer_name, override_value, set_by)
-           VALUES ($1, $2, $3, $4)
-           RETURNING *`,
-          [metric_key, offer_name || 'ALL', override_value, set_by || 'admin']
-        );
-        res.json(insertResult.rows[0]);
-        return;
-      }
-
-      res.json(updateResult.rows[0]);
-      return;
-    }
 
     res.json(result.rows[0]);
   } catch (err) {

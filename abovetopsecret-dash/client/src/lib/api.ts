@@ -56,6 +56,7 @@ export interface MetricRow {
   cvr: number;
   conversions: number;
   new_customer_pct: number;
+  lp_ctr: number;
   take_rate_1: number;
   take_rate_3: number;
   take_rate_5: number;
@@ -65,7 +66,12 @@ export interface MetricRow {
   sub_take_rate_5: number;
   upsell_take_rate: number;
   upsell_decline_rate: number;
-  overrides?: Record<string, boolean>;
+  _overrides?: Record<string, {
+    original: number;
+    override: number;
+    set_by: string;
+    set_at: string;
+  }>;
 }
 
 export interface SummaryData {

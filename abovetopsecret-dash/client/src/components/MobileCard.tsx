@@ -84,6 +84,7 @@ export default function MobileCard({ row, expanded, onToggle }: MobileCardProps)
             ['CPC', fmt.currency(row.cpc)],
             ['CVR', fmt.pct(row.cvr)],
             ['New %', fmt.pct(row.new_customer_pct)],
+            ['LP CTR', fmt.pct(row.lp_ctr)],
             ['1-Pack', fmt.pctRaw(row.take_rate_1)],
             ['3-Pack', fmt.pctRaw(row.take_rate_3)],
             ['5-Pack', fmt.pctRaw(row.take_rate_5)],

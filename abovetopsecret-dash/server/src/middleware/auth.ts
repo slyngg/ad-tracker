@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { Request, Response, NextFunction } from 'express';
 import { getSetting } from '../services/settings';
 
@@ -17,7 +18,9 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
   }
 
   const token = header.slice(7);
-  if (token !== authToken) {
+  const tokenBuf = Buffer.from(token);
+  const expectedBuf = Buffer.from(authToken);
+  if (tokenBuf.length !== expectedBuf.length || !crypto.timingSafeEqual(tokenBuf, expectedBuf)) {
     res.status(401).json({ error: 'Invalid token' });
     return;
   }

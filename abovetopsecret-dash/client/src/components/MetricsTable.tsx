@@ -23,6 +23,7 @@ const COLUMNS: Column[] = [
   { key: 'cvr', label: 'CVR', format: (v) => fmt.pct(v as number) },
   { key: 'conversions', label: 'Conv.', format: (v) => fmt.num(v as number) },
   { key: 'new_customer_pct', label: 'New %', format: (v) => fmt.pct(v as number) },
+  { key: 'lp_ctr', label: 'LP CTR', format: (v) => fmt.pct(v as number) },
   { key: 'take_rate_1', label: '1-Pack', format: (v) => fmt.pctRaw(v as number) },
   { key: 'take_rate_3', label: '3-Pack', format: (v) => fmt.pctRaw(v as number) },
   { key: 'take_rate_5', label: '5-Pack', format: (v) => fmt.pctRaw(v as number) },
@@ -58,8 +59,9 @@ export default function MetricsTable({ data, sortCol, sortDir, onSort }: Metrics
                 key={col.key}
                 onClick={() => onSort(col.key)}
                 style={{
-                  padding: '10px 12px',
+                  padding: '12px 14px',
                   textAlign: 'left',
+                  minHeight: 44,
                   background: '#111827',
                   color: '#9ca3af',
                   fontWeight: 600,
@@ -72,6 +74,7 @@ export default function MetricsTable({ data, sortCol, sortDir, onSort }: Metrics
                   position: col.sticky ? 'sticky' : 'static',
                   left: col.sticky ? 0 : 'auto',
                   zIndex: col.sticky ? 2 : 1,
+                  boxShadow: col.sticky ? '2px 0 4px rgba(0,0,0,0.3)' : 'none',
                   fontFamily: "'JetBrains Mono', monospace",
                   userSelect: 'none',
                 }}
@@ -87,13 +90,13 @@ export default function MetricsTable({ data, sortCol, sortDir, onSort }: Metrics
               {COLUMNS.map((col) => {
                 const val = (row as unknown as Record<string, unknown>)[col.key];
                 const numVal = typeof val === 'number' ? val : 0;
-                const isOverridden = row.overrides?.[col.key];
+                const overrideInfo = row._overrides?.[col.key];
 
                 return (
                   <td
                     key={col.key}
                     style={{
-                      padding: '10px 12px',
+                      padding: '12px 14px',
                       whiteSpace: 'nowrap',
                       borderBottom: '1px solid #111827',
                       color: col.color ? col.color(numVal) : '#d1d5db',
@@ -103,10 +106,12 @@ export default function MetricsTable({ data, sortCol, sortDir, onSort }: Metrics
                       left: col.sticky ? 0 : 'auto',
                       background: col.sticky ? (i % 2 === 0 ? '#030712' : '#0a0f1a') : 'transparent',
                       zIndex: col.sticky ? 1 : 0,
+                      boxShadow: col.sticky ? '2px 0 4px rgba(0,0,0,0.3)' : 'none',
+                      minHeight: 44,
                     }}
-                    title={isOverridden ? 'This value has been manually overridden' : undefined}
+                    title={overrideInfo ? `Original: ${col.format(overrideInfo.original)} → Override: ${col.format(overrideInfo.override)} by ${overrideInfo.set_by}` : undefined}
                   >
-                    {isOverridden && (
+                    {overrideInfo && (
                       <span style={{ color: '#f59e0b', marginRight: 4, fontSize: 10 }}>*</span>
                     )}
                     {col.format(val as number | string)}

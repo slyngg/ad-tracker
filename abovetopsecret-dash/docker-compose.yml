@@ -9,8 +9,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./db/init.sql:/docker-entrypoint-initdb.d/01-init.sql
-    ports:
-      - "5432:5432"
+    # No ports exposed — only accessible via Docker network
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ats_user -d abovetopsecret"]
       interval: 5s
@@ -26,6 +25,7 @@ services:
       FB_AD_ACCOUNT_IDS: ${FB_AD_ACCOUNT_IDS:-}
       CC_WEBHOOK_SECRET: ${CC_WEBHOOK_SECRET:-}
       SHOPIFY_WEBHOOK_SECRET: ${SHOPIFY_WEBHOOK_SECRET:-}
+      ALLOWED_ORIGIN: ${ALLOWED_ORIGIN:-}
       NODE_ENV: production
     ports:
       - "4000:4000"

@@ -27,7 +27,7 @@ export default function Dashboard({ onUnauthorized }: DashboardProps) {
   const touchStartY = useRef(0);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const { data, summary, loading, error, lastFetched, refresh } = useMetrics(
+  const { data, summary, loading, refreshing, error, lastFetched, refresh } = useMetrics(
     undefined, undefined, onUnauthorized
   );
 
@@ -94,7 +94,16 @@ export default function Dashboard({ onUnauthorized }: DashboardProps) {
     return () => clearInterval(interval);
   }, []);
 
-  const isWide = typeof window !== 'undefined' && window.innerWidth > 768;
+  const [isWide, setIsWide] = useState(
+    typeof window !== 'undefined' ? window.innerWidth > 768 : true
+  );
+
+  useEffect(() => {
+    const handleResize = () => setIsWide(window.innerWidth > 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   const showTable = viewMode === 'table' || (viewMode === 'auto' && isWide);
 
   // Pull-to-refresh handlers
@@ -140,12 +149,17 @@ export default function Dashboard({ onUnauthorized }: DashboardProps) {
       {pullDistance > 0 && (
         <div style={{
           position: 'absolute',
-          top: -40,
+          top: 8,
           left: '50%',
           transform: 'translateX(-50%)',
           fontSize: 12,
-          color: pullDistance > 60 ? '#10b981' : '#6b7280',
+          color: pullDistance > 60 ? '#10b981' : '#9ca3af',
           fontFamily: "'JetBrains Mono', monospace",
+          background: '#111827',
+          padding: '6px 16px',
+          borderRadius: 20,
+          border: `1px solid ${pullDistance > 60 ? '#10b981' : '#374151'}`,
+          zIndex: 10,
         }}>
           {pullDistance > 60 ? 'Release to refresh' : 'Pull to refresh'}
         </div>
@@ -162,6 +176,7 @@ export default function Dashboard({ onUnauthorized }: DashboardProps) {
               {new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
               {' '}&bull;{' '}
               <span style={{ color: syncAge.color }}>{syncAge.text}</span>
+              {refreshing && <span style={{ color: '#3b82f6', marginLeft: 6 }}>syncing...</span>}
             </div>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
@@ -171,7 +186,7 @@ export default function Dashboard({ onUnauthorized }: DashboardProps) {
                 background: '#1f2937',
                 border: 'none',
                 color: '#9ca3af',
-                padding: '6px 10px',
+                padding: '10px 14px',
                 borderRadius: 6,
                 fontSize: 12,
                 cursor: 'pointer',
@@ -185,7 +200,7 @@ export default function Dashboard({ onUnauthorized }: DashboardProps) {
                 background: '#1f2937',
                 border: 'none',
                 color: '#9ca3af',
-                padding: '6px 10px',
+                padding: '10px 14px',
                 borderRadius: 6,
                 fontSize: 12,
                 cursor: 'pointer',
@@ -212,8 +227,18 @@ export default function Dashboard({ onUnauthorized }: DashboardProps) {
 
       {/* Loading / Error / Empty states */}
       {loading && data.length === 0 && (
-        <div style={{ textAlign: 'center', padding: 40, color: '#6b7280' }}>
-          <div style={{ fontSize: 14, fontFamily: "'JetBrains Mono', monospace" }}>Loading metrics...</div>
+        <div style={{ padding: 16 }}>
+          {[...Array(6)].map((_, i) => (
+            <div key={i} style={{
+              height: 64,
+              background: '#111827',
+              borderRadius: 12,
+              marginBottom: 12,
+              opacity: 1 - i * 0.12,
+              animation: 'pulse 1.5s ease-in-out infinite',
+            }} />
+          ))}
+          <style>{`@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }`}</style>
         </div>
       )}
 

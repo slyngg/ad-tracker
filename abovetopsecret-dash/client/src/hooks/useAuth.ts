@@ -49,10 +49,10 @@ export function useAuth() {
       setIsAuthenticated(true);
       return true;
     } catch {
-      // If server is unreachable but token was provided, still try
-      setError(null);
-      setIsAuthenticated(true);
-      return true;
+      setToken(null);
+      setError('Server unreachable');
+      setIsAuthenticated(false);
+      return false;
     }
   }, []);
 

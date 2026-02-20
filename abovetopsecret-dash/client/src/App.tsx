@@ -1,6 +1,72 @@
-import { useState } from 'react';
+import { useState, Component, ReactNode } from 'react';
 import { useAuth } from './hooks/useAuth';
 import Dashboard from './components/Dashboard';
+
+// Error boundary to catch React rendering errors
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+}
+
+class ErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryState> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{
+          background: '#030712',
+          minHeight: '100vh',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+        }}>
+          <div style={{
+            background: '#111827',
+            borderRadius: 16,
+            padding: 32,
+            width: '100%',
+            maxWidth: 400,
+            margin: '0 16px',
+            border: '1px solid #1f2937',
+            textAlign: 'center',
+          }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: '#ef4444', marginBottom: 8 }}>
+              Something went wrong
+            </div>
+            <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 16 }}>
+              {this.state.error?.message || 'An unexpected error occurred'}
+            </div>
+            <button
+              onClick={() => window.location.reload()}
+              style={{
+                padding: '12px 24px',
+                background: '#3b82f6',
+                border: 'none',
+                borderRadius: 8,
+                color: '#fff',
+                fontSize: 14,
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              Reload
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 function LoginScreen({ onLogin, error }: { onLogin: (token: string) => Promise<boolean>; error: string | null }) {
   const [token, setToken] = useState('');
@@ -110,5 +176,9 @@ export default function App() {
     return <LoginScreen onLogin={login} error={error} />;
   }
 
-  return <Dashboard onUnauthorized={handleUnauthorized} />;
+  return (
+    <ErrorBoundary>
+      <Dashboard onUnauthorized={handleUnauthorized} />
+    </ErrorBoundary>
+  );
 }

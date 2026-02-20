@@ -192,7 +192,7 @@ export default function SettingsPanel({ open, onClose, offers, onSaved }: Settin
 
   const inputStyle: React.CSSProperties = {
     width: '100%',
-    padding: '8px 12px',
+    padding: '12px 16px',
     background: '#030712',
     border: '1px solid #374151',
     borderRadius: 6,
@@ -303,7 +303,7 @@ export default function SettingsPanel({ open, onClose, offers, onSaved }: Settin
             <h2 style={{ fontSize: 18, fontWeight: 700, color: '#f9fafb', margin: 0 }}>Settings</h2>
             <button
               onClick={onClose}
-              style={{ background: 'none', border: 'none', color: '#6b7280', fontSize: 20, cursor: 'pointer' }}
+              style={{ background: 'none', border: 'none', color: '#6b7280', fontSize: 20, cursor: 'pointer', padding: '10px 14px', minHeight: 44, minWidth: 44 }}
             >
               X
             </button>
@@ -317,7 +317,7 @@ export default function SettingsPanel({ open, onClose, offers, onSaved }: Settin
                 onClick={() => setTab(t)}
                 style={{
                   flex: 1,
-                  padding: '6px 12px',
+                  padding: '10px 12px',
                   background: tab === t ? '#1f2937' : 'transparent',
                   border: 'none',
                   borderRadius: 6,
@@ -637,10 +637,11 @@ export default function SettingsPanel({ open, onClose, offers, onSaved }: Settin
                         background: '#1f2937',
                         border: 'none',
                         color: '#ef4444',
-                        padding: '4px 8px',
-                        borderRadius: 4,
+                        padding: '10px 14px',
+                        borderRadius: 6,
                         fontSize: 12,
                         cursor: 'pointer',
+                        minHeight: 44,
                       }}
                     >
                       Delete

@@ -10,6 +10,7 @@ CREATE TABLE fb_ads_today (
   spend DECIMAL(10,2) DEFAULT 0,
   clicks INTEGER DEFAULT 0,
   impressions INTEGER DEFAULT 0,
+  landing_page_views INTEGER DEFAULT 0,
   synced_at TIMESTAMP DEFAULT NOW(),
   UNIQUE(ad_set_id, ad_name)
 );
@@ -38,16 +39,20 @@ CREATE TABLE cc_upsells_today (
   offered BOOLEAN DEFAULT true,
   accepted BOOLEAN DEFAULT false,
   offer_name VARCHAR(255),
-  created_at TIMESTAMP DEFAULT NOW()
+  created_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(order_id, offer_name)
 );
+
+CREATE INDEX idx_cc_orders_utm ON cc_orders_today(utm_campaign);
 
 CREATE TABLE manual_overrides (
   id SERIAL PRIMARY KEY,
-  metric_key VARCHAR(100),
-  offer_name VARCHAR(255) DEFAULT 'ALL',
-  override_value DECIMAL(10,4),
+  metric_key VARCHAR(100) NOT NULL,
+  offer_name VARCHAR(255) NOT NULL DEFAULT 'ALL',
+  override_value DECIMAL(10,4) NOT NULL,
   set_by VARCHAR(255),
-  set_at TIMESTAMP DEFAULT NOW()
+  set_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(metric_key, offer_name)
 );
 
 CREATE TABLE orders_archive (
@@ -76,30 +81,30 @@ CREATE TABLE app_settings (
 -- ============================================================
 
 -- FB Ads: 3 accounts, 5 offers, 20+ rows
-INSERT INTO fb_ads_today (account_name, campaign_name, ad_set_name, ad_set_id, ad_name, spend, clicks, impressions) VALUES
+INSERT INTO fb_ads_today (account_name, campaign_name, ad_set_name, ad_set_id, ad_name, spend, clicks, impressions, landing_page_views) VALUES
 -- AboveTopSecret Main
-('AboveTopSecret Main', 'Collagen - Broad', 'collagen-broad-25-54f', 'as_001', 'collagen_video_1', 1842.50, 487, 34210),
-('AboveTopSecret Main', 'Collagen - Broad', 'collagen-broad-25-54f', 'as_001', 'collagen_static_2', 1356.00, 362, 28100),
-('AboveTopSecret Main', 'Collagen - Lookalike', 'collagen-lal-purchasers', 'as_002', 'collagen_ugc_3', 1625.00, 398, 27110),
-('AboveTopSecret Main', 'Super Greens - Interest', 'greens-health-interest', 'as_003', 'greens_video_1', 1890.30, 512, 38400),
-('AboveTopSecret Main', 'Super Greens - Interest', 'greens-health-interest', 'as_003', 'greens_carousel_1', 1325.50, 380, 28830),
-('AboveTopSecret Main', 'Multivitamin - Cold', 'multi-cold-35-65', 'as_004', 'multi_static_1', 987.40, 268, 20100),
-('AboveTopSecret Main', 'Multivitamin - Cold', 'multi-cold-35-65', 'as_004', 'multi_video_2', 580.00, 144, 11100),
+('AboveTopSecret Main', 'Collagen - Broad', 'collagen-broad-25-54f', 'as_001', 'collagen_video_1', 1842.50, 487, 34210, 341),
+('AboveTopSecret Main', 'Collagen - Broad', 'collagen-broad-25-54f', 'as_001', 'collagen_static_2', 1356.00, 362, 28100, 254),
+('AboveTopSecret Main', 'Collagen - Lookalike', 'collagen-lal-purchasers', 'as_002', 'collagen_ugc_3', 1625.00, 398, 27110, 287),
+('AboveTopSecret Main', 'Super Greens - Interest', 'greens-health-interest', 'as_003', 'greens_video_1', 1890.30, 512, 38400, 364),
+('AboveTopSecret Main', 'Super Greens - Interest', 'greens-health-interest', 'as_003', 'greens_carousel_1', 1325.50, 380, 28830, 269),
+('AboveTopSecret Main', 'Multivitamin - Cold', 'multi-cold-35-65', 'as_004', 'multi_static_1', 987.40, 268, 20100, 185),
+('AboveTopSecret Main', 'Multivitamin - Cold', 'multi-cold-35-65', 'as_004', 'multi_video_2', 580.00, 144, 11100, 101),
 -- AboveTopSecret Scale
-('AboveTopSecret Scale', 'Collagen - Scale', 'collagen-scale-lal', 'as_005', 'collagen_scale_v1', 1250.00, 378, 26500),
-('AboveTopSecret Scale', 'Collagen - Scale', 'collagen-scale-lal', 'as_005', 'collagen_scale_s2', 900.00, 256, 18600),
-('AboveTopSecret Scale', 'Protein - Fitness', 'protein-fitness-25-44m', 'as_006', 'protein_video_1', 1120.25, 312, 23200),
-('AboveTopSecret Scale', 'Protein - Fitness', 'protein-fitness-25-44m', 'as_006', 'protein_ugc_2', 770.00, 211, 15700),
-('AboveTopSecret Scale', 'Keto Burn - Diet', 'keto-diet-interest', 'as_007', 'keto_static_1', 645.00, 189, 13800),
-('AboveTopSecret Scale', 'Keto Burn - Diet', 'keto-diet-interest', 'as_007', 'keto_video_2', 420.00, 128, 9500),
+('AboveTopSecret Scale', 'Collagen - Scale', 'collagen-scale-lal', 'as_005', 'collagen_scale_v1', 1250.00, 378, 26500, 268),
+('AboveTopSecret Scale', 'Collagen - Scale', 'collagen-scale-lal', 'as_005', 'collagen_scale_s2', 900.00, 256, 18600, 179),
+('AboveTopSecret Scale', 'Protein - Fitness', 'protein-fitness-25-44m', 'as_006', 'protein_video_1', 1120.25, 312, 23200, 221),
+('AboveTopSecret Scale', 'Protein - Fitness', 'protein-fitness-25-44m', 'as_006', 'protein_ugc_2', 770.00, 211, 15700, 149),
+('AboveTopSecret Scale', 'Keto Burn - Diet', 'keto-diet-interest', 'as_007', 'keto_static_1', 645.00, 189, 13800, 134),
+('AboveTopSecret Scale', 'Keto Burn - Diet', 'keto-diet-interest', 'as_007', 'keto_video_2', 420.00, 128, 9500, 90),
 -- AboveTopSecret Test
-('AboveTopSecret Test', 'Collagen - Test Creatives', 'collagen-test-broad', 'as_008', 'collagen_test_v1', 520.00, 178, 13200),
-('AboveTopSecret Test', 'Collagen - Test Creatives', 'collagen-test-broad', 'as_008', 'collagen_test_s2', 370.00, 120, 8900),
-('AboveTopSecret Test', 'Super Greens - Test', 'greens-test-lal', 'as_009', 'greens_test_v1', 410.00, 142, 10500),
-('AboveTopSecret Test', 'Super Greens - Test', 'greens-test-lal', 'as_009', 'greens_test_c1', 280.00, 98, 7200),
-('AboveTopSecret Test', 'Protein - Test', 'protein-test-broad', 'as_010', 'protein_test_v1', 350.00, 115, 8400),
-('AboveTopSecret Test', 'Multivitamin - Test', 'multi-test-cold', 'as_011', 'multi_test_v1', 220.00, 72, 5300),
-('AboveTopSecret Test', 'Keto Burn - Test', 'keto-test-diet', 'as_012', 'keto_test_v1', 185.00, 64, 4600);
+('AboveTopSecret Test', 'Collagen - Test Creatives', 'collagen-test-broad', 'as_008', 'collagen_test_v1', 520.00, 178, 13200, 125),
+('AboveTopSecret Test', 'Collagen - Test Creatives', 'collagen-test-broad', 'as_008', 'collagen_test_s2', 370.00, 120, 8900, 86),
+('AboveTopSecret Test', 'Super Greens - Test', 'greens-test-lal', 'as_009', 'greens_test_v1', 410.00, 142, 10500, 99),
+('AboveTopSecret Test', 'Super Greens - Test', 'greens-test-lal', 'as_009', 'greens_test_c1', 280.00, 98, 7200, 71),
+('AboveTopSecret Test', 'Protein - Test', 'protein-test-broad', 'as_010', 'protein_test_v1', 350.00, 115, 8400, 82),
+('AboveTopSecret Test', 'Multivitamin - Test', 'multi-test-cold', 'as_011', 'multi_test_v1', 220.00, 72, 5300, 50),
+('AboveTopSecret Test', 'Keto Burn - Test', 'keto-test-diet', 'as_012', 'keto_test_v1', 185.00, 64, 4600, 45);
 
 -- CC Orders: 60+ rows across the 5 offers, linked via utm_campaign to ad_set_name
 -- subtotal = revenue for seed data (no tax split in seed data)

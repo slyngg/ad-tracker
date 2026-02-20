@@ -47,6 +47,7 @@ Open `http://localhost` (port 80) for the dashboard.
 | `FB_AD_ACCOUNT_IDS` | No | Comma-separated Facebook ad account IDs (e.g., `act_123,act_456`) |
 | `CC_WEBHOOK_SECRET` | No | Checkout Champ webhook signing secret |
 | `SHOPIFY_WEBHOOK_SECRET` | No | Shopify webhook HMAC secret |
+| `ALLOWED_ORIGIN` | No | CORS allowed origins (comma-separated). Defaults to same-origin in production. |
 
 ## API Endpoints
 
@@ -125,3 +126,20 @@ cd client && npm install && npm run dev
 At midnight (server time), the scheduler:
 1. Archives today's FB ads and orders as JSONB into archive tables
 2. Truncates the working tables for the new day
+
+## Security
+
+- **Auth**: Token-based with timing-safe comparison. Stored in memory only (not localStorage).
+- **CORS**: Restricted to `ALLOWED_ORIGIN` in production. Same-origin by default.
+- **Webhooks**: HMAC signature verification with raw body buffer. In production, webhooks are rejected if no secret is configured.
+- **Rate Limiting**: API (120/min), webhooks (300/min), auth (15 attempts/15min).
+- **SQL**: All queries use parameterized statements. No string interpolation.
+- **CSV**: Values sanitized against formula injection.
+
+## Known Limitations
+
+- **Bounce Rate**: Requires Google Analytics integration. Not available in this dashboard.
+- **LP CTR**: Requires the Facebook Ad account to have landing page view tracking enabled. If the field returns null, LP CTR will show 0%.
+- **Multi-offer spend attribution**: If one ad set drives orders for multiple offers, the ad set's spend appears under each offer in the table. Summary cards use independent queries and are always correct.
+- **Timezone**: Daily reset runs at midnight server time, not the advertiser's timezone.
+- **Seed data**: Fresh deployments include test data for development. For production, clear the working tables after initial setup.

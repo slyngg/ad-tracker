@@ -43,7 +43,10 @@ export async function processUpsell(
 ): Promise<void> {
   await pool.query(
     `INSERT INTO cc_upsells_today (order_id, offered, accepted, offer_name)
-     VALUES ($1, $2, $3, $4)`,
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (order_id, offer_name) DO UPDATE SET
+       offered = EXCLUDED.offered,
+       accepted = EXCLUDED.accepted`,
     [orderId, offered, accepted, offerName]
   );
 }

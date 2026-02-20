@@ -12,8 +12,24 @@ COPY --from=builder /app/public/sw.js /usr/share/nginx/html/sw.js
 COPY --from=builder /app/public/icon-192.png /usr/share/nginx/html/icon-192.png
 COPY --from=builder /app/public/icon-512.png /usr/share/nginx/html/icon-512.png
 
-# SPA fallback
-RUN echo 'server { listen 80; root /usr/share/nginx/html; index index.html; location / { try_files $uri $uri/ /index.html; } }' > /etc/nginx/conf.d/default.conf
+# Nginx config: API reverse proxy + SPA fallback
+RUN printf 'server {\n\
+  listen 80;\n\
+  root /usr/share/nginx/html;\n\
+  index index.html;\n\
+\n\
+  location /api/ {\n\
+    proxy_pass http://server:4000;\n\
+    proxy_set_header Host $host;\n\
+    proxy_set_header X-Real-IP $remote_addr;\n\
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n\
+    proxy_set_header X-Forwarded-Proto $scheme;\n\
+  }\n\
+\n\
+  location / {\n\
+    try_files $uri $uri/ /index.html;\n\
+  }\n\
+}\n' > /etc/nginx/conf.d/default.conf
 
 EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]
