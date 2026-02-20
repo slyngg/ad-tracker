@@ -175,10 +175,10 @@ export class RealtimeService {
           (SELECT COUNT(DISTINCT order_id) FROM cc_orders_today WHERE order_status = 'completed' ${ufAnd}) AS total_conversions
       `, params),
       this.pool.query(`
-        SELECT order_id, offer_name, COALESCE(subtotal, revenue) AS revenue, order_status, created_at
+        SELECT order_id, offer_name, COALESCE(subtotal, revenue) AS revenue, order_status, conversion_time
         FROM cc_orders_today
         WHERE 1=1 ${ufAnd}
-        ORDER BY created_at DESC
+        ORDER BY conversion_time DESC
         LIMIT 20
       `, params),
     ]);
@@ -199,7 +199,7 @@ export class RealtimeService {
         offerName: r.offer_name,
         revenue: parseFloat(r.revenue) || 0,
         status: r.order_status,
-        createdAt: r.created_at,
+        createdAt: r.conversion_time,
       })),
     };
   }

@@ -447,22 +447,33 @@ export function initSlackBot(): void {
         pinnedDashboards.delete(channelId);
 
         const blocks = await buildDashboardBlocks(userId);
-        const postResult = await client.chat.postMessage({
-          channel: channelId,
-          blocks,
-          text: 'OpticData Live Dashboard',
-        });
+        let postResult;
+        try {
+          // Try joining the channel first (works for public channels)
+          try { await client.conversations.join({ channel: channelId }); } catch { /* already in or private */ }
+          postResult = await client.chat.postMessage({
+            channel: channelId,
+            blocks,
+            text: 'OpticData Live Dashboard',
+          });
+        } catch (postErr: any) {
+          if (postErr?.data?.error === 'channel_not_found' || postErr?.data?.error === 'not_in_channel') {
+            await respond({ text: ':warning: Bot cannot post in this channel. Please invite the bot first: type `/invite @OpticData` in the channel, or add `chat:write.public` scope to the Slack app.', response_type: 'ephemeral' });
+            return;
+          }
+          throw postErr;
+        }
 
         if (postResult.ok && postResult.ts) {
           // Pin it
           try {
             await client.pins.add({ channel: channelId, timestamp: postResult.ts });
           } catch {
-            // May fail if already pinned or no permission
+            // May fail if already pinned or no permission — dashboard still works without pin
           }
 
           pinnedDashboards.set(channelId, { ts: postResult.ts, userId });
-          await respond({ text: ':white_check_mark: Live dashboard pinned! It will auto-update when new data arrives. Use `/optic unpin` to stop.', response_type: 'ephemeral' });
+          await respond({ text: ':white_check_mark: Live dashboard posted! It will auto-update when new data arrives. Use `/optic unpin` to stop.', response_type: 'ephemeral' });
         }
 
       } else if (subCommand === 'unpin') {
