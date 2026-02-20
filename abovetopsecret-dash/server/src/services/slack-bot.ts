@@ -12,181 +12,82 @@ const TOTAL_PAGES = PAGE_NAMES.length;
 
 // Debounce: per-channel last update timestamp + pending timeout
 const updateDebounce: Map<string, NodeJS.Timeout> = new Map();
-const DEBOUNCE_MS = 3000; // 3s debounce so rapid webhooks don't spam Slack API
+const DEBOUNCE_MS = 3000;
 
-// ----- Data Fetchers -----
+// ----- Data Types -----
 
 interface FullMetrics {
-  spend: number;
-  revenue: number;
-  roas: number;
-  cpa: number;
-  conversions: number;
-  clicks: number;
-  impressions: number;
-  lpViews: number;
-  newCustomers: number;
-  cpc: number;
-  cpm: number;
-  cvr: number;
-  hookRate: number;
-  holdRate: number;
-  cac: number;
+  spend: number; revenue: number; roas: number; cpa: number;
+  conversions: number; clicks: number; impressions: number;
+  lpViews: number; newCustomers: number;
+  cpc: number; cpm: number; cvr: number;
+  hookRate: number; ctr: number; cac: number;
 }
 
-interface BreakdownRow {
+interface DetailRow {
   label: string;
-  spend: number;
-  revenue: number;
-  roas: number;
-  cpa: number;
-  conversions: number;
-  clicks: number;
-  impressions: number;
-  cpc: number;
-  cpm: number;
-  cvr: number;
+  // Core
+  spend: number; revenue: number; roas: number;
+  conversions: number; clicks: number; impressions: number;
+  // Derived
+  cpa: number; cpc: number; cpm: number; cvr: number; ctr: number;
+  // Extended (available on some pages)
+  lpViews: number; hookRate: number;
+  newCustomers: number; aov: number;
+  adSets: number; ads: number; campaigns: number;
+  profit: number;
 }
 
-function computeDerived(spend: number, revenue: number, conversions: number, clicks: number, impressions: number, lpViews: number, newCustomers: number): FullMetrics {
+// ----- Helpers -----
+
+function derive(r: { spend: number; revenue: number; conversions: number; clicks: number; impressions: number; lpViews: number; newCustomers: number }): Pick<DetailRow, 'roas' | 'cpa' | 'cpc' | 'cpm' | 'cvr' | 'ctr' | 'hookRate' | 'aov' | 'profit'> {
   return {
-    spend, revenue, conversions, clicks, impressions, lpViews, newCustomers,
-    roas: spend > 0 ? revenue / spend : 0,
-    cpa: conversions > 0 ? spend / conversions : 0,
-    cpc: clicks > 0 ? spend / clicks : 0,
-    cpm: impressions > 0 ? (spend / impressions) * 1000 : 0,
-    cvr: clicks > 0 ? (conversions / clicks) * 100 : 0,
-    hookRate: impressions > 0 ? (lpViews / impressions) * 100 : 0,
-    holdRate: 0,
-    cac: newCustomers > 0 ? spend / newCustomers : 0,
+    roas: r.spend > 0 ? r.revenue / r.spend : 0,
+    cpa: r.conversions > 0 ? r.spend / r.conversions : 0,
+    cpc: r.clicks > 0 ? r.spend / r.clicks : 0,
+    cpm: r.impressions > 0 ? (r.spend / r.impressions) * 1000 : 0,
+    cvr: r.clicks > 0 ? (r.conversions / r.clicks) * 100 : 0,
+    ctr: r.impressions > 0 ? (r.clicks / r.impressions) * 100 : 0,
+    hookRate: r.impressions > 0 ? (r.lpViews / r.impressions) * 100 : 0,
+    aov: r.conversions > 0 ? r.revenue / r.conversions : 0,
+    profit: r.revenue - r.spend,
   };
 }
 
-function rowFromQuery(r: any): BreakdownRow {
-  const spend = parseFloat(r.spend) || 0;
-  const revenue = parseFloat(r.revenue) || 0;
-  const conversions = parseInt(r.conversions) || 0;
-  const clicks = parseInt(r.clicks) || 0;
-  const impressions = parseInt(r.impressions) || 0;
-  return {
-    label: r.label || 'Unknown',
-    spend, revenue, clicks, impressions, conversions,
-    roas: spend > 0 ? revenue / spend : 0,
-    cpa: conversions > 0 ? spend / conversions : 0,
-    cpc: clicks > 0 ? spend / clicks : 0,
-    cpm: impressions > 0 ? (spend / impressions) * 1000 : 0,
-    cvr: clicks > 0 ? (conversions / clicks) * 100 : 0,
-  };
-}
+// ----- Data Fetchers -----
 
 async function fetchFullMetrics(userId: number | null): Promise<FullMetrics> {
   const uf = userId ? 'WHERE user_id = $1' : '';
   const ufAnd = userId ? 'AND user_id = $1' : '';
   const params = userId ? [userId] : [];
 
-  const [adsResult, ordersResult] = await Promise.all([
-    pool.query(`
-      SELECT COALESCE(SUM(spend), 0) AS spend,
-             COALESCE(SUM(clicks), 0) AS clicks,
-             COALESCE(SUM(impressions), 0) AS impressions,
-             COALESCE(SUM(landing_page_views), 0) AS lp_views
-      FROM fb_ads_today ${uf}
-    `, params),
-    pool.query(`
-      SELECT COALESCE(SUM(COALESCE(subtotal, revenue)), 0) AS revenue,
-             COUNT(DISTINCT order_id) AS conversions,
-             COUNT(DISTINCT CASE WHEN new_customer THEN order_id END) AS new_customers
-      FROM cc_orders_today WHERE order_status = 'completed' ${ufAnd}
-    `, params),
+  const [ads, orders] = await Promise.all([
+    pool.query(`SELECT COALESCE(SUM(spend),0) AS spend, COALESCE(SUM(clicks),0) AS clicks,
+      COALESCE(SUM(impressions),0) AS impressions, COALESCE(SUM(landing_page_views),0) AS lp_views
+      FROM fb_ads_today ${uf}`, params),
+    pool.query(`SELECT COALESCE(SUM(COALESCE(subtotal,revenue)),0) AS revenue,
+      COUNT(DISTINCT order_id) AS conversions,
+      COUNT(DISTINCT CASE WHEN new_customer THEN order_id END) AS new_customers
+      FROM cc_orders_today WHERE order_status='completed' ${ufAnd}`, params),
   ]);
 
-  const a = adsResult.rows[0];
-  const o = ordersResult.rows[0];
-  return computeDerived(
-    parseFloat(a.spend) || 0,
-    parseFloat(o.revenue) || 0,
-    parseInt(o.conversions) || 0,
-    parseInt(a.clicks) || 0,
-    parseInt(a.impressions) || 0,
-    parseInt(a.lp_views) || 0,
-    parseInt(o.new_customers) || 0,
-  );
+  const a = ads.rows[0]; const o = orders.rows[0];
+  const spend = parseFloat(a.spend) || 0;
+  const revenue = parseFloat(o.revenue) || 0;
+  const conversions = parseInt(o.conversions) || 0;
+  const clicks = parseInt(a.clicks) || 0;
+  const impressions = parseInt(a.impressions) || 0;
+  const lpViews = parseInt(a.lp_views) || 0;
+  const newCustomers = parseInt(o.new_customers) || 0;
+  const d = derive({ spend, revenue, conversions, clicks, impressions, lpViews, newCustomers });
+  return {
+    spend, revenue, conversions, clicks, impressions, lpViews, newCustomers,
+    roas: d.roas, cpa: d.cpa, cpc: d.cpc, cpm: d.cpm, cvr: d.cvr,
+    ctr: d.ctr, hookRate: d.hookRate, cac: newCustomers > 0 ? spend / newCustomers : 0,
+  };
 }
 
-async function fetchAccountBreakdown(userId: number | null): Promise<BreakdownRow[]> {
-  const uf = userId ? 'WHERE user_id = $1' : '';
-  const ufAnd = userId ? 'AND user_id = $1' : '';
-  const params = userId ? [userId] : [];
-
-  // Ad metrics per account; revenue attributed proportionally by spend share
-  const result = await pool.query(`
-    WITH fb AS (
-      SELECT account_name,
-             SUM(spend) AS spend, SUM(clicks) AS clicks, SUM(impressions) AS impressions
-      FROM fb_ads_today ${uf}
-      GROUP BY account_name
-    ),
-    totals AS (
-      SELECT COALESCE(SUM(spend), 0) AS total_spend FROM fb_ads_today ${uf}
-    ),
-    rev AS (
-      SELECT COALESCE(SUM(COALESCE(subtotal, revenue)), 0) AS total_revenue,
-             COUNT(DISTINCT order_id) AS total_conversions
-      FROM cc_orders_today WHERE order_status = 'completed' ${ufAnd}
-    )
-    SELECT fb.account_name AS label,
-           fb.spend,
-           fb.clicks,
-           fb.impressions,
-           CASE WHEN totals.total_spend > 0
-             THEN fb.spend / totals.total_spend * rev.total_revenue
-             ELSE 0 END AS revenue,
-           CASE WHEN totals.total_spend > 0
-             THEN ROUND(fb.spend / totals.total_spend * rev.total_conversions)
-             ELSE 0 END AS conversions
-    FROM fb, totals, rev
-    ORDER BY fb.spend DESC
-    LIMIT 10
-  `, params);
-
-  return result.rows.map(rowFromQuery);
-}
-
-async function fetchOfferBreakdown(userId: number | null): Promise<BreakdownRow[]> {
-  const ufAnd = userId ? 'AND user_id = $1' : '';
-  const uf = userId ? 'WHERE user_id = $1' : '';
-  const params = userId ? [userId] : [];
-
-  const result = await pool.query(`
-    WITH cc AS (
-      SELECT offer_name,
-             COALESCE(SUM(COALESCE(subtotal, revenue)), 0) AS revenue,
-             COUNT(DISTINCT order_id) AS conversions
-      FROM cc_orders_today WHERE order_status = 'completed' ${ufAnd}
-      GROUP BY offer_name
-    ),
-    fb AS (
-      SELECT ad_set_name AS campaign,
-             SUM(spend) AS spend, SUM(clicks) AS clicks, SUM(impressions) AS impressions
-      FROM fb_ads_today ${uf}
-      GROUP BY ad_set_name
-    )
-    SELECT cc.offer_name AS label,
-           COALESCE(fb.spend, 0) AS spend,
-           cc.revenue,
-           COALESCE(fb.clicks, 0) AS clicks,
-           COALESCE(fb.impressions, 0) AS impressions,
-           cc.conversions
-    FROM cc
-    LEFT JOIN fb ON fb.campaign = cc.offer_name
-    ORDER BY cc.revenue DESC
-    LIMIT 10
-  `, params);
-
-  return result.rows.map(rowFromQuery);
-}
-
-async function fetchCampaignBreakdown(userId: number | null): Promise<BreakdownRow[]> {
+async function fetchCampaignDetail(userId: number | null): Promise<DetailRow[]> {
   const uf = userId ? 'WHERE user_id = $1' : '';
   const ufAnd = userId ? 'AND user_id = $1' : '';
   const params = userId ? [userId] : [];
@@ -194,42 +95,176 @@ async function fetchCampaignBreakdown(userId: number | null): Promise<BreakdownR
   const result = await pool.query(`
     WITH fb AS (
       SELECT campaign_name,
-             SUM(spend) AS spend, SUM(clicks) AS clicks, SUM(impressions) AS impressions
+             SUM(spend) AS spend, SUM(clicks) AS clicks,
+             SUM(impressions) AS impressions, SUM(landing_page_views) AS lp_views,
+             COUNT(DISTINCT ad_set_name) AS ad_sets, COUNT(DISTINCT ad_name) AS ads
       FROM fb_ads_today ${uf}
       GROUP BY campaign_name
     ),
     cc AS (
       SELECT utm_campaign,
-             COALESCE(SUM(COALESCE(subtotal, revenue)), 0) AS revenue,
-             COUNT(DISTINCT order_id) AS conversions
-      FROM cc_orders_today WHERE order_status = 'completed' ${ufAnd}
+             COALESCE(SUM(COALESCE(subtotal,revenue)),0) AS revenue,
+             COUNT(DISTINCT order_id) AS conversions,
+             COUNT(DISTINCT CASE WHEN new_customer THEN order_id END) AS new_customers
+      FROM cc_orders_today WHERE order_status='completed' ${ufAnd}
       GROUP BY utm_campaign
     )
     SELECT fb.campaign_name AS label,
-           COALESCE(fb.spend, 0) AS spend,
-           COALESCE(cc.revenue, 0) AS revenue,
-           COALESCE(fb.clicks, 0) AS clicks,
-           COALESCE(fb.impressions, 0) AS impressions,
-           COALESCE(cc.conversions, 0) AS conversions
-    FROM fb
-    LEFT JOIN cc ON fb.campaign_name = cc.utm_campaign
-    ORDER BY fb.spend DESC
-    LIMIT 10
+           COALESCE(fb.spend,0)::float AS spend,
+           COALESCE(cc.revenue,0)::float AS revenue,
+           COALESCE(fb.clicks,0)::int AS clicks,
+           COALESCE(fb.impressions,0)::int AS impressions,
+           COALESCE(fb.lp_views,0)::int AS lp_views,
+           COALESCE(cc.conversions,0)::int AS conversions,
+           COALESCE(cc.new_customers,0)::int AS new_customers,
+           COALESCE(fb.ad_sets,0)::int AS ad_sets,
+           COALESCE(fb.ads,0)::int AS ads
+    FROM fb LEFT JOIN cc ON fb.campaign_name = cc.utm_campaign
+    ORDER BY fb.spend DESC LIMIT 8
   `, params);
 
-  return result.rows.map(rowFromQuery);
+  return result.rows.map((r: any) => {
+    const spend = parseFloat(r.spend) || 0;
+    const revenue = parseFloat(r.revenue) || 0;
+    const conversions = parseInt(r.conversions) || 0;
+    const clicks = parseInt(r.clicks) || 0;
+    const impressions = parseInt(r.impressions) || 0;
+    const lpViews = parseInt(r.lp_views) || 0;
+    const newCustomers = parseInt(r.new_customers) || 0;
+    const d = derive({ spend, revenue, conversions, clicks, impressions, lpViews, newCustomers });
+    return {
+      label: r.label || 'Unknown', spend, revenue, conversions, clicks, impressions,
+      lpViews, newCustomers,
+      adSets: parseInt(r.ad_sets) || 0, ads: parseInt(r.ads) || 0, campaigns: 0,
+      ...d,
+    };
+  });
 }
+
+async function fetchOfferDetail(userId: number | null): Promise<DetailRow[]> {
+  const ufAnd = userId ? 'AND user_id = $1' : '';
+  const uf = userId ? 'WHERE user_id = $1' : '';
+  const params = userId ? [userId] : [];
+
+  const result = await pool.query(`
+    WITH cc AS (
+      SELECT offer_name,
+             COALESCE(SUM(COALESCE(subtotal,revenue)),0) AS revenue,
+             COUNT(DISTINCT order_id) AS conversions,
+             COUNT(DISTINCT CASE WHEN new_customer THEN order_id END) AS new_customers,
+             COALESCE(AVG(quantity),1) AS avg_qty,
+             COUNT(DISTINCT utm_source) AS sources
+      FROM cc_orders_today WHERE order_status='completed' ${ufAnd}
+      GROUP BY offer_name
+    ),
+    fb AS (
+      SELECT ad_set_name,
+             SUM(spend) AS spend, SUM(clicks) AS clicks,
+             SUM(impressions) AS impressions, SUM(landing_page_views) AS lp_views
+      FROM fb_ads_today ${uf}
+      GROUP BY ad_set_name
+    )
+    SELECT cc.offer_name AS label,
+           COALESCE(fb.spend,0)::float AS spend,
+           cc.revenue::float,
+           COALESCE(fb.clicks,0)::int AS clicks,
+           COALESCE(fb.impressions,0)::int AS impressions,
+           COALESCE(fb.lp_views,0)::int AS lp_views,
+           cc.conversions::int,
+           cc.new_customers::int,
+           ROUND(cc.avg_qty::numeric,1) AS avg_qty,
+           cc.sources::int
+    FROM cc LEFT JOIN fb ON fb.ad_set_name = cc.offer_name
+    ORDER BY cc.revenue DESC LIMIT 8
+  `, params);
+
+  return result.rows.map((r: any) => {
+    const spend = parseFloat(r.spend) || 0;
+    const revenue = parseFloat(r.revenue) || 0;
+    const conversions = parseInt(r.conversions) || 0;
+    const clicks = parseInt(r.clicks) || 0;
+    const impressions = parseInt(r.impressions) || 0;
+    const lpViews = parseInt(r.lp_views) || 0;
+    const newCustomers = parseInt(r.new_customers) || 0;
+    const d = derive({ spend, revenue, conversions, clicks, impressions, lpViews, newCustomers });
+    return {
+      label: r.label || 'Unknown', spend, revenue, conversions, clicks, impressions,
+      lpViews, newCustomers,
+      adSets: 0, ads: 0, campaigns: 0,
+      ...d,
+    };
+  });
+}
+
+async function fetchAccountDetail(userId: number | null): Promise<DetailRow[]> {
+  const uf = userId ? 'WHERE user_id = $1' : '';
+  const ufAnd = userId ? 'AND user_id = $1' : '';
+  const params = userId ? [userId] : [];
+
+  const result = await pool.query(`
+    WITH fb AS (
+      SELECT account_name,
+             SUM(spend) AS spend, SUM(clicks) AS clicks,
+             SUM(impressions) AS impressions, SUM(landing_page_views) AS lp_views,
+             COUNT(DISTINCT campaign_name) AS campaigns,
+             COUNT(DISTINCT ad_set_name) AS ad_sets, COUNT(DISTINCT ad_name) AS ads
+      FROM fb_ads_today ${uf}
+      GROUP BY account_name
+    ),
+    totals AS (
+      SELECT COALESCE(SUM(spend),0) AS total_spend FROM fb_ads_today ${uf}
+    ),
+    rev AS (
+      SELECT COALESCE(SUM(COALESCE(subtotal,revenue)),0) AS total_revenue,
+             COUNT(DISTINCT order_id) AS total_conversions,
+             COUNT(DISTINCT CASE WHEN new_customer THEN order_id END) AS total_new
+      FROM cc_orders_today WHERE order_status='completed' ${ufAnd}
+    )
+    SELECT fb.account_name AS label,
+           fb.spend::float, fb.clicks::int, fb.impressions::int, fb.lp_views::int,
+           fb.campaigns::int, fb.ad_sets::int, fb.ads::int,
+           CASE WHEN totals.total_spend > 0
+             THEN (fb.spend / totals.total_spend * rev.total_revenue) ELSE 0 END::float AS revenue,
+           CASE WHEN totals.total_spend > 0
+             THEN ROUND(fb.spend / totals.total_spend * rev.total_conversions) ELSE 0 END::int AS conversions,
+           CASE WHEN totals.total_spend > 0
+             THEN ROUND(fb.spend / totals.total_spend * rev.total_new) ELSE 0 END::int AS new_customers
+    FROM fb, totals, rev
+    ORDER BY fb.spend DESC LIMIT 8
+  `, params);
+
+  return result.rows.map((r: any) => {
+    const spend = parseFloat(r.spend) || 0;
+    const revenue = parseFloat(r.revenue) || 0;
+    const conversions = parseInt(r.conversions) || 0;
+    const clicks = parseInt(r.clicks) || 0;
+    const impressions = parseInt(r.impressions) || 0;
+    const lpViews = parseInt(r.lp_views) || 0;
+    const newCustomers = parseInt(r.new_customers) || 0;
+    const d = derive({ spend, revenue, conversions, clicks, impressions, lpViews, newCustomers });
+    return {
+      label: r.label || 'Unknown', spend, revenue, conversions, clicks, impressions,
+      lpViews, newCustomers,
+      campaigns: parseInt(r.campaigns) || 0,
+      adSets: parseInt(r.ad_sets) || 0,
+      ads: parseInt(r.ads) || 0,
+      ...d,
+    };
+  });
+}
+
+// Lightweight fetchers for overview (reuse the detail ones)
+const fetchAccountBreakdown = fetchAccountDetail;
+const fetchOfferBreakdown = fetchOfferDetail;
 
 // ----- Formatters -----
 
 function $(n: number): string {
-  if (n >= 10000) return `$${(n / 1000).toFixed(1)}K`;
+  if (Math.abs(n) >= 10000) return `$${(n / 1000).toFixed(1)}K`;
   return `$${n.toFixed(2)}`;
 }
-
-function pct(n: number): string {
-  return `${n.toFixed(1)}%`;
-}
+function pct(n: number): string { return `${n.toFixed(1)}%`; }
+function num(n: number): string { return n.toLocaleString(); }
 
 function roasEmoji(roas: number): string {
   if (roas >= 3) return ':rocket:';
@@ -238,124 +273,6 @@ function roasEmoji(roas: number): string {
   return ':red_circle:';
 }
 
-// Resolve Slack user to OpticData userId
-async function resolveSlackUser(_slackUserId: string): Promise<number | null> {
-  try {
-    const result = await pool.query('SELECT id FROM users ORDER BY id LIMIT 1');
-    return result.rows[0]?.id || null;
-  } catch {
-    return null;
-  }
-}
-
-// ----- Dashboard Link -----
-
-const dashboardUrl = process.env.DASHBOARD_URL || 'https://optic-data.com';
-
-function dashboardLinkBlock(): any {
-  return {
-    type: 'context',
-    elements: [
-      { type: 'mrkdwn', text: `<${dashboardUrl}|View full dashboard>` },
-    ],
-  };
-}
-
-// ----- Block Kit Builders -----
-
-function buildBreakdownTable(title: string, rows: BreakdownRow[]): any[] {
-  if (rows.length === 0) {
-    return [
-      { type: 'section', text: { type: 'mrkdwn', text: `*${title}*` } },
-      { type: 'section', text: { type: 'mrkdwn', text: '_No data yet today._' } },
-    ];
-  }
-
-  const header = `*${title}*`;
-  let table = '```\n';
-  table += 'Name             Spend     Rev       ROAS   CPA     CPC    CPM     CVR\n';
-  table += '───────────────  ────────  ────────  ─────  ──────  ─────  ──────  ────\n';
-
-  for (const r of rows) {
-    const name = (r.label || '').substring(0, 15).padEnd(15);
-    const spend = $(r.spend).padStart(8);
-    const rev = $(r.revenue).padStart(8);
-    const roas = `${r.roas.toFixed(2)}x`.padStart(5);
-    const cpa = $(r.cpa).padStart(6);
-    const cpc = $(r.cpc).padStart(5);
-    const cpm = $(r.cpm).padStart(6);
-    const cvr = pct(r.cvr).padStart(4);
-    table += `${name}  ${spend}  ${rev}  ${roas}  ${cpa}  ${cpc}  ${cpm}  ${cvr}\n`;
-  }
-  table += '```';
-
-  return [
-    { type: 'section', text: { type: 'mrkdwn', text: header } },
-    { type: 'section', text: { type: 'mrkdwn', text: table } },
-  ];
-}
-
-function buildNavButtons(currentPage: number): any {
-  const dots = PAGE_NAMES.map((name, i) =>
-    i === currentPage ? `*${name}*` : name
-  ).join('  ');
-
-  const elements: any[] = [];
-
-  if (currentPage > 0) {
-    elements.push({
-      type: 'button',
-      text: { type: 'plain_text', text: ':arrow_left: Prev', emoji: true },
-      action_id: 'dash_prev',
-      value: String(currentPage - 1),
-    });
-  }
-
-  elements.push({
-    type: 'button',
-    text: { type: 'plain_text', text: `${currentPage + 1}/${TOTAL_PAGES}`, emoji: true },
-    action_id: 'dash_page_info',
-    value: String(currentPage),
-  });
-
-  if (currentPage < TOTAL_PAGES - 1) {
-    elements.push({
-      type: 'button',
-      text: { type: 'plain_text', text: 'Next :arrow_right:', emoji: true },
-      action_id: 'dash_next',
-      value: String(currentPage + 1),
-    });
-  }
-
-  return [
-    { type: 'context', elements: [{ type: 'mrkdwn', text: dots }] },
-    { type: 'actions', elements },
-  ];
-}
-
-// Build header that appears on every page
-function buildHeaderBlocks(m: FullMetrics): any[] {
-  const profitLoss = m.revenue - m.spend;
-  const plSign = profitLoss >= 0 ? '+' : '';
-  const plEmoji = profitLoss >= 0 ? ':chart_with_upwards_trend:' : ':chart_with_downwards_trend:';
-  const now = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: 'America/New_York' });
-
-  return [
-    {
-      type: 'header',
-      text: { type: 'plain_text', text: 'OpticData Live Dashboard' },
-    },
-    {
-      type: 'context',
-      elements: [
-        { type: 'mrkdwn', text: `:clock1: Updated ${now} ET  |  ${roasEmoji(m.roas)} ROAS ${m.roas.toFixed(2)}x  |  ${plEmoji} P/L ${plSign}${$(profitLoss)}` },
-      ],
-    },
-    { type: 'divider' },
-  ];
-}
-
-// Status emoji based on ROAS threshold
 function statusEmoji(roas: number): string {
   if (roas >= 2.5) return ':large_green_circle:';
   if (roas >= 1.5) return ':large_yellow_circle:';
@@ -364,7 +281,70 @@ function statusEmoji(roas: number): string {
   return ':white_circle:';
 }
 
-// Page 0: Command Center — per-account + per-offer at a glance
+function plStr(n: number): string {
+  return `${n >= 0 ? '+' : ''}${$(n)}`;
+}
+
+async function resolveSlackUser(_slackUserId: string): Promise<number | null> {
+  try {
+    const result = await pool.query('SELECT id FROM users ORDER BY id LIMIT 1');
+    return result.rows[0]?.id || null;
+  } catch { return null; }
+}
+
+const dashboardUrl = process.env.DASHBOARD_URL || 'https://optic-data.com';
+function dashboardLinkBlock(): any {
+  return { type: 'context', elements: [{ type: 'mrkdwn', text: `<${dashboardUrl}|View full dashboard>` }] };
+}
+
+// ----- Block Kit Builders -----
+
+function buildNavButtons(currentPage: number): any[] {
+  const dots = PAGE_NAMES.map((name, i) =>
+    i === currentPage ? `*${name}*` : name
+  ).join('  ');
+
+  const elements: any[] = [];
+  if (currentPage > 0) {
+    elements.push({
+      type: 'button',
+      text: { type: 'plain_text', text: ':arrow_left: Prev', emoji: true },
+      action_id: 'dash_prev', value: String(currentPage - 1),
+    });
+  }
+  elements.push({
+    type: 'button',
+    text: { type: 'plain_text', text: `${currentPage + 1}/${TOTAL_PAGES}`, emoji: true },
+    action_id: 'dash_page_info', value: String(currentPage),
+  });
+  if (currentPage < TOTAL_PAGES - 1) {
+    elements.push({
+      type: 'button',
+      text: { type: 'plain_text', text: 'Next :arrow_right:', emoji: true },
+      action_id: 'dash_next', value: String(currentPage + 1),
+    });
+  }
+  return [
+    { type: 'context', elements: [{ type: 'mrkdwn', text: dots }] },
+    { type: 'actions', elements },
+  ];
+}
+
+function buildHeaderBlocks(m: FullMetrics): any[] {
+  const now = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: 'America/New_York' });
+  const profit = m.revenue - m.spend;
+  return [
+    { type: 'header', text: { type: 'plain_text', text: 'OpticData Live Dashboard' } },
+    { type: 'context', elements: [{
+      type: 'mrkdwn',
+      text: `:clock1: Updated ${now} ET  |  ${roasEmoji(m.roas)} ROAS ${m.roas.toFixed(2)}x  |  P/L ${plStr(profit)}  |  ${num(m.conversions)} orders`,
+    }] },
+    { type: 'divider' },
+  ];
+}
+
+// ----- Page 0: Command Center -----
+
 async function buildOverviewPage(userId: number | null, m: FullMetrics): Promise<any[]> {
   const [accounts, offers] = await Promise.all([
     fetchAccountBreakdown(userId),
@@ -372,130 +352,284 @@ async function buildOverviewPage(userId: number | null, m: FullMetrics): Promise
   ]);
 
   const blocks: any[] = [];
-
-  // ── P&L summary bar ──
   const profit = m.revenue - m.spend;
   const margin = m.revenue > 0 ? (profit / m.revenue) * 100 : 0;
+
   blocks.push({
     type: 'section',
-    text: {
-      type: 'mrkdwn',
-      text: `:bank: *P&L*:  ${$(m.revenue)} rev  −  ${$(m.spend)} spend  =  *${profit >= 0 ? '+' : ''}${$(profit)}*  (${pct(margin)} margin)`,
-    },
+    text: { type: 'mrkdwn',
+      text: `:bank: *P&L*:  ${$(m.revenue)} rev  −  ${$(m.spend)} spend  =  *${plStr(profit)}*  (${pct(margin)} margin)` },
   });
 
-  // ── Per-Account breakdown ──
+  // Per-Account
   blocks.push({ type: 'divider' });
   if (accounts.length === 0) {
-    blocks.push({
-      type: 'section',
-      text: { type: 'mrkdwn', text: ':office: *Ad Accounts*\n_No ad data yet today._' },
-    });
+    blocks.push({ type: 'section', text: { type: 'mrkdwn', text: ':office: *Ad Accounts*\n_No ad data yet today._' } });
   } else {
-    blocks.push({
-      type: 'section',
-      text: { type: 'mrkdwn', text: ':office: *Ad Accounts*' },
-    });
-    for (const acct of accounts.slice(0, 5)) {
-      const acctProfit = acct.revenue - acct.spend;
-      blocks.push({
-        type: 'section',
-        text: {
-          type: 'mrkdwn',
-          text: `${statusEmoji(acct.roas)} *${(acct.label || 'Unknown').substring(0, 25)}*\n`
-            + `Spend ${$(acct.spend)}  |  Rev ${$(acct.revenue)}  |  ROAS ${acct.roas.toFixed(2)}x  |  CPA ${$(acct.cpa)}  |  P/L ${acctProfit >= 0 ? '+' : ''}${$(acctProfit)}`,
-        },
-      });
+    blocks.push({ type: 'section', text: { type: 'mrkdwn', text: ':office: *Ad Accounts*' } });
+    for (const a of accounts.slice(0, 5)) {
+      blocks.push({ type: 'section', text: { type: 'mrkdwn',
+        text: `${statusEmoji(a.roas)} *${a.label.substring(0, 30)}*\n`
+          + `Spend ${$(a.spend)}  |  Rev ${$(a.revenue)}  |  ROAS ${a.roas.toFixed(2)}x  |  CPA ${$(a.cpa)}  |  P/L ${plStr(a.profit)}` } });
     }
   }
 
-  // ── Per-Offer breakdown ──
+  // Per-Offer
   blocks.push({ type: 'divider' });
   if (offers.length === 0) {
-    blocks.push({
-      type: 'section',
-      text: { type: 'mrkdwn', text: ':shopping_bags: *Offers*\n_No order data yet today._' },
-    });
+    blocks.push({ type: 'section', text: { type: 'mrkdwn', text: ':shopping_bags: *Offers*\n_No order data yet today._' } });
   } else {
-    blocks.push({
-      type: 'section',
-      text: { type: 'mrkdwn', text: ':shopping_bags: *Offers*' },
-    });
-    for (const offer of offers.slice(0, 5)) {
-      const offerProfit = offer.revenue - offer.spend;
-      blocks.push({
-        type: 'section',
-        text: {
-          type: 'mrkdwn',
-          text: `${statusEmoji(offer.roas)} *${(offer.label || 'Unknown').substring(0, 25)}*\n`
-            + `${$(offer.revenue)} rev  |  ${offer.conversions} orders  |  ROAS ${offer.roas.toFixed(2)}x  |  CPA ${$(offer.cpa)}  |  P/L ${offerProfit >= 0 ? '+' : ''}${$(offerProfit)}`,
-        },
-      });
+    blocks.push({ type: 'section', text: { type: 'mrkdwn', text: ':shopping_bags: *Offers*' } });
+    for (const o of offers.slice(0, 5)) {
+      blocks.push({ type: 'section', text: { type: 'mrkdwn',
+        text: `${statusEmoji(o.roas)} *${o.label.substring(0, 30)}*\n`
+          + `${$(o.revenue)} rev  |  ${o.conversions} orders  |  ROAS ${o.roas.toFixed(2)}x  |  CPA ${$(o.cpa)}  |  P/L ${plStr(o.profit)}` } });
     }
   }
 
-  // ── Alerts: flag anything bleeding money ──
+  // Alerts
   const bleeders = [...accounts, ...offers].filter(r => r.spend > 5 && r.roas < 1.0);
   if (bleeders.length > 0) {
     blocks.push({ type: 'divider' });
-    const alertLines = bleeders.slice(0, 3).map(b =>
-      `:warning: *${(b.label || 'Unknown').substring(0, 20)}* — ROAS ${b.roas.toFixed(2)}x, burning ${$(b.spend - b.revenue)}`
+    const lines = bleeders.slice(0, 3).map(b =>
+      `:warning: *${b.label.substring(0, 20)}* — ROAS ${b.roas.toFixed(2)}x, burning ${$(b.spend - b.revenue)}`
     );
-    blocks.push({
-      type: 'section',
-      text: { type: 'mrkdwn', text: `:rotating_light: *Needs Attention*\n${alertLines.join('\n')}` },
-    });
+    blocks.push({ type: 'section', text: { type: 'mrkdwn',
+      text: `:rotating_light: *Needs Attention*\n${lines.join('\n')}` } });
   }
 
   return blocks;
 }
+
+// ----- Page 1: Campaigns Deep Dive -----
+
+function buildCampaignCards(rows: DetailRow[]): any[] {
+  if (rows.length === 0) {
+    return [
+      { type: 'section', text: { type: 'mrkdwn', text: ':bar_chart: *Campaigns*\n_No campaign data yet today._' } },
+    ];
+  }
+
+  const blocks: any[] = [
+    { type: 'section', text: { type: 'mrkdwn', text: ':bar_chart: *Campaigns Deep Dive*' } },
+  ];
+
+  for (const c of rows) {
+    blocks.push({ type: 'divider' });
+    blocks.push({
+      type: 'section',
+      text: { type: 'mrkdwn',
+        text: `${statusEmoji(c.roas)} *${c.label.substring(0, 40)}*   _(${c.adSets} ad sets, ${c.ads} ads)_` },
+    });
+    // Row 1: Money metrics
+    blocks.push({
+      type: 'section',
+      fields: [
+        { type: 'mrkdwn', text: `*Spend*\n${$(c.spend)}` },
+        { type: 'mrkdwn', text: `*Revenue*\n${$(c.revenue)}` },
+        { type: 'mrkdwn', text: `*ROAS*\n${c.roas.toFixed(2)}x` },
+        { type: 'mrkdwn', text: `*P/L*\n${plStr(c.profit)}` },
+      ],
+    });
+    // Row 2: Efficiency
+    blocks.push({
+      type: 'section',
+      fields: [
+        { type: 'mrkdwn', text: `*CPA*\n${$(c.cpa)}` },
+        { type: 'mrkdwn', text: `*CPC*\n${$(c.cpc)}` },
+        { type: 'mrkdwn', text: `*CPM*\n${$(c.cpm)}` },
+        { type: 'mrkdwn', text: `*CVR*\n${pct(c.cvr)}` },
+      ],
+    });
+    // Row 3: Engagement
+    blocks.push({
+      type: 'section',
+      fields: [
+        { type: 'mrkdwn', text: `*CTR*\n${pct(c.ctr)}` },
+        { type: 'mrkdwn', text: `*Hook Rate*\n${pct(c.hookRate)}` },
+        { type: 'mrkdwn', text: `*Clicks*\n${num(c.clicks)}` },
+        { type: 'mrkdwn', text: `*Impressions*\n${num(c.impressions)}` },
+      ],
+    });
+    // Row 4: Volume
+    blocks.push({
+      type: 'section',
+      fields: [
+        { type: 'mrkdwn', text: `*LP Views*\n${num(c.lpViews)}` },
+        { type: 'mrkdwn', text: `*Orders*\n${num(c.conversions)}` },
+        { type: 'mrkdwn', text: `*New Customers*\n${num(c.newCustomers)}` },
+        { type: 'mrkdwn', text: `*AOV*\n${$(c.aov)}` },
+      ],
+    });
+  }
+  return blocks;
+}
+
+// ----- Page 2: Offers Deep Dive -----
+
+function buildOfferCards(rows: DetailRow[]): any[] {
+  if (rows.length === 0) {
+    return [
+      { type: 'section', text: { type: 'mrkdwn', text: ':shopping_bags: *Offers*\n_No order data yet today._' } },
+    ];
+  }
+
+  const blocks: any[] = [
+    { type: 'section', text: { type: 'mrkdwn', text: ':shopping_bags: *Offers Deep Dive*' } },
+  ];
+
+  for (const o of rows) {
+    blocks.push({ type: 'divider' });
+    blocks.push({
+      type: 'section',
+      text: { type: 'mrkdwn',
+        text: `${statusEmoji(o.roas)} *${o.label.substring(0, 40)}*` },
+    });
+    // Row 1: Revenue
+    blocks.push({
+      type: 'section',
+      fields: [
+        { type: 'mrkdwn', text: `*Revenue*\n${$(o.revenue)}` },
+        { type: 'mrkdwn', text: `*Orders*\n${num(o.conversions)}` },
+        { type: 'mrkdwn', text: `*AOV*\n${$(o.aov)}` },
+        { type: 'mrkdwn', text: `*New Customers*\n${num(o.newCustomers)}` },
+      ],
+    });
+    // Row 2: Ad performance (if matched)
+    blocks.push({
+      type: 'section',
+      fields: [
+        { type: 'mrkdwn', text: `*Spend*\n${o.spend > 0 ? $(o.spend) : '—'}` },
+        { type: 'mrkdwn', text: `*ROAS*\n${o.spend > 0 ? o.roas.toFixed(2) + 'x' : '—'}` },
+        { type: 'mrkdwn', text: `*CPA*\n${o.spend > 0 ? $(o.cpa) : '—'}` },
+        { type: 'mrkdwn', text: `*P/L*\n${o.spend > 0 ? plStr(o.profit) : '—'}` },
+      ],
+    });
+    // Row 3: Funnel (if ad data linked)
+    if (o.clicks > 0 || o.impressions > 0) {
+      blocks.push({
+        type: 'section',
+        fields: [
+          { type: 'mrkdwn', text: `*CPC*\n${$(o.cpc)}` },
+          { type: 'mrkdwn', text: `*CPM*\n${$(o.cpm)}` },
+          { type: 'mrkdwn', text: `*CVR*\n${pct(o.cvr)}` },
+          { type: 'mrkdwn', text: `*Hook Rate*\n${pct(o.hookRate)}` },
+        ],
+      });
+      blocks.push({
+        type: 'section',
+        fields: [
+          { type: 'mrkdwn', text: `*Clicks*\n${num(o.clicks)}` },
+          { type: 'mrkdwn', text: `*Impressions*\n${num(o.impressions)}` },
+          { type: 'mrkdwn', text: `*LP Views*\n${num(o.lpViews)}` },
+          { type: 'mrkdwn', text: `*CTR*\n${pct(o.ctr)}` },
+        ],
+      });
+    }
+  }
+  return blocks;
+}
+
+// ----- Page 3: Accounts Deep Dive -----
+
+function buildAccountCards(rows: DetailRow[]): any[] {
+  if (rows.length === 0) {
+    return [
+      { type: 'section', text: { type: 'mrkdwn', text: ':office: *Ad Accounts*\n_No ad data yet today._' } },
+    ];
+  }
+
+  const blocks: any[] = [
+    { type: 'section', text: { type: 'mrkdwn', text: ':office: *Ad Accounts Deep Dive*' } },
+  ];
+
+  for (const a of rows) {
+    blocks.push({ type: 'divider' });
+    blocks.push({
+      type: 'section',
+      text: { type: 'mrkdwn',
+        text: `${statusEmoji(a.roas)} *${a.label.substring(0, 40)}*   _(${a.campaigns} campaigns, ${a.adSets} ad sets, ${a.ads} ads)_` },
+    });
+    // Row 1: Money
+    blocks.push({
+      type: 'section',
+      fields: [
+        { type: 'mrkdwn', text: `*Spend*\n${$(a.spend)}` },
+        { type: 'mrkdwn', text: `*Revenue*\n${$(a.revenue)}` },
+        { type: 'mrkdwn', text: `*ROAS*\n${a.roas.toFixed(2)}x` },
+        { type: 'mrkdwn', text: `*P/L*\n${plStr(a.profit)}` },
+      ],
+    });
+    // Row 2: Efficiency
+    blocks.push({
+      type: 'section',
+      fields: [
+        { type: 'mrkdwn', text: `*CPA*\n${$(a.cpa)}` },
+        { type: 'mrkdwn', text: `*CPC*\n${$(a.cpc)}` },
+        { type: 'mrkdwn', text: `*CPM*\n${$(a.cpm)}` },
+        { type: 'mrkdwn', text: `*CVR*\n${pct(a.cvr)}` },
+      ],
+    });
+    // Row 3: Engagement
+    blocks.push({
+      type: 'section',
+      fields: [
+        { type: 'mrkdwn', text: `*CTR*\n${pct(a.ctr)}` },
+        { type: 'mrkdwn', text: `*Hook Rate*\n${pct(a.hookRate)}` },
+        { type: 'mrkdwn', text: `*Clicks*\n${num(a.clicks)}` },
+        { type: 'mrkdwn', text: `*Impressions*\n${num(a.impressions)}` },
+      ],
+    });
+    // Row 4: Volume
+    blocks.push({
+      type: 'section',
+      fields: [
+        { type: 'mrkdwn', text: `*LP Views*\n${num(a.lpViews)}` },
+        { type: 'mrkdwn', text: `*Orders*\n${num(a.conversions)}` },
+        { type: 'mrkdwn', text: `*New Customers*\n${num(a.newCustomers)}` },
+        { type: 'mrkdwn', text: `*AOV*\n${$(a.aov)}` },
+      ],
+    });
+  }
+  return blocks;
+}
+
+// ----- Page Assembly -----
 
 async function buildPageBlocks(userId: number | null, page: number): Promise<any[]> {
   const m = await fetchFullMetrics(userId);
   const blocks: any[] = [...buildHeaderBlocks(m)];
 
   if (page === 0) {
-    // Command Center: per-account + per-offer + alerts
     blocks.push(...await buildOverviewPage(userId, m));
   } else if (page === 1) {
-    // Campaigns deep dive
-    const campaigns = await fetchCampaignBreakdown(userId);
-    blocks.push(...buildBreakdownTable(':bar_chart: Campaigns', campaigns));
+    // Limit to top 4 campaigns for deep dive (5 blocks each × 4 = 20, fits in 50 block limit)
+    const campaigns = await fetchCampaignDetail(userId);
+    blocks.push(...buildCampaignCards(campaigns.slice(0, 4)));
   } else if (page === 2) {
-    // Offers deep dive
-    const offers = await fetchOfferBreakdown(userId);
-    blocks.push(...buildBreakdownTable(':shopping_bags: Offers', offers));
+    const offers = await fetchOfferDetail(userId);
+    blocks.push(...buildOfferCards(offers.slice(0, 4)));
   } else if (page === 3) {
-    // Accounts deep dive
-    const accounts = await fetchAccountBreakdown(userId);
-    blocks.push(...buildBreakdownTable(':office: Ad Accounts', accounts));
+    const accounts = await fetchAccountDetail(userId);
+    blocks.push(...buildAccountCards(accounts.slice(0, 4)));
   }
 
   blocks.push({ type: 'divider' });
   blocks.push(...buildNavButtons(page));
-
-  // Footer
-  blocks.push({
-    type: 'context',
-    elements: [
-      { type: 'mrkdwn', text: '_Auto-refreshes on new data  |  /optic unpin to stop_' },
-    ],
-  });
+  blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: '_Auto-refreshes on new data  |  /optic unpin to stop_' }] });
   blocks.push(dashboardLinkBlock());
 
   return blocks;
 }
 
-// ----- Real-time dashboard refresh (called from realtime.ts on data events) -----
+// ----- Real-time dashboard refresh -----
 
 export function refreshPinnedDashboards(userId: number | null): void {
   if (!slackApp || pinnedDashboards.size === 0) return;
 
   for (const [channelId, pinned] of pinnedDashboards.entries()) {
-    // Only refresh dashboards that match the userId (or null = refresh all)
     if (userId !== null && pinned.userId !== null && pinned.userId !== userId) continue;
 
-    // Debounce: clear any pending update for this channel, schedule new one
     const pending = updateDebounce.get(channelId);
     if (pending) clearTimeout(pending);
 
@@ -504,10 +638,7 @@ export function refreshPinnedDashboards(userId: number | null): void {
       try {
         const updatedBlocks = await buildPageBlocks(pinned.userId, pinned.page);
         await slackApp!.client.chat.update({
-          channel: channelId,
-          ts: pinned.ts,
-          blocks: updatedBlocks,
-          text: 'OpticData Live Dashboard',
+          channel: channelId, ts: pinned.ts, blocks: updatedBlocks, text: 'OpticData Live Dashboard',
         });
       } catch (err) {
         console.error('[Slack Bot] Failed to update pinned dashboard:', err);
@@ -530,15 +661,14 @@ export function initSlackBot(): void {
   }
 
   slackApp = new App({
-    token,
-    signingSecret,
+    token, signingSecret,
     ...(appToken ? { socketMode: true, appToken } : {}),
     logLevel: LogLevel.WARN,
   });
 
-  // ----- Button action handlers for dashboard pagination -----
+  // ----- Pagination button handlers -----
 
-  slackApp.action('dash_prev', async ({ ack, body, client }: { ack: any; body: any; client: any }) => {
+  const handlePageNav = async ({ ack, body, client }: { ack: any; body: any; client: any }) => {
     await ack();
     const channelId = body.channel?.id || body.container?.channel_id;
     const messageTs = body.message?.ts || body.container?.message_ts;
@@ -547,58 +677,22 @@ export function initSlackBot(): void {
     const targetPage = parseInt(body.actions?.[0]?.value) || 0;
     const pinned = pinnedDashboards.get(channelId);
     const userId = pinned?.userId ?? await resolveSlackUser(body.user?.id || '');
-
-    // Update stored page
-    if (pinned) {
-      pinned.page = targetPage;
-    }
+    if (pinned) pinned.page = targetPage;
 
     try {
       const blocks = await buildPageBlocks(userId, targetPage);
-      await client.chat.update({
-        channel: channelId,
-        ts: messageTs,
-        blocks,
-        text: 'OpticData Live Dashboard',
-      });
+      await client.chat.update({ channel: channelId, ts: messageTs, blocks, text: 'OpticData Live Dashboard' });
     } catch (err) {
       console.error('[Slack Bot] Page nav error:', err);
     }
-  });
+  };
 
-  slackApp.action('dash_next', async ({ ack, body, client }: { ack: any; body: any; client: any }) => {
-    await ack();
-    const channelId = body.channel?.id || body.container?.channel_id;
-    const messageTs = body.message?.ts || body.container?.message_ts;
-    if (!channelId || !messageTs) return;
+  slackApp.action('dash_prev', handlePageNav);
+  slackApp.action('dash_next', handlePageNav);
+  slackApp.action('dash_page_info', async ({ ack }: { ack: any }) => { await ack(); });
 
-    const targetPage = parseInt(body.actions?.[0]?.value) || 0;
-    const pinned = pinnedDashboards.get(channelId);
-    const userId = pinned?.userId ?? await resolveSlackUser(body.user?.id || '');
+  // ----- /optic slash command -----
 
-    if (pinned) {
-      pinned.page = targetPage;
-    }
-
-    try {
-      const blocks = await buildPageBlocks(userId, targetPage);
-      await client.chat.update({
-        channel: channelId,
-        ts: messageTs,
-        blocks,
-        text: 'OpticData Live Dashboard',
-      });
-    } catch (err) {
-      console.error('[Slack Bot] Page nav error:', err);
-    }
-  });
-
-  // No-op for the page indicator button
-  slackApp.action('dash_page_info', async ({ ack }: { ack: any }) => {
-    await ack();
-  });
-
-  // /optic slash command
   slackApp.command('/optic', async ({ command, ack, respond, client }: { command: any; ack: any; respond: any; client: any }) => {
     await ack();
     const args = command.text.trim().split(/\s+/);
@@ -612,39 +706,28 @@ export function initSlackBot(): void {
 
       } else if (subCommand === 'pin') {
         const channelId = command.channel_id;
-
-        // Remove existing pinned dashboard in this channel
         pinnedDashboards.delete(channelId);
 
         const blocks = await buildPageBlocks(userId, 0);
         let postResult;
         try {
-          try {
-            await client.conversations.join({ channel: channelId });
-          } catch { /* already in or private */ }
-          postResult = await client.chat.postMessage({
-            channel: channelId,
-            blocks,
-            text: 'OpticData Live Dashboard',
-          });
+          try { await client.conversations.join({ channel: channelId }); } catch {}
+          postResult = await client.chat.postMessage({ channel: channelId, blocks, text: 'OpticData Live Dashboard' });
         } catch (postErr: any) {
           const slackError = postErr?.data?.error || postErr?.message || 'unknown';
           console.error('[Slack Bot] postMessage failed:', channelId, slackError);
           if (slackError === 'channel_not_found' || slackError === 'not_in_channel') {
-            await respond({ text: ':warning: Bot cannot post in this channel. Go to channel settings > Integrations > Add Apps and add OpticData. Then retry `/optic pin`.', response_type: 'ephemeral' });
+            await respond({ text: ':warning: Bot cannot post here. Go to channel settings > Integrations > Add Apps > OpticData. Then retry `/optic pin`.', response_type: 'ephemeral' });
           } else {
-            await respond({ text: `:warning: Failed to post dashboard: \`${slackError}\`. Check bot scopes and channel permissions.`, response_type: 'ephemeral' });
+            await respond({ text: `:warning: Failed: \`${slackError}\``, response_type: 'ephemeral' });
           }
           return;
         }
 
         if (postResult.ok && postResult.ts) {
-          try {
-            await client.pins.add({ channel: channelId, timestamp: postResult.ts });
-          } catch { /* pin may fail — dashboard still works */ }
-
+          try { await client.pins.add({ channel: channelId, timestamp: postResult.ts }); } catch {}
           pinnedDashboards.set(channelId, { ts: postResult.ts, userId, page: 0 });
-          await respond({ text: ':white_check_mark: Live dashboard pinned! Use the arrow buttons to navigate pages. Auto-updates on new data. `/optic unpin` to stop.', response_type: 'ephemeral' });
+          await respond({ text: ':white_check_mark: Live dashboard pinned! Use arrow buttons to navigate. Auto-updates on new data. `/optic unpin` to stop.', response_type: 'ephemeral' });
         }
 
       } else if (subCommand === 'unpin') {
@@ -653,82 +736,57 @@ export function initSlackBot(): void {
         if (pinned) {
           const pending = updateDebounce.get(channelId);
           if (pending) { clearTimeout(pending); updateDebounce.delete(channelId); }
-          try {
-            await client.pins.remove({ channel: channelId, timestamp: pinned.ts });
-          } catch { /* ignore */ }
+          try { await client.pins.remove({ channel: channelId, timestamp: pinned.ts }); } catch {}
           pinnedDashboards.delete(channelId);
-          await respond({ text: ':x: Live dashboard unpinned and auto-updates stopped.', response_type: 'ephemeral' });
+          await respond({ text: ':x: Dashboard unpinned and auto-updates stopped.', response_type: 'ephemeral' });
         } else {
           await respond({ text: 'No pinned dashboard found in this channel.', response_type: 'ephemeral' });
         }
 
       } else if (subCommand === 'roas') {
         const m = await fetchFullMetrics(userId);
-        await respond({
-          blocks: [
-            { type: 'section', text: { type: 'mrkdwn', text: `ROAS today: *${m.roas.toFixed(2)}x* (${$(m.revenue)} rev / ${$(m.spend)} spend)` } },
-            dashboardLinkBlock(),
-          ],
-          response_type: 'ephemeral',
-        });
+        await respond({ blocks: [
+          { type: 'section', text: { type: 'mrkdwn', text: `ROAS today: *${m.roas.toFixed(2)}x* (${$(m.revenue)} rev / ${$(m.spend)} spend)` } },
+          dashboardLinkBlock(),
+        ], response_type: 'ephemeral' });
       } else if (subCommand === 'spend') {
         const m = await fetchFullMetrics(userId);
-        await respond({
-          blocks: [
-            { type: 'section', text: { type: 'mrkdwn', text: `Ad spend today: *${$(m.spend)}* | CPC ${$(m.cpc)} | CPM ${$(m.cpm)}` } },
-            dashboardLinkBlock(),
-          ],
-          response_type: 'ephemeral',
-        });
+        await respond({ blocks: [
+          { type: 'section', text: { type: 'mrkdwn', text: `Ad spend today: *${$(m.spend)}* | CPC ${$(m.cpc)} | CPM ${$(m.cpm)}` } },
+          dashboardLinkBlock(),
+        ], response_type: 'ephemeral' });
       } else if (subCommand === 'cpa') {
         const m = await fetchFullMetrics(userId);
-        await respond({
-          blocks: [
-            { type: 'section', text: { type: 'mrkdwn', text: `CPA today: *${$(m.cpa)}* | CAC ${$(m.cac)} | ${m.conversions} conversions (${m.newCustomers} new)` } },
-            dashboardLinkBlock(),
-          ],
-          response_type: 'ephemeral',
-        });
+        await respond({ blocks: [
+          { type: 'section', text: { type: 'mrkdwn', text: `CPA today: *${$(m.cpa)}* | CAC ${$(m.cac)} | ${m.conversions} conversions (${m.newCustomers} new)` } },
+          dashboardLinkBlock(),
+        ], response_type: 'ephemeral' });
       } else if (subCommand === 'revenue') {
         const m = await fetchFullMetrics(userId);
         const profit = m.revenue - m.spend;
-        await respond({
-          blocks: [
-            { type: 'section', text: { type: 'mrkdwn', text: `Revenue today: *${$(m.revenue)}* from ${m.conversions} orders | P/L: ${profit >= 0 ? '+' : ''}${$(profit)}` } },
-            dashboardLinkBlock(),
-          ],
-          response_type: 'ephemeral',
-        });
+        await respond({ blocks: [
+          { type: 'section', text: { type: 'mrkdwn', text: `Revenue today: *${$(m.revenue)}* from ${m.conversions} orders | P/L: ${plStr(profit)}` } },
+          dashboardLinkBlock(),
+        ], response_type: 'ephemeral' });
       } else if (subCommand === 'ask') {
         const question = args.slice(1).join(' ');
-        if (!question) {
-          await respond('Usage: `/optic ask <your question>`');
-          return;
-        }
+        if (!question) { await respond('Usage: `/optic ask <your question>`'); return; }
         const answer = await askOperatorAI(question, userId);
         await respond(answer);
       } else {
-        await respond({
-          blocks: [
-            { type: 'header', text: { type: 'plain_text', text: 'OpticData Commands' } },
-            {
-              type: 'section',
-              text: {
-                type: 'mrkdwn',
-                text: [
-                  '`/optic status` — Full dashboard (private)',
-                  '`/optic pin` — Post & pin live dashboard to channel',
-                  '`/optic unpin` — Stop auto-updating pinned dashboard',
-                  '`/optic roas` — Today\'s ROAS',
-                  '`/optic spend` — Spend + CPC/CPM',
-                  '`/optic cpa` — CPA + CAC + conversions',
-                  '`/optic revenue` — Revenue + P/L',
-                  '`/optic ask <question>` — Ask AI about your data',
-                ].join('\n'),
-              },
-            },
-          ],
-        });
+        await respond({ blocks: [
+          { type: 'header', text: { type: 'plain_text', text: 'OpticData Commands' } },
+          { type: 'section', text: { type: 'mrkdwn', text: [
+            '`/optic status` — Full dashboard (private)',
+            '`/optic pin` — Pin live dashboard to channel',
+            '`/optic unpin` — Stop auto-updating',
+            '`/optic roas` — Today\'s ROAS',
+            '`/optic spend` — Spend + CPC/CPM',
+            '`/optic cpa` — CPA + CAC + conversions',
+            '`/optic revenue` — Revenue + P/L',
+            '`/optic ask <question>` — Ask AI about your data',
+          ].join('\n') } },
+        ] });
       }
     } catch (err) {
       console.error('[Slack Bot] Command error:', err);
@@ -736,26 +794,23 @@ export function initSlackBot(): void {
     }
   });
 
-  // @mention handler for AI questions
+  // @mention handler
   slackApp.event('app_mention', async ({ event, say }: { event: any; say: any }) => {
     const text = (event.text || '').replace(/<@[^>]+>/g, '').trim();
     if (!text) {
-      await say('Hi! Ask me anything about your ad performance. Try: "What\'s my ROAS today?"');
+      await say('Hi! Ask me anything about your ad performance.');
       return;
     }
-
     const userId = await resolveSlackUser(event.user);
-
     try {
       const answer = await askOperatorAI(text, userId);
       await say({ text: answer, thread_ts: event.ts });
     } catch (err) {
       console.error('[Slack Bot] Mention error:', err);
-      await say({ text: 'Sorry, I had trouble processing that. Please try again.', thread_ts: event.ts });
+      await say({ text: 'Sorry, something went wrong.', thread_ts: event.ts });
     }
   });
 
-  // Start the app
   (async () => {
     if (appToken) {
       await slackApp!.start();
@@ -775,52 +830,29 @@ async function askOperatorAI(question: string, userId: number | null): Promise<s
 You have access to tools that can query real-time campaign metrics, order data, offers, ROAS by campaign, traffic sources, automation rules, historical data, and more. Always use tools to fetch fresh data rather than guessing.`;
 
   const client = new Anthropic({ apiKey });
-
   const messages: Anthropic.MessageParam[] = [{ role: 'user', content: question }];
 
   let response = await client.messages.create({
-    model: 'claude-sonnet-4-20250514',
-    max_tokens: 2048,
-    system: systemPrompt,
-    messages,
-    tools: operatorTools,
+    model: 'claude-sonnet-4-20250514', max_tokens: 2048,
+    system: systemPrompt, messages, tools: operatorTools,
   });
 
-  // Tool-use loop
   while (response.stop_reason === 'tool_use') {
-    const toolBlocks = response.content.filter(
-      (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use',
-    );
-
+    const toolBlocks = response.content.filter((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use');
     messages.push({ role: 'assistant', content: response.content });
-
     const toolResults: Anthropic.ToolResultBlockParam[] = [];
     for (const block of toolBlocks) {
       try {
         const { result } = await executeTool(block.name, block.input as Record<string, any>, userId);
-        toolResults.push({
-          type: 'tool_result',
-          tool_use_id: block.id,
-          content: JSON.stringify(result),
-        });
+        toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: JSON.stringify(result) });
       } catch (err: any) {
-        toolResults.push({
-          type: 'tool_result',
-          tool_use_id: block.id,
-          content: JSON.stringify({ error: err.message || 'Tool execution failed' }),
-          is_error: true,
-        });
+        toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: JSON.stringify({ error: err.message }), is_error: true });
       }
     }
-
     messages.push({ role: 'user', content: toolResults });
-
     response = await client.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 2048,
-      system: systemPrompt,
-      messages,
-      tools: operatorTools,
+      model: 'claude-sonnet-4-20250514', max_tokens: 2048,
+      system: systemPrompt, messages, tools: operatorTools,
     });
   }
 
