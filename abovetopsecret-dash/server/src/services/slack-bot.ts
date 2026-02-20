@@ -1,11 +1,14 @@
 import { App, LogLevel } from '@slack/bolt';
 import Anthropic from '@anthropic-ai/sdk';
 import pool from '../db';
+import { operatorTools, executeTool } from './operator-tools';
 
 let slackApp: App | null = null;
 
-// Pinned dashboard tracking: channelId -> { ts, userId }
-const pinnedDashboards: Map<string, { ts: string; userId: number | null }> = new Map();
+// Pinned dashboard tracking: channelId -> { ts, userId, page }
+const pinnedDashboards: Map<string, { ts: string; userId: number | null; page: number }> = new Map();
+const PAGE_NAMES = ['Overview', 'Campaigns', 'Offers', 'Accounts'];
+const TOTAL_PAGES = PAGE_NAMES.length;
 
 // Debounce: per-channel last update timestamp + pending timeout
 const updateDebounce: Map<string, NodeJS.Timeout> = new Map();
@@ -14,7 +17,6 @@ const DEBOUNCE_MS = 3000; // 3s debounce so rapid webhooks don't spam Slack API
 // ----- Data Fetchers -----
 
 interface FullMetrics {
-  // Totals
   spend: number;
   revenue: number;
   roas: number;
@@ -24,7 +26,6 @@ interface FullMetrics {
   impressions: number;
   lpViews: number;
   newCustomers: number;
-  // Derived
   cpc: number;
   cpm: number;
   cvr: number;
@@ -56,8 +57,25 @@ function computeDerived(spend: number, revenue: number, conversions: number, cli
     cpm: impressions > 0 ? (spend / impressions) * 1000 : 0,
     cvr: clicks > 0 ? (conversions / clicks) * 100 : 0,
     hookRate: impressions > 0 ? (lpViews / impressions) * 100 : 0,
-    holdRate: 0, // Requires ThruPlay data not currently synced
+    holdRate: 0,
     cac: newCustomers > 0 ? spend / newCustomers : 0,
+  };
+}
+
+function rowFromQuery(r: any): BreakdownRow {
+  const spend = parseFloat(r.spend) || 0;
+  const revenue = parseFloat(r.revenue) || 0;
+  const conversions = parseInt(r.conversions) || 0;
+  const clicks = parseInt(r.clicks) || 0;
+  const impressions = parseInt(r.impressions) || 0;
+  return {
+    label: r.label || 'Unknown',
+    spend, revenue, clicks, impressions, conversions,
+    roas: spend > 0 ? revenue / spend : 0,
+    cpa: conversions > 0 ? spend / conversions : 0,
+    cpc: clicks > 0 ? spend / clicks : 0,
+    cpm: impressions > 0 ? (spend / impressions) * 1000 : 0,
+    cvr: clicks > 0 ? (conversions / clicks) * 100 : 0,
   };
 }
 
@@ -100,6 +118,7 @@ async function fetchAccountBreakdown(userId: number | null): Promise<BreakdownRo
   const ufAnd = userId ? 'AND user_id = $1' : '';
   const params = userId ? [userId] : [];
 
+  // Ad metrics per account; revenue attributed proportionally by spend share
   const result = await pool.query(`
     WITH fb AS (
       SELECT account_name,
@@ -107,41 +126,30 @@ async function fetchAccountBreakdown(userId: number | null): Promise<BreakdownRo
       FROM fb_ads_today ${uf}
       GROUP BY account_name
     ),
-    cc AS (
-      SELECT utm_source AS label,
-             COALESCE(SUM(COALESCE(subtotal, revenue)), 0) AS revenue,
-             COUNT(DISTINCT order_id) AS conversions
+    totals AS (
+      SELECT COALESCE(SUM(spend), 0) AS total_spend FROM fb_ads_today ${uf}
+    ),
+    rev AS (
+      SELECT COALESCE(SUM(COALESCE(subtotal, revenue)), 0) AS total_revenue,
+             COUNT(DISTINCT order_id) AS total_conversions
       FROM cc_orders_today WHERE order_status = 'completed' ${ufAnd}
-      GROUP BY utm_source
     )
     SELECT fb.account_name AS label,
-           COALESCE(fb.spend, 0) AS spend,
-           COALESCE(cc.revenue, 0) AS revenue,
-           COALESCE(fb.clicks, 0) AS clicks,
-           COALESCE(fb.impressions, 0) AS impressions,
-           COALESCE(cc.conversions, 0) AS conversions
-    FROM fb
-    LEFT JOIN cc ON true
+           fb.spend,
+           fb.clicks,
+           fb.impressions,
+           CASE WHEN totals.total_spend > 0
+             THEN fb.spend / totals.total_spend * rev.total_revenue
+             ELSE 0 END AS revenue,
+           CASE WHEN totals.total_spend > 0
+             THEN ROUND(fb.spend / totals.total_spend * rev.total_conversions)
+             ELSE 0 END AS conversions
+    FROM fb, totals, rev
     ORDER BY fb.spend DESC
-    LIMIT 8
+    LIMIT 10
   `, params);
 
-  return result.rows.map((r: any) => {
-    const spend = parseFloat(r.spend) || 0;
-    const revenue = parseFloat(r.revenue) || 0;
-    const conversions = parseInt(r.conversions) || 0;
-    const clicks = parseInt(r.clicks) || 0;
-    const impressions = parseInt(r.impressions) || 0;
-    return {
-      label: r.label || 'Unknown',
-      spend, revenue, clicks, impressions, conversions,
-      roas: spend > 0 ? revenue / spend : 0,
-      cpa: conversions > 0 ? spend / conversions : 0,
-      cpc: clicks > 0 ? spend / clicks : 0,
-      cpm: impressions > 0 ? (spend / impressions) * 1000 : 0,
-      cvr: clicks > 0 ? (conversions / clicks) * 100 : 0,
-    };
-  });
+  return result.rows.map(rowFromQuery);
 }
 
 async function fetchOfferBreakdown(userId: number | null): Promise<BreakdownRow[]> {
@@ -172,25 +180,10 @@ async function fetchOfferBreakdown(userId: number | null): Promise<BreakdownRow[
     FROM cc
     LEFT JOIN fb ON fb.campaign = cc.offer_name
     ORDER BY cc.revenue DESC
-    LIMIT 8
+    LIMIT 10
   `, params);
 
-  return result.rows.map((r: any) => {
-    const spend = parseFloat(r.spend) || 0;
-    const revenue = parseFloat(r.revenue) || 0;
-    const conversions = parseInt(r.conversions) || 0;
-    const clicks = parseInt(r.clicks) || 0;
-    const impressions = parseInt(r.impressions) || 0;
-    return {
-      label: r.label || 'Unknown',
-      spend, revenue, clicks, impressions, conversions,
-      roas: spend > 0 ? revenue / spend : 0,
-      cpa: conversions > 0 ? spend / conversions : 0,
-      cpc: clicks > 0 ? spend / clicks : 0,
-      cpm: impressions > 0 ? (spend / impressions) * 1000 : 0,
-      cvr: clicks > 0 ? (conversions / clicks) * 100 : 0,
-    };
-  });
+  return result.rows.map(rowFromQuery);
 }
 
 async function fetchCampaignBreakdown(userId: number | null): Promise<BreakdownRow[]> {
@@ -224,22 +217,7 @@ async function fetchCampaignBreakdown(userId: number | null): Promise<BreakdownR
     LIMIT 10
   `, params);
 
-  return result.rows.map((r: any) => {
-    const spend = parseFloat(r.spend) || 0;
-    const revenue = parseFloat(r.revenue) || 0;
-    const conversions = parseInt(r.conversions) || 0;
-    const clicks = parseInt(r.clicks) || 0;
-    const impressions = parseInt(r.impressions) || 0;
-    return {
-      label: r.label || 'Unknown',
-      spend, revenue, clicks, impressions, conversions,
-      roas: spend > 0 ? revenue / spend : 0,
-      cpa: conversions > 0 ? spend / conversions : 0,
-      cpc: clicks > 0 ? spend / clicks : 0,
-      cpm: impressions > 0 ? (spend / impressions) * 1000 : 0,
-      cvr: clicks > 0 ? (conversions / clicks) * 100 : 0,
-    };
-  });
+  return result.rows.map(rowFromQuery);
 }
 
 // ----- Formatters -----
@@ -270,10 +248,28 @@ async function resolveSlackUser(_slackUserId: string): Promise<number | null> {
   }
 }
 
+// ----- Dashboard Link -----
+
+const dashboardUrl = process.env.DASHBOARD_URL || 'https://optic-data.com';
+
+function dashboardLinkBlock(): any {
+  return {
+    type: 'context',
+    elements: [
+      { type: 'mrkdwn', text: `<${dashboardUrl}|View full dashboard>` },
+    ],
+  };
+}
+
 // ----- Block Kit Builders -----
 
 function buildBreakdownTable(title: string, rows: BreakdownRow[]): any[] {
-  if (rows.length === 0) return [];
+  if (rows.length === 0) {
+    return [
+      { type: 'section', text: { type: 'mrkdwn', text: `*${title}*` } },
+      { type: 'section', text: { type: 'mrkdwn', text: '_No data yet today._' } },
+    ];
+  }
 
   const header = `*${title}*`;
   let table = '```\n';
@@ -299,22 +295,55 @@ function buildBreakdownTable(title: string, rows: BreakdownRow[]): any[] {
   ];
 }
 
-async function buildDashboardBlocks(userId: number | null): Promise<any[]> {
-  const [m, campaigns, offers] = await Promise.all([
-    fetchFullMetrics(userId),
-    fetchCampaignBreakdown(userId),
-    fetchOfferBreakdown(userId),
-  ]);
+function buildNavButtons(currentPage: number): any {
+  const dots = PAGE_NAMES.map((name, i) =>
+    i === currentPage ? `*${name}*` : name
+  ).join('  ');
 
+  const elements: any[] = [];
+
+  if (currentPage > 0) {
+    elements.push({
+      type: 'button',
+      text: { type: 'plain_text', text: ':arrow_left: Prev', emoji: true },
+      action_id: 'dash_prev',
+      value: String(currentPage - 1),
+    });
+  }
+
+  elements.push({
+    type: 'button',
+    text: { type: 'plain_text', text: `${currentPage + 1}/${TOTAL_PAGES}`, emoji: true },
+    action_id: 'dash_page_info',
+    value: String(currentPage),
+  });
+
+  if (currentPage < TOTAL_PAGES - 1) {
+    elements.push({
+      type: 'button',
+      text: { type: 'plain_text', text: 'Next :arrow_right:', emoji: true },
+      action_id: 'dash_next',
+      value: String(currentPage + 1),
+    });
+  }
+
+  return [
+    { type: 'context', elements: [{ type: 'mrkdwn', text: dots }] },
+    { type: 'actions', elements },
+  ];
+}
+
+// Build header that appears on every page
+function buildHeaderBlocks(m: FullMetrics): any[] {
   const profitLoss = m.revenue - m.spend;
   const plSign = profitLoss >= 0 ? '+' : '';
   const plEmoji = profitLoss >= 0 ? ':chart_with_upwards_trend:' : ':chart_with_downwards_trend:';
   const now = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: 'America/New_York' });
 
-  const blocks: any[] = [
+  return [
     {
       type: 'header',
-      text: { type: 'plain_text', text: `OpticData Live Dashboard` },
+      text: { type: 'plain_text', text: 'OpticData Live Dashboard' },
     },
     {
       type: 'context',
@@ -323,7 +352,12 @@ async function buildDashboardBlocks(userId: number | null): Promise<any[]> {
       ],
     },
     { type: 'divider' },
-    // Row 1: Core financials
+  ];
+}
+
+// Page 0: Overview
+function buildOverviewPage(m: FullMetrics): any[] {
+  return [
     {
       type: 'section',
       fields: [
@@ -333,7 +367,6 @@ async function buildDashboardBlocks(userId: number | null): Promise<any[]> {
         { type: 'mrkdwn', text: `:package: *Orders*\n${m.conversions}` },
       ],
     },
-    // Row 2: Efficiency metrics
     {
       type: 'section',
       fields: [
@@ -343,7 +376,6 @@ async function buildDashboardBlocks(userId: number | null): Promise<any[]> {
         { type: 'mrkdwn', text: `*CPM*\n${$(m.cpm)}` },
       ],
     },
-    // Row 3: Engagement metrics
     {
       type: 'section',
       fields: [
@@ -353,25 +385,41 @@ async function buildDashboardBlocks(userId: number | null): Promise<any[]> {
         { type: 'mrkdwn', text: `*Impressions*\n${m.impressions.toLocaleString()}` },
       ],
     },
-    { type: 'divider' },
   ];
+}
 
-  // Campaign breakdown
-  blocks.push(...buildBreakdownTable(':bar_chart: Campaigns', campaigns));
+async function buildPageBlocks(userId: number | null, page: number): Promise<any[]> {
+  const m = await fetchFullMetrics(userId);
+  const blocks: any[] = [...buildHeaderBlocks(m)];
 
-  // Offer breakdown
-  if (offers.length > 0) {
-    blocks.push({ type: 'divider' });
+  if (page === 0) {
+    // Overview
+    blocks.push(...buildOverviewPage(m));
+  } else if (page === 1) {
+    // Campaigns
+    const campaigns = await fetchCampaignBreakdown(userId);
+    blocks.push(...buildBreakdownTable(':bar_chart: Campaigns', campaigns));
+  } else if (page === 2) {
+    // Offers
+    const offers = await fetchOfferBreakdown(userId);
     blocks.push(...buildBreakdownTable(':shopping_bags: Offers', offers));
+  } else if (page === 3) {
+    // Accounts
+    const accounts = await fetchAccountBreakdown(userId);
+    blocks.push(...buildBreakdownTable(':office: Ad Accounts', accounts));
   }
+
+  blocks.push({ type: 'divider' });
+  blocks.push(...buildNavButtons(page));
 
   // Footer
   blocks.push({
     type: 'context',
     elements: [
-      { type: 'mrkdwn', text: `_Auto-refreshes on new data  |  /optic pin to create  |  /optic unpin to stop_` },
+      { type: 'mrkdwn', text: '_Auto-refreshes on new data  |  /optic unpin to stop_' },
     ],
   });
+  blocks.push(dashboardLinkBlock());
 
   return blocks;
 }
@@ -392,7 +440,7 @@ export function refreshPinnedDashboards(userId: number | null): void {
     updateDebounce.set(channelId, setTimeout(async () => {
       updateDebounce.delete(channelId);
       try {
-        const updatedBlocks = await buildDashboardBlocks(pinned.userId);
+        const updatedBlocks = await buildPageBlocks(pinned.userId, pinned.page);
         await slackApp!.client.chat.update({
           channel: channelId,
           ts: pinned.ts,
@@ -401,7 +449,6 @@ export function refreshPinnedDashboards(userId: number | null): void {
         });
       } catch (err) {
         console.error('[Slack Bot] Failed to update pinned dashboard:', err);
-        // If message was deleted or channel gone, remove tracking
         pinnedDashboards.delete(channelId);
       }
     }, DEBOUNCE_MS));
@@ -427,6 +474,68 @@ export function initSlackBot(): void {
     logLevel: LogLevel.WARN,
   });
 
+  // ----- Button action handlers for dashboard pagination -----
+
+  slackApp.action('dash_prev', async ({ ack, body, client }: { ack: any; body: any; client: any }) => {
+    await ack();
+    const channelId = body.channel?.id || body.container?.channel_id;
+    const messageTs = body.message?.ts || body.container?.message_ts;
+    if (!channelId || !messageTs) return;
+
+    const targetPage = parseInt(body.actions?.[0]?.value) || 0;
+    const pinned = pinnedDashboards.get(channelId);
+    const userId = pinned?.userId ?? await resolveSlackUser(body.user?.id || '');
+
+    // Update stored page
+    if (pinned) {
+      pinned.page = targetPage;
+    }
+
+    try {
+      const blocks = await buildPageBlocks(userId, targetPage);
+      await client.chat.update({
+        channel: channelId,
+        ts: messageTs,
+        blocks,
+        text: 'OpticData Live Dashboard',
+      });
+    } catch (err) {
+      console.error('[Slack Bot] Page nav error:', err);
+    }
+  });
+
+  slackApp.action('dash_next', async ({ ack, body, client }: { ack: any; body: any; client: any }) => {
+    await ack();
+    const channelId = body.channel?.id || body.container?.channel_id;
+    const messageTs = body.message?.ts || body.container?.message_ts;
+    if (!channelId || !messageTs) return;
+
+    const targetPage = parseInt(body.actions?.[0]?.value) || 0;
+    const pinned = pinnedDashboards.get(channelId);
+    const userId = pinned?.userId ?? await resolveSlackUser(body.user?.id || '');
+
+    if (pinned) {
+      pinned.page = targetPage;
+    }
+
+    try {
+      const blocks = await buildPageBlocks(userId, targetPage);
+      await client.chat.update({
+        channel: channelId,
+        ts: messageTs,
+        blocks,
+        text: 'OpticData Live Dashboard',
+      });
+    } catch (err) {
+      console.error('[Slack Bot] Page nav error:', err);
+    }
+  });
+
+  // No-op for the page indicator button
+  slackApp.action('dash_page_info', async ({ ack }: { ack: any }) => {
+    await ack();
+  });
+
   // /optic slash command
   slackApp.command('/optic', async ({ command, ack, respond, client }: { command: any; ack: any; respond: any; client: any }) => {
     await ack();
@@ -436,26 +545,21 @@ export function initSlackBot(): void {
 
     try {
       if (subCommand === 'status' || subCommand === 'dashboard') {
-        const blocks = await buildDashboardBlocks(userId);
+        const blocks = await buildPageBlocks(userId, 0);
         await respond({ blocks, response_type: 'ephemeral' });
 
       } else if (subCommand === 'pin') {
-        // Post a public dashboard message and pin it, auto-updates on new data
         const channelId = command.channel_id;
 
         // Remove existing pinned dashboard in this channel
         pinnedDashboards.delete(channelId);
 
-        const blocks = await buildDashboardBlocks(userId);
+        const blocks = await buildPageBlocks(userId, 0);
         let postResult;
         try {
-          // Try joining the channel first (works for public channels)
           try {
-            const joinResult = await client.conversations.join({ channel: channelId });
-            console.log('[Slack Bot] Joined channel:', channelId, joinResult.ok);
-          } catch (joinErr: any) {
-            console.log('[Slack Bot] Join attempt:', channelId, joinErr?.data?.error || joinErr?.message);
-          }
+            await client.conversations.join({ channel: channelId });
+          } catch { /* already in or private */ }
           postResult = await client.chat.postMessage({
             channel: channelId,
             blocks,
@@ -463,7 +567,7 @@ export function initSlackBot(): void {
           });
         } catch (postErr: any) {
           const slackError = postErr?.data?.error || postErr?.message || 'unknown';
-          console.error('[Slack Bot] postMessage failed:', channelId, slackError, JSON.stringify(postErr?.data));
+          console.error('[Slack Bot] postMessage failed:', channelId, slackError);
           if (slackError === 'channel_not_found' || slackError === 'not_in_channel') {
             await respond({ text: ':warning: Bot cannot post in this channel. Go to channel settings > Integrations > Add Apps and add OpticData. Then retry `/optic pin`.', response_type: 'ephemeral' });
           } else {
@@ -473,22 +577,18 @@ export function initSlackBot(): void {
         }
 
         if (postResult.ok && postResult.ts) {
-          // Pin it
           try {
             await client.pins.add({ channel: channelId, timestamp: postResult.ts });
-          } catch {
-            // May fail if already pinned or no permission — dashboard still works without pin
-          }
+          } catch { /* pin may fail — dashboard still works */ }
 
-          pinnedDashboards.set(channelId, { ts: postResult.ts, userId });
-          await respond({ text: ':white_check_mark: Live dashboard posted! It will auto-update when new data arrives. Use `/optic unpin` to stop.', response_type: 'ephemeral' });
+          pinnedDashboards.set(channelId, { ts: postResult.ts, userId, page: 0 });
+          await respond({ text: ':white_check_mark: Live dashboard pinned! Use the arrow buttons to navigate pages. Auto-updates on new data. `/optic unpin` to stop.', response_type: 'ephemeral' });
         }
 
       } else if (subCommand === 'unpin') {
         const channelId = command.channel_id;
         const pinned = pinnedDashboards.get(channelId);
         if (pinned) {
-          // Clear any pending debounce
           const pending = updateDebounce.get(channelId);
           if (pending) { clearTimeout(pending); updateDebounce.delete(channelId); }
           try {
@@ -502,17 +602,41 @@ export function initSlackBot(): void {
 
       } else if (subCommand === 'roas') {
         const m = await fetchFullMetrics(userId);
-        await respond(`ROAS today: *${m.roas.toFixed(2)}x* (${$(m.revenue)} rev / ${$(m.spend)} spend)`);
+        await respond({
+          blocks: [
+            { type: 'section', text: { type: 'mrkdwn', text: `ROAS today: *${m.roas.toFixed(2)}x* (${$(m.revenue)} rev / ${$(m.spend)} spend)` } },
+            dashboardLinkBlock(),
+          ],
+          response_type: 'ephemeral',
+        });
       } else if (subCommand === 'spend') {
         const m = await fetchFullMetrics(userId);
-        await respond(`Ad spend today: *${$(m.spend)}* | CPC ${$(m.cpc)} | CPM ${$(m.cpm)}`);
+        await respond({
+          blocks: [
+            { type: 'section', text: { type: 'mrkdwn', text: `Ad spend today: *${$(m.spend)}* | CPC ${$(m.cpc)} | CPM ${$(m.cpm)}` } },
+            dashboardLinkBlock(),
+          ],
+          response_type: 'ephemeral',
+        });
       } else if (subCommand === 'cpa') {
         const m = await fetchFullMetrics(userId);
-        await respond(`CPA today: *${$(m.cpa)}* | CAC ${$(m.cac)} | ${m.conversions} conversions (${m.newCustomers} new)`);
+        await respond({
+          blocks: [
+            { type: 'section', text: { type: 'mrkdwn', text: `CPA today: *${$(m.cpa)}* | CAC ${$(m.cac)} | ${m.conversions} conversions (${m.newCustomers} new)` } },
+            dashboardLinkBlock(),
+          ],
+          response_type: 'ephemeral',
+        });
       } else if (subCommand === 'revenue') {
         const m = await fetchFullMetrics(userId);
         const profit = m.revenue - m.spend;
-        await respond(`Revenue today: *${$(m.revenue)}* from ${m.conversions} orders | P/L: ${profit >= 0 ? '+' : ''}${$(profit)}`);
+        await respond({
+          blocks: [
+            { type: 'section', text: { type: 'mrkdwn', text: `Revenue today: *${$(m.revenue)}* from ${m.conversions} orders | P/L: ${profit >= 0 ? '+' : ''}${$(profit)}` } },
+            dashboardLinkBlock(),
+          ],
+          response_type: 'ephemeral',
+        });
       } else if (subCommand === 'ask') {
         const question = args.slice(1).join(' ');
         if (!question) {
@@ -531,7 +655,7 @@ export function initSlackBot(): void {
                 type: 'mrkdwn',
                 text: [
                   '`/optic status` — Full dashboard (private)',
-                  '`/optic pin` — Post & pin live dashboard to channel (auto-updates on new data)',
+                  '`/optic pin` — Post & pin live dashboard to channel',
                   '`/optic unpin` — Stop auto-updating pinned dashboard',
                   '`/optic roas` — Today\'s ROAS',
                   '`/optic spend` — Spend + CPC/CPM',
@@ -584,19 +708,62 @@ async function askOperatorAI(question: string, userId: number | null): Promise<s
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return 'Anthropic API key not configured.';
 
-  const m = await fetchFullMetrics(userId);
-  const context = `Current metrics today: Spend=${$(m.spend)}, Revenue=${$(m.revenue)}, ROAS=${m.roas.toFixed(2)}x, CPA=${$(m.cpa)}, CAC=${$(m.cac)}, CPC=${$(m.cpc)}, CPM=${$(m.cpm)}, CVR=${pct(m.cvr)}, Hook Rate=${pct(m.hookRate)}, Orders=${m.conversions}, New Customers=${m.newCustomers}, Clicks=${m.clicks}, Impressions=${m.impressions}`;
+  const systemPrompt = `You are OpticData's AI assistant responding via Slack. Be concise. Format with Slack mrkdwn (not markdown). Current date: ${new Date().toISOString().split('T')[0]}
+
+You have access to tools that can query real-time campaign metrics, order data, offers, ROAS by campaign, traffic sources, automation rules, historical data, and more. Always use tools to fetch fresh data rather than guessing.`;
 
   const client = new Anthropic({ apiKey });
-  const response = await client.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 500,
-    system: `You are OpticData Operator, a concise media buying assistant answering via Slack. Keep responses short (2-4 sentences). Use Slack markdown formatting (*bold*, _italic_). Here is the user's data:\n${context}`,
-    messages: [{ role: 'user', content: question }],
+
+  const messages: Anthropic.MessageParam[] = [{ role: 'user', content: question }];
+
+  let response = await client.messages.create({
+    model: 'claude-sonnet-4-20250514',
+    max_tokens: 2048,
+    system: systemPrompt,
+    messages,
+    tools: operatorTools,
   });
 
-  const text = response.content[0]?.type === 'text' ? response.content[0].text : '';
-  return text || 'No response generated.';
+  // Tool-use loop
+  while (response.stop_reason === 'tool_use') {
+    const toolBlocks = response.content.filter(
+      (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use',
+    );
+
+    messages.push({ role: 'assistant', content: response.content });
+
+    const toolResults: Anthropic.ToolResultBlockParam[] = [];
+    for (const block of toolBlocks) {
+      try {
+        const { result } = await executeTool(block.name, block.input as Record<string, any>, userId);
+        toolResults.push({
+          type: 'tool_result',
+          tool_use_id: block.id,
+          content: JSON.stringify(result),
+        });
+      } catch (err: any) {
+        toolResults.push({
+          type: 'tool_result',
+          tool_use_id: block.id,
+          content: JSON.stringify({ error: err.message || 'Tool execution failed' }),
+          is_error: true,
+        });
+      }
+    }
+
+    messages.push({ role: 'user', content: toolResults });
+
+    response = await client.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 2048,
+      system: systemPrompt,
+      messages,
+      tools: operatorTools,
+    });
+  }
+
+  const textBlock = response.content.find((b): b is Anthropic.TextBlock => b.type === 'text');
+  return textBlock?.text || 'No response generated.';
 }
 
 export function getSlackApp(): App | null {
