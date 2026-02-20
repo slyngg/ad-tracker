@@ -28,7 +28,16 @@ export default function SQLBuilderPage() {
     try {
       const [queries, schemaData] = await Promise.all([fetchSavedQueries(), fetchSqlSchema()]);
       setSavedQueries(queries);
-      setSchema(schemaData);
+      // Schema endpoint returns either an array or an object keyed by table_name — normalize to array
+      if (Array.isArray(schemaData)) {
+        setSchema(schemaData);
+      } else {
+        const normalized: SchemaInfo[] = Object.entries(schemaData).map(([table_name, columns]) => ({
+          table_name,
+          columns: columns as SchemaInfo['columns'],
+        }));
+        setSchema(normalized);
+      }
     } catch {
       // Non-critical
     }
@@ -45,6 +54,10 @@ export default function SQLBuilderPage() {
     setResult(null);
     try {
       const data = await executeSql(sql);
+      // Normalize columns: server may return {name, dataTypeID} objects or plain strings
+      if (data.columns && data.columns.length > 0 && typeof data.columns[0] === 'object') {
+        data.columns = (data.columns as any[]).map((c: any) => c.name || c);
+      }
       setResult(data);
     } catch (err: any) {
       setError(err.message);
