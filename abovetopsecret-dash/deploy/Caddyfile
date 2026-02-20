@@ -1,0 +1,8 @@
+{$DOMAIN:localhost} {
+    handle /api/* {
+        reverse_proxy server:4000
+    }
+    handle {
+        reverse_proxy client:80
+    }
+}
