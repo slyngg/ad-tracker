@@ -1,4 +1,4 @@
-{$DOMAIN:localhost} {
+:80 {
     handle /api/* {
         reverse_proxy server:4000
     }
