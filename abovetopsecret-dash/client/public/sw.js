@@ -1,10 +1,14 @@
-const CACHE_NAME = 'ats-dash-v1';
+const CACHE_NAME = 'ats-dash-v2';
 const PRECACHE_URLS = [
   '/',
   '/index.html',
   '/manifest.json',
   '/icon-192.png',
   '/icon-512.png',
+  '/favicon-32.png',
+  '/favicon-16.png',
+  '/apple-touch-icon.png',
+  '/optic-data-logo.png',
 ];
 
 self.addEventListener('install', (event) => {

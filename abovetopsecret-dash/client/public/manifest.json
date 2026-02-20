@@ -1,7 +1,7 @@
 {
   "name": "OpticData Command Center",
   "short_name": "OpticData",
-  "description": "AI-powered media buying command center",
+  "description": "AI-powered media buying analytics platform. Track attribution, optimize ad spend, and maximize ROI across all channels.",
   "start_url": "/",
   "display": "standalone",
   "theme_color": "#030712",
