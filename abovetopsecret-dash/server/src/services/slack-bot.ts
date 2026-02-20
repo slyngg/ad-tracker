@@ -4,8 +4,12 @@ import pool from '../db';
 
 let slackApp: App | null = null;
 
-// Pinned dashboard tracking: channelId -> { ts, userId, intervalId }
-const pinnedDashboards: Map<string, { ts: string; userId: number | null; intervalId: NodeJS.Timeout }> = new Map();
+// Pinned dashboard tracking: channelId -> { ts, userId }
+const pinnedDashboards: Map<string, { ts: string; userId: number | null }> = new Map();
+
+// Debounce: per-channel last update timestamp + pending timeout
+const updateDebounce: Map<string, NodeJS.Timeout> = new Map();
+const DEBOUNCE_MS = 3000; // 3s debounce so rapid webhooks don't spam Slack API
 
 // ----- Data Fetchers -----
 
@@ -365,11 +369,43 @@ async function buildDashboardBlocks(userId: number | null): Promise<any[]> {
   blocks.push({
     type: 'context',
     elements: [
-      { type: 'mrkdwn', text: `_Auto-refreshes every 5 min  |  /optic pin to create  |  /optic unpin to stop_` },
+      { type: 'mrkdwn', text: `_Auto-refreshes on new data  |  /optic pin to create  |  /optic unpin to stop_` },
     ],
   });
 
   return blocks;
+}
+
+// ----- Real-time dashboard refresh (called from realtime.ts on data events) -----
+
+export function refreshPinnedDashboards(userId: number | null): void {
+  if (!slackApp || pinnedDashboards.size === 0) return;
+
+  for (const [channelId, pinned] of pinnedDashboards.entries()) {
+    // Only refresh dashboards that match the userId (or null = refresh all)
+    if (userId !== null && pinned.userId !== null && pinned.userId !== userId) continue;
+
+    // Debounce: clear any pending update for this channel, schedule new one
+    const pending = updateDebounce.get(channelId);
+    if (pending) clearTimeout(pending);
+
+    updateDebounce.set(channelId, setTimeout(async () => {
+      updateDebounce.delete(channelId);
+      try {
+        const updatedBlocks = await buildDashboardBlocks(pinned.userId);
+        await slackApp!.client.chat.update({
+          channel: channelId,
+          ts: pinned.ts,
+          blocks: updatedBlocks,
+          text: 'OpticData Live Dashboard',
+        });
+      } catch (err) {
+        console.error('[Slack Bot] Failed to update pinned dashboard:', err);
+        // If message was deleted or channel gone, remove tracking
+        pinnedDashboards.delete(channelId);
+      }
+    }, DEBOUNCE_MS));
+  }
 }
 
 // ----- Slack Bot Init -----
@@ -404,15 +440,11 @@ export function initSlackBot(): void {
         await respond({ blocks, response_type: 'ephemeral' });
 
       } else if (subCommand === 'pin') {
-        // Post a public dashboard message and pin it, then auto-update
+        // Post a public dashboard message and pin it, auto-updates on new data
         const channelId = command.channel_id;
 
         // Remove existing pinned dashboard in this channel
-        if (pinnedDashboards.has(channelId)) {
-          const existing = pinnedDashboards.get(channelId)!;
-          clearInterval(existing.intervalId);
-          pinnedDashboards.delete(channelId);
-        }
+        pinnedDashboards.delete(channelId);
 
         const blocks = await buildDashboardBlocks(userId);
         const postResult = await client.chat.postMessage({
@@ -429,37 +461,17 @@ export function initSlackBot(): void {
             // May fail if already pinned or no permission
           }
 
-          // Auto-update every 5 minutes
-          const messageTs = postResult.ts;
-          const intervalId = setInterval(async () => {
-            try {
-              const updatedBlocks = await buildDashboardBlocks(userId);
-              await client.chat.update({
-                channel: channelId,
-                ts: messageTs,
-                blocks: updatedBlocks,
-                text: 'OpticData Live Dashboard',
-              });
-            } catch (err) {
-              console.error('[Slack Bot] Failed to update pinned dashboard:', err);
-              // If message was deleted, stop updating
-              const pinned = pinnedDashboards.get(channelId);
-              if (pinned) {
-                clearInterval(pinned.intervalId);
-                pinnedDashboards.delete(channelId);
-              }
-            }
-          }, 5 * 60 * 1000); // 5 minutes
-
-          pinnedDashboards.set(channelId, { ts: messageTs, userId, intervalId });
-          await respond({ text: ':white_check_mark: Live dashboard pinned! It will auto-update every 5 minutes. Use `/optic unpin` to stop.', response_type: 'ephemeral' });
+          pinnedDashboards.set(channelId, { ts: postResult.ts, userId });
+          await respond({ text: ':white_check_mark: Live dashboard pinned! It will auto-update when new data arrives. Use `/optic unpin` to stop.', response_type: 'ephemeral' });
         }
 
       } else if (subCommand === 'unpin') {
         const channelId = command.channel_id;
         const pinned = pinnedDashboards.get(channelId);
         if (pinned) {
-          clearInterval(pinned.intervalId);
+          // Clear any pending debounce
+          const pending = updateDebounce.get(channelId);
+          if (pending) { clearTimeout(pending); updateDebounce.delete(channelId); }
           try {
             await client.pins.remove({ channel: channelId, timestamp: pinned.ts });
           } catch { /* ignore */ }
@@ -500,7 +512,7 @@ export function initSlackBot(): void {
                 type: 'mrkdwn',
                 text: [
                   '`/optic status` — Full dashboard (private)',
-                  '`/optic pin` — Post & pin live dashboard to channel (auto-updates every 5 min)',
+                  '`/optic pin` — Post & pin live dashboard to channel (auto-updates on new data)',
                   '`/optic unpin` — Stop auto-updating pinned dashboard',
                   '`/optic roas` — Today\'s ROAS',
                   '`/optic spend` — Spend + CPC/CPM',

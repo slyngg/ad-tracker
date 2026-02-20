@@ -4,6 +4,7 @@ import { Pool } from 'pg';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { JWT_SECRET } from '../routes/auth';
+import { refreshPinnedDashboards } from './slack-bot';
 
 interface AuthenticatedSocket extends WebSocket {
   userId: number | null;
@@ -253,6 +254,9 @@ export class RealtimeService {
     } catch (err) {
       console.error('[Realtime] Error fetching summary after new order:', err);
     }
+
+    // Refresh Slack pinned dashboards
+    refreshPinnedDashboards(userId);
   }
 
   async emitMetricsUpdate(userId: number | null): Promise<void> {
@@ -266,6 +270,9 @@ export class RealtimeService {
     } catch (err) {
       console.error('[Realtime] Error emitting metrics update:', err);
     }
+
+    // Refresh Slack pinned dashboards
+    refreshPinnedDashboards(userId);
   }
 
   emitOverrideChange(userId: number | null): void {
