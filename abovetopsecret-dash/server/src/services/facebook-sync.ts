@@ -56,9 +56,9 @@ async function fetchAllPages(initialUrl: string): Promise<FBInsightRow[]> {
   return allRows;
 }
 
-export async function syncFacebook(): Promise<{ synced: number; accounts: number; skipped: boolean }> {
-  const accessToken = await getSetting('fb_access_token');
-  const accountIds = await getSetting('fb_ad_account_ids');
+export async function syncFacebook(userId?: number): Promise<{ synced: number; accounts: number; skipped: boolean }> {
+  const accessToken = await getSetting('fb_access_token', userId);
+  const accountIds = await getSetting('fb_ad_account_ids', userId);
 
   if (!accessToken || !accountIds) {
     console.warn('[FB Sync] FB_ACCESS_TOKEN or FB_AD_ACCOUNT_IDS not set, skipping sync');

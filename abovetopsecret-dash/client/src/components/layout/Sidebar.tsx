@@ -1,4 +1,5 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { PanelLeftClose, PanelLeftOpen, X, LogOut, Bell } from 'lucide-react';
 import { useSidebarStore } from '../../stores/sidebarStore';
 import { useAuthStore } from '../../stores/authStore';
 import { NAV_SECTIONS } from '../../lib/routes';
@@ -7,6 +8,8 @@ import NavSection from './NavSection';
 export default function Sidebar() {
   const { collapsed, mobileOpen, toggleCollapsed, setMobileOpen } = useSidebarStore();
   const logout = useAuthStore((s) => s.logout);
+  const user = useAuthStore((s) => s.user);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   // Close mobile sidebar on route change via popstate
   useEffect(() => {
@@ -14,6 +17,28 @@ export default function Sidebar() {
     window.addEventListener('popstate', close);
     return () => window.removeEventListener('popstate', close);
   }, [setMobileOpen]);
+
+  // Poll unread notification count
+  useEffect(() => {
+    const token = useAuthStore.getState().token;
+    if (!token) return;
+
+    const fetchUnread = async () => {
+      try {
+        const res = await fetch('/api/notifications/unread-count', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setUnreadCount(data.count || 0);
+        }
+      } catch { /* ignore */ }
+    };
+
+    fetchUnread();
+    const interval = setInterval(fetchUnread, 60000);
+    return () => clearInterval(interval);
+  }, []);
 
   const sidebarContent = (
     <div className="flex flex-col h-full">
@@ -30,15 +55,31 @@ export default function Sidebar() {
           className="text-ats-text-muted hover:text-ats-text p-1.5 rounded-md hover:bg-ats-hover transition-colors hidden lg:block"
           title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         >
-          {collapsed ? '▸▸' : '◂◂'}
+          {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
         </button>
         {/* Mobile close */}
         <button
           onClick={() => setMobileOpen(false)}
           className="text-ats-text-muted hover:text-ats-text p-1.5 rounded-md hover:bg-ats-hover transition-colors lg:hidden"
         >
-          ✕
+          <X size={16} />
         </button>
+      </div>
+
+      {/* Notification bell */}
+      <div className="px-3 py-2 border-b border-ats-border">
+        <a
+          href="/settings/notifications"
+          className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-ats-text-secondary hover:bg-ats-hover hover:text-ats-text transition-colors relative"
+        >
+          <Bell size={16} className="flex-shrink-0" />
+          {!collapsed && <span>Notifications</span>}
+          {unreadCount > 0 && (
+            <span className="absolute top-1 left-6 min-w-[16px] h-4 bg-ats-red text-white text-[10px] font-bold rounded-full flex items-center justify-center px-1">
+              {unreadCount > 99 ? '99+' : unreadCount}
+            </span>
+          )}
+        </a>
       </div>
 
       {/* Nav sections */}
@@ -50,11 +91,16 @@ export default function Sidebar() {
 
       {/* Footer */}
       <div className="px-3 py-3 border-t border-ats-border">
+        {!collapsed && user && (
+          <div className="px-3 py-1 mb-2 text-xs text-ats-text-muted truncate">
+            {user.displayName || user.email}
+          </div>
+        )}
         <button
           onClick={logout}
           className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-ats-text-muted hover:bg-ats-hover hover:text-ats-red transition-colors"
         >
-          <span className="text-sm w-5 text-center flex-shrink-0">🚪</span>
+          <LogOut size={16} className="flex-shrink-0" />
           {!collapsed && <span>Sign Out</span>}
         </button>
       </div>

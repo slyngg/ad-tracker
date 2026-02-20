@@ -49,6 +49,9 @@ interface OverrideInfo {
 router.get('/', async (req: Request, res: Response) => {
   try {
     const { offer, account } = req.query;
+    const userId = (req as any).user?.id as number | undefined;
+    const userFilter = userId ? 'AND user_id = $1' : 'AND user_id IS NULL';
+    const userParams = userId ? [userId] : [];
 
     // Core metrics — pre-aggregate both sides to eliminate many-to-many fan-out.
     // fb_agg: one row per (ad_set_name, account_name) — collapses multiple ads per ad set.
@@ -64,6 +67,7 @@ router.get('/', async (req: Request, res: Response) => {
           SUM(impressions) AS impressions,
           SUM(landing_page_views) AS landing_page_views
         FROM fb_ads_today
+        WHERE 1=1 ${userFilter}
         GROUP BY ad_set_name, account_name
       ),
       cc_agg AS (
@@ -74,7 +78,7 @@ router.get('/', async (req: Request, res: Response) => {
           COUNT(DISTINCT order_id) AS conversions,
           COUNT(DISTINCT CASE WHEN new_customer THEN order_id END) AS new_customers
         FROM cc_orders_today
-        WHERE order_status = 'completed'
+        WHERE order_status = 'completed' ${userFilter}
         GROUP BY utm_campaign, offer_name
       )
       SELECT
@@ -100,7 +104,7 @@ router.get('/', async (req: Request, res: Response) => {
       ORDER BY spend DESC
     `;
 
-    const coreResult = await pool.query(coreQuery);
+    const coreResult = await pool.query(coreQuery, userParams);
     let rows: MetricRow[] = coreResult.rows.map((r) => ({
       ...r,
       spend: parseFloat(r.spend) || 0,
@@ -123,16 +127,16 @@ router.get('/', async (req: Request, res: Response) => {
         ROUND((SUM(CASE WHEN quantity = 1 THEN 1 ELSE 0 END)::NUMERIC / NULLIF(COUNT(*), 0) * 100), 1) AS take_rate_1,
         ROUND((SUM(CASE WHEN quantity = 3 THEN 1 ELSE 0 END)::NUMERIC / NULLIF(COUNT(*), 0) * 100), 1) AS take_rate_3,
         ROUND((SUM(CASE WHEN quantity = 5 THEN 1 ELSE 0 END)::NUMERIC / NULLIF(COUNT(*), 0) * 100), 1) AS take_rate_5
-      FROM cc_orders_today WHERE is_core_sku = true GROUP BY offer_name
-    `);
+      FROM cc_orders_today WHERE is_core_sku = true ${userFilter} GROUP BY offer_name
+    `, userParams);
     const takeRatesMap = new Map(takeRatesResult.rows.map((r) => [r.offer_name, r]));
 
     // Extended: subscription pct
     const subPctResult = await pool.query(`
       SELECT offer_name,
         ROUND((SUM(CASE WHEN subscription_id IS NOT NULL THEN 1 ELSE 0 END)::NUMERIC / NULLIF(COUNT(*), 0) * 100), 1) AS subscription_pct
-      FROM cc_orders_today GROUP BY offer_name
-    `);
+      FROM cc_orders_today WHERE 1=1 ${userFilter} GROUP BY offer_name
+    `, userParams);
     const subPctMap = new Map(subPctResult.rows.map((r) => [r.offer_name, r]));
 
     // Extended: sub take rates
@@ -141,8 +145,8 @@ router.get('/', async (req: Request, res: Response) => {
         ROUND((SUM(CASE WHEN quantity = 1 THEN 1 ELSE 0 END)::NUMERIC / NULLIF(COUNT(*), 0) * 100), 1) AS sub_take_rate_1,
         ROUND((SUM(CASE WHEN quantity = 3 THEN 1 ELSE 0 END)::NUMERIC / NULLIF(COUNT(*), 0) * 100), 1) AS sub_take_rate_3,
         ROUND((SUM(CASE WHEN quantity = 5 THEN 1 ELSE 0 END)::NUMERIC / NULLIF(COUNT(*), 0) * 100), 1) AS sub_take_rate_5
-      FROM cc_orders_today WHERE subscription_id IS NOT NULL GROUP BY offer_name
-    `);
+      FROM cc_orders_today WHERE subscription_id IS NOT NULL ${userFilter} GROUP BY offer_name
+    `, userParams);
     const subTakeMap = new Map(subTakeResult.rows.map((r) => [r.offer_name, r]));
 
     // Extended: upsell rates
@@ -150,8 +154,8 @@ router.get('/', async (req: Request, res: Response) => {
       SELECT offer_name,
         ROUND((SUM(CASE WHEN accepted THEN 1 ELSE 0 END)::NUMERIC / NULLIF(SUM(CASE WHEN offered THEN 1 ELSE 0 END), 0) * 100), 1) AS upsell_take_rate,
         ROUND(((1 - (SUM(CASE WHEN accepted THEN 1 ELSE 0 END)::NUMERIC / NULLIF(SUM(CASE WHEN offered THEN 1 ELSE 0 END), 0))) * 100), 1) AS upsell_decline_rate
-      FROM cc_upsells_today GROUP BY offer_name
-    `);
+      FROM cc_upsells_today WHERE 1=1 ${userFilter} GROUP BY offer_name
+    `, userParams);
     const upsellMap = new Map(upsellResult.rows.map((r) => [r.offer_name, r]));
 
     // Join extended metrics
@@ -175,7 +179,12 @@ router.get('/', async (req: Request, res: Response) => {
     });
 
     // Apply manual overrides
-    const overridesResult = await pool.query('SELECT metric_key, offer_name, override_value, set_by, set_at FROM manual_overrides');
+    const overridesResult = await pool.query(
+      userId
+        ? 'SELECT metric_key, offer_name, override_value, set_by, set_at FROM manual_overrides WHERE user_id = $1'
+        : 'SELECT metric_key, offer_name, override_value, set_by, set_at FROM manual_overrides WHERE user_id IS NULL',
+      userParams
+    );
     const overrides: Override[] = overridesResult.rows;
 
     rows = rows.map((row) => {
@@ -214,15 +223,19 @@ router.get('/', async (req: Request, res: Response) => {
 });
 
 // GET /api/metrics/summary
-router.get('/summary', async (_req: Request, res: Response) => {
+router.get('/summary', async (req: Request, res: Response) => {
   try {
+    const userId = (req as any).user?.id as number | undefined;
+    const userFilter = userId ? 'AND user_id = $1' : 'AND user_id IS NULL';
+    const userParams = userId ? [userId] : [];
+
     // Compute totals from each table independently — no join needed for summary
     const result = await pool.query(`
       SELECT
-        (SELECT COALESCE(SUM(spend), 0) FROM fb_ads_today) AS total_spend,
-        (SELECT COALESCE(SUM(COALESCE(subtotal, revenue)), 0) FROM cc_orders_today WHERE order_status = 'completed') AS total_revenue,
-        (SELECT COUNT(DISTINCT order_id) FROM cc_orders_today WHERE order_status = 'completed') AS total_conversions
-    `);
+        (SELECT COALESCE(SUM(spend), 0) FROM fb_ads_today WHERE 1=1 ${userFilter}) AS total_spend,
+        (SELECT COALESCE(SUM(COALESCE(subtotal, revenue)), 0) FROM cc_orders_today WHERE order_status = 'completed' ${userFilter}) AS total_revenue,
+        (SELECT COUNT(DISTINCT order_id) FROM cc_orders_today WHERE order_status = 'completed' ${userFilter}) AS total_conversions
+    `, userParams);
 
     const row = result.rows[0];
     const totalSpend = parseFloat(row.total_spend) || 0;

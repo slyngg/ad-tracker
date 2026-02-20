@@ -5,9 +5,10 @@ import { getAllSettings, setSetting, deleteSetting, getSetting } from '../servic
 const router = Router();
 
 // GET /api/settings — return all settings (sensitive values masked)
-router.get('/', async (_req: Request, res: Response) => {
+router.get('/', async (req: Request, res: Response) => {
   try {
-    const settings = await getAllSettings();
+    const userId = (req as any).user?.id as number | undefined;
+    const settings = await getAllSettings(userId);
     res.json(settings);
   } catch (err) {
     console.error('Error fetching settings:', err);
@@ -18,13 +19,14 @@ router.get('/', async (_req: Request, res: Response) => {
 // POST /api/settings — bulk update settings
 router.post('/', async (req: Request, res: Response) => {
   try {
+    const userId = (req as any).user?.id as number | undefined;
     const updates = req.body as Record<string, string>;
     for (const [key, value] of Object.entries(updates)) {
       if (typeof value === 'string' && value.trim()) {
-        await setSetting(key, value.trim());
+        await setSetting(key, value.trim(), 'admin', userId);
       }
     }
-    const settings = await getAllSettings();
+    const settings = await getAllSettings(userId);
     res.json(settings);
   } catch (err) {
     console.error('Error updating settings:', err);
@@ -35,7 +37,8 @@ router.post('/', async (req: Request, res: Response) => {
 // DELETE /api/settings/:key — remove a setting (reverts to env var fallback)
 router.delete('/:key', async (req: Request, res: Response) => {
   try {
-    await deleteSetting(req.params.key);
+    const userId = (req as any).user?.id as number | undefined;
+    await deleteSetting(req.params.key, userId);
     res.json({ success: true });
   } catch (err) {
     console.error('Error deleting setting:', err);
@@ -44,10 +47,11 @@ router.delete('/:key', async (req: Request, res: Response) => {
 });
 
 // POST /api/settings/test/facebook — test FB connection
-router.post('/test/facebook', async (_req: Request, res: Response) => {
+router.post('/test/facebook', async (req: Request, res: Response) => {
   try {
-    const token = await getSetting('fb_access_token');
-    const accountIds = await getSetting('fb_ad_account_ids');
+    const userId = (req as any).user?.id as number | undefined;
+    const token = await getSetting('fb_access_token', userId);
+    const accountIds = await getSetting('fb_ad_account_ids', userId);
 
     if (!token) {
       res.json({ success: false, error: 'No Facebook access token configured' });
@@ -86,10 +90,11 @@ router.post('/test/facebook', async (_req: Request, res: Response) => {
 });
 
 // POST /api/settings/test/checkout-champ — test CC API connection
-router.post('/test/checkout-champ', async (_req: Request, res: Response) => {
+router.post('/test/checkout-champ', async (req: Request, res: Response) => {
   try {
-    const apiKey = await getSetting('cc_api_key');
-    const apiUrl = await getSetting('cc_api_url');
+    const userId = (req as any).user?.id as number | undefined;
+    const apiKey = await getSetting('cc_api_key', userId);
+    const apiUrl = await getSetting('cc_api_url', userId);
 
     if (!apiKey || !apiUrl) {
       res.json({ success: false, error: 'CC API key or URL not configured' });

@@ -17,12 +17,22 @@ const ENV_FALLBACKS: Record<string, string> = {
   auth_token: 'AUTH_TOKEN',
 };
 
-export async function getSetting(key: string): Promise<string | undefined> {
+export async function getSetting(key: string, userId?: number | null): Promise<string | undefined> {
   try {
-    const result = await pool.query(
-      'SELECT value FROM app_settings WHERE key = $1',
-      [key]
-    );
+    let result;
+    if (userId) {
+      result = await pool.query(
+        'SELECT value FROM app_settings WHERE key = $1 AND user_id = $2',
+        [key, userId]
+      );
+    }
+    // Fall back to global setting if no user-specific setting found
+    if (!result || result.rows.length === 0) {
+      result = await pool.query(
+        'SELECT value FROM app_settings WHERE key = $1 AND user_id IS NULL',
+        [key]
+      );
+    }
     if (result.rows.length > 0) {
       return result.rows[0].value;
     }
@@ -39,20 +49,38 @@ export async function getSetting(key: string): Promise<string | undefined> {
   return undefined;
 }
 
-export async function setSetting(key: string, value: string, updatedBy = 'admin'): Promise<void> {
-  await pool.query(
-    `INSERT INTO app_settings (key, value, updated_by, updated_at)
-     VALUES ($1, $2, $3, NOW())
-     ON CONFLICT (key) DO UPDATE SET
-       value = EXCLUDED.value,
-       updated_by = EXCLUDED.updated_by,
-       updated_at = NOW()`,
-    [key, value, updatedBy]
-  );
+export async function setSetting(key: string, value: string, updatedBy = 'admin', userId?: number | null): Promise<void> {
+  if (userId) {
+    await pool.query(
+      `INSERT INTO app_settings (key, value, updated_by, updated_at, user_id)
+       VALUES ($1, $2, $3, NOW(), $4)
+       ON CONFLICT (key) DO UPDATE SET
+         value = EXCLUDED.value,
+         updated_by = EXCLUDED.updated_by,
+         updated_at = NOW(),
+         user_id = EXCLUDED.user_id
+       WHERE app_settings.user_id = $4 OR (app_settings.user_id IS NULL AND $4::int IS NULL)`,
+      [key, value, updatedBy, userId]
+    );
+  } else {
+    await pool.query(
+      `INSERT INTO app_settings (key, value, updated_by, updated_at)
+       VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (key) DO UPDATE SET
+         value = EXCLUDED.value,
+         updated_by = EXCLUDED.updated_by,
+         updated_at = NOW()`,
+      [key, value, updatedBy]
+    );
+  }
 }
 
-export async function deleteSetting(key: string): Promise<void> {
-  await pool.query('DELETE FROM app_settings WHERE key = $1', [key]);
+export async function deleteSetting(key: string, userId?: number | null): Promise<void> {
+  if (userId) {
+    await pool.query('DELETE FROM app_settings WHERE key = $1 AND user_id = $2', [key, userId]);
+  } else {
+    await pool.query('DELETE FROM app_settings WHERE key = $1 AND user_id IS NULL', [key]);
+  }
 }
 
 function maskValue(key: string, value: string): string {
@@ -62,13 +90,22 @@ function maskValue(key: string, value: string): string {
   return value;
 }
 
-export async function getAllSettings(): Promise<Record<string, string>> {
+export async function getAllSettings(userId?: number | null): Promise<Record<string, string>> {
   const result: Record<string, string> = {};
 
   try {
-    const dbResult = await pool.query('SELECT key, value FROM app_settings ORDER BY key');
-    for (const row of dbResult.rows) {
+    // Get global settings first
+    const globalResult = await pool.query('SELECT key, value FROM app_settings WHERE user_id IS NULL ORDER BY key');
+    for (const row of globalResult.rows) {
       result[row.key] = maskValue(row.key, row.value);
+    }
+
+    // Overlay user-specific settings
+    if (userId) {
+      const userResult = await pool.query('SELECT key, value FROM app_settings WHERE user_id = $1 ORDER BY key', [userId]);
+      for (const row of userResult.rows) {
+        result[row.key] = maskValue(row.key, row.value);
+      }
     }
   } catch {
     // Table may not exist yet

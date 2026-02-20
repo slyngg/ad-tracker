@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useLocation } from 'react-router-dom';
+import { ChevronRight } from 'lucide-react';
 import { NavSectionConfig } from '../../types/navigation';
 import NavItem from './NavItem';
 
@@ -10,6 +11,7 @@ interface NavSectionProps {
 
 export default function NavSection({ section, collapsed }: NavSectionProps) {
   const location = useLocation();
+  const Icon = section.icon;
 
   const isChildActive = section.children?.some((c) => location.pathname === c.path) ?? false;
   const [open, setOpen] = useState(isChildActive);
@@ -35,13 +37,14 @@ export default function NavSection({ section, collapsed }: NavSectionProps) {
             : 'text-ats-text-muted hover:bg-ats-hover hover:text-ats-text-secondary'
         }`}
       >
-        <span className="text-sm w-5 text-center flex-shrink-0">{section.icon}</span>
+        <Icon size={16} className="flex-shrink-0" />
         {!collapsed && (
           <>
             <span className="truncate font-medium">{section.label}</span>
-            <span className={`ml-auto text-[10px] transition-transform ${open ? 'rotate-90' : ''}`}>
-              ▸
-            </span>
+            <ChevronRight
+              size={12}
+              className={`ml-auto transition-transform ${open ? 'rotate-90' : ''}`}
+            />
           </>
         )}
       </button>

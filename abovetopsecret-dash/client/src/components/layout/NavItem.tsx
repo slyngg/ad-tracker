@@ -7,13 +7,15 @@ interface NavItemProps {
 }
 
 export default function NavItem({ item, collapsed }: NavItemProps) {
+  const Icon = item.icon;
+
   if (item.disabled) {
     return (
       <div
         className="group flex items-center gap-3 px-3 py-2 rounded-lg text-ats-text-muted/50 cursor-not-allowed"
         title="Coming Soon"
       >
-        <span className="text-sm w-5 text-center flex-shrink-0">{item.icon}</span>
+        <Icon size={16} className="flex-shrink-0" />
         {!collapsed && (
           <>
             <span className="text-sm truncate">{item.label}</span>
@@ -42,7 +44,7 @@ export default function NavItem({ item, collapsed }: NavItemProps) {
           {isActive && (
             <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-ats-accent rounded-r" />
           )}
-          <span className="text-sm w-5 text-center flex-shrink-0">{item.icon}</span>
+          <Icon size={16} className="flex-shrink-0" />
           {!collapsed && <span className="truncate">{item.label}</span>}
         </>
       )}

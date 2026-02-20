@@ -28,6 +28,7 @@ const GeneralSettingsPage = lazy(() => import('./pages/settings/GeneralSettingsP
 const CostSettingsPage = lazy(() => import('./pages/settings/CostSettingsPage'));
 const NotificationsPage = lazy(() => import('./pages/settings/NotificationsPage'));
 const TrackingSettingsPage = lazy(() => import('./pages/settings/TrackingSettingsPage'));
+const AccountPage = lazy(() => import('./pages/settings/AccountPage'));
 const RulesEnginePage = lazy(() => import('./pages/rules/RulesEnginePage'));
 
 // Error boundary
@@ -74,7 +75,6 @@ function NotFoundPage() {
   return (
     <div className="flex items-center justify-center min-h-[60vh]">
       <div className="bg-ats-card border border-ats-border rounded-2xl p-8 text-center max-w-md">
-        <div className="text-4xl mb-4">🔍</div>
         <h2 className="text-lg font-bold text-ats-text mb-2">Page Not Found</h2>
         <p className="text-sm text-ats-text-muted">The page you're looking for doesn't exist.</p>
       </div>
@@ -125,6 +125,7 @@ export default function App() {
               <Route path="/settings/costs" element={<CostSettingsPage />} />
               <Route path="/settings/notifications" element={<NotificationsPage />} />
               <Route path="/settings/tracking" element={<TrackingSettingsPage />} />
+              <Route path="/settings/account" element={<AccountPage />} />
 
               {/* Rules */}
               <Route path="/rules" element={<RulesEnginePage />} />

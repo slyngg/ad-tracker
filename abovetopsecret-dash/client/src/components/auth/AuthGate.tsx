@@ -3,11 +3,11 @@ import { useAuthStore } from '../../stores/authStore';
 import LoginPage from './LoginPage';
 
 export default function AuthGate({ children }: { children: ReactNode }) {
-  const { isAuthenticated, checking, checkDevMode } = useAuthStore();
+  const { isAuthenticated, checking, checkAuth } = useAuthStore();
 
   useEffect(() => {
-    checkDevMode();
-  }, [checkDevMode]);
+    checkAuth();
+  }, [checkAuth]);
 
   if (checking) {
     return (

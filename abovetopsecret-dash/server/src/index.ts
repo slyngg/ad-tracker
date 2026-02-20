@@ -7,6 +7,15 @@ import overridesRouter from './routes/overrides';
 import webhooksRouter from './routes/webhooks';
 import syncRouter from './routes/sync';
 import settingsRouter from './routes/settings';
+import authRouter from './routes/auth';
+import analyticsRouter from './routes/analytics';
+import costsRouter from './routes/costs';
+import notificationsRouter from './routes/notifications';
+import operatorRouter from './routes/operator';
+import rulesRouter from './routes/rules';
+import sqlBuilderRouter from './routes/sql-builder';
+import apiKeysRouter from './routes/api-keys';
+import uploadRouter from './routes/upload';
 import { authMiddleware } from './middleware/auth';
 import { startScheduler } from './services/scheduler';
 
@@ -25,7 +34,7 @@ app.use(cors({
 }));
 // Capture raw body buffer for webhook HMAC verification
 app.use(express.json({
-  limit: '1mb',
+  limit: '5mb',
   verify: (req: express.Request, _res, buf) => {
     (req as express.Request & { rawBody?: Buffer }).rawBody = buf;
   },
@@ -61,17 +70,29 @@ app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// Auth routes (no auth middleware needed - they handle their own auth)
+app.use('/api/auth', authRouter);
+
 // Webhooks use their own auth (signature verification), mount before general auth
 app.use('/api/webhooks', webhooksRouter);
 
 // Apply auth middleware to all other /api routes
 app.use('/api', authMiddleware);
 
+// Authenticated routes
 app.use('/api/metrics', metricsRouter);
 app.use('/api/export', exportRouter);
 app.use('/api/overrides', overridesRouter);
 app.use('/api/sync', syncRouter);
 app.use('/api/settings', settingsRouter);
+app.use('/api/analytics', analyticsRouter);
+app.use('/api/costs', costsRouter);
+app.use('/api/notifications', notificationsRouter);
+app.use('/api/operator', operatorRouter);
+app.use('/api/rules', rulesRouter);
+app.use('/api/sql', sqlBuilderRouter);
+app.use('/api/keys', apiKeysRouter);
+app.use('/api/upload', uploadRouter);
 
 const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`[ATS Server] Running on port ${PORT}`);

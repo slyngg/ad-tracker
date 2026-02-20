@@ -1,55 +1,171 @@
 import { create } from 'zustand';
 
 const TOKEN_KEY = 'optic_auth_token';
+const USER_KEY = 'optic_user';
+
+interface User {
+  id: number;
+  email: string;
+  displayName: string;
+}
 
 interface AuthState {
   token: string | null;
+  user: User | null;
   isAuthenticated: boolean;
   checking: boolean;
   error: string | null;
-  login: (token: string) => Promise<boolean>;
+  register: (email: string, password: string, displayName: string) => Promise<boolean>;
+  login: (email: string, password: string) => Promise<boolean>;
   logout: () => void;
-  checkDevMode: () => Promise<void>;
+  fetchProfile: () => Promise<void>;
+  updateProfile: (data: { displayName?: string; password?: string; currentPassword?: string }) => Promise<boolean>;
+  checkAuth: () => Promise<void>;
   handleUnauthorized: () => void;
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
   token: localStorage.getItem(TOKEN_KEY),
+  user: (() => {
+    try {
+      const u = localStorage.getItem(USER_KEY);
+      return u ? JSON.parse(u) : null;
+    } catch { return null; }
+  })(),
   isAuthenticated: !!localStorage.getItem(TOKEN_KEY),
   checking: true,
   error: null,
 
-  login: async (token: string) => {
-    localStorage.setItem(TOKEN_KEY, token);
-    set({ token });
+  register: async (email: string, password: string, displayName: string) => {
     try {
-      const res = await fetch('/api/metrics/summary', {
-        headers: { Authorization: `Bearer ${token}` },
+      set({ error: null });
+      const res = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password, displayName }),
       });
-      if (res.status === 401) {
-        localStorage.removeItem(TOKEN_KEY);
-        set({ token: null, isAuthenticated: false, error: 'Invalid token' });
+      const data = await res.json();
+      if (!res.ok) {
+        set({ error: data.error || 'Registration failed' });
         return false;
       }
-      set({ isAuthenticated: true, error: null });
+      localStorage.setItem(TOKEN_KEY, data.token);
+      localStorage.setItem(USER_KEY, JSON.stringify(data.user));
+      set({ token: data.token, user: data.user, isAuthenticated: true, error: null });
       return true;
     } catch {
-      localStorage.removeItem(TOKEN_KEY);
-      set({ token: null, isAuthenticated: false, error: 'Server unreachable' });
+      set({ error: 'Server unreachable' });
+      return false;
+    }
+  },
+
+  login: async (email: string, password: string) => {
+    try {
+      set({ error: null });
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        set({ error: data.error || 'Login failed' });
+        return false;
+      }
+      localStorage.setItem(TOKEN_KEY, data.token);
+      localStorage.setItem(USER_KEY, JSON.stringify(data.user));
+      set({ token: data.token, user: data.user, isAuthenticated: true, error: null });
+      return true;
+    } catch {
+      set({ error: 'Server unreachable' });
       return false;
     }
   },
 
   logout: () => {
     localStorage.removeItem(TOKEN_KEY);
-    set({ token: null, isAuthenticated: false, error: null });
+    localStorage.removeItem(USER_KEY);
+    set({ token: null, user: null, isAuthenticated: false, error: null });
   },
 
-  checkDevMode: async () => {
-    if (get().token) {
-      set({ checking: false });
+  fetchProfile: async () => {
+    const token = get().token;
+    if (!token) return;
+    try {
+      const res = await fetch('/api/auth/me', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const user = { id: data.id, email: data.email, displayName: data.displayName };
+        localStorage.setItem(USER_KEY, JSON.stringify(user));
+        set({ user });
+      }
+    } catch {
+      // Silently fail
+    }
+  },
+
+  updateProfile: async (data) => {
+    const token = get().token;
+    if (!token) return false;
+    try {
+      const res = await fetch('/api/auth/me', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(data),
+      });
+      const result = await res.json();
+      if (!res.ok) {
+        set({ error: result.error || 'Update failed' });
+        return false;
+      }
+      const user = { id: result.id, email: result.email, displayName: result.displayName };
+      localStorage.setItem(USER_KEY, JSON.stringify(user));
+      set({ user, error: null });
+      return true;
+    } catch {
+      set({ error: 'Server unreachable' });
+      return false;
+    }
+  },
+
+  checkAuth: async () => {
+    const token = get().token;
+    if (token) {
+      // Validate existing token
+      try {
+        const res = await fetch('/api/auth/me', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const user = { id: data.id, email: data.email, displayName: data.displayName };
+          localStorage.setItem(USER_KEY, JSON.stringify(user));
+          set({ user, isAuthenticated: true, checking: false });
+          return;
+        }
+      } catch {
+        // Token invalid or server down
+      }
+      // Try as legacy token
+      try {
+        const res = await fetch('/api/metrics/summary', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          set({ isAuthenticated: true, checking: false });
+          return;
+        }
+      } catch {
+        // Fall through
+      }
+      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(USER_KEY);
+      set({ token: null, user: null, isAuthenticated: false, checking: false });
       return;
     }
+    // No token — check if dev mode (no auth required)
     try {
       const res = await fetch('/api/health');
       if (res.ok) {
@@ -60,14 +176,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         }
       }
     } catch {
-      // Server not reachable, fall through to login
+      // Server not reachable
     }
     set({ checking: false });
   },
 
   handleUnauthorized: () => {
     localStorage.removeItem(TOKEN_KEY);
-    set({ token: null, isAuthenticated: false });
+    localStorage.removeItem(USER_KEY);
+    set({ token: null, user: null, isAuthenticated: false });
   },
 }));
 

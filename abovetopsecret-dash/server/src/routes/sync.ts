@@ -4,9 +4,10 @@ import { syncFacebook } from '../services/facebook-sync';
 const router = Router();
 
 // POST /api/sync/facebook
-router.post('/facebook', async (_req: Request, res: Response) => {
+router.post('/facebook', async (req: Request, res: Response) => {
   try {
-    const result = await syncFacebook();
+    const userId = (req as any).user?.id as number | undefined;
+    const result = await syncFacebook(userId);
     res.json(result);
   } catch (err) {
     console.error('Error triggering FB sync:', err);

@@ -1,13 +1,15 @@
+import { type LucideIcon } from 'lucide-react';
+
 export interface NavLink {
   label: string;
   path: string;
-  icon: string;
+  icon: LucideIcon;
   disabled?: boolean;
 }
 
 export interface NavSectionConfig {
   label: string;
-  icon: string;
+  icon: LucideIcon;
   path?: string;
   children?: NavLink[];
 }
