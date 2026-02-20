@@ -9,7 +9,7 @@ router.get('/', async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
     const result = await pool.query(
-      `SELECT id, token, source, label, active, last_used_at, created_at
+      `SELECT id, source, label, active, last_used_at, created_at
        FROM webhook_tokens
        WHERE user_id = $1
        ORDER BY created_at DESC`,
@@ -33,16 +33,18 @@ router.post('/', async (req: Request, res: Response) => {
       return;
     }
 
-    const token = crypto.randomBytes(32).toString('hex');
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
 
     const result = await pool.query(
       `INSERT INTO webhook_tokens (user_id, token, source, label)
        VALUES ($1, $2, $3, $4)
-       RETURNING id, token, source, label, active, last_used_at, created_at`,
-      [userId, token, source, label || null]
+       RETURNING id, source, label, active, last_used_at, created_at`,
+      [userId, tokenHash, source, label || null]
     );
 
-    res.status(201).json(result.rows[0]);
+    // Return the raw token to the user — this is the only time they will see it
+    res.status(201).json({ ...result.rows[0], token: rawToken });
   } catch (err) {
     console.error('Error creating webhook token:', err);
     res.status(500).json({ error: 'Failed to create webhook token' });

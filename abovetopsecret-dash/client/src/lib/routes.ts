@@ -3,7 +3,7 @@ import {
   Users, Calendar, DollarSign, Telescope, Eye, Key, Database,
   Code, Upload, Settings, Plug, Edit3, Sliders, CreditCard,
   Bell, MapPin, TrendingUp, BarChart3, Funnel, Bookmark,
-  Monitor, Cpu, FileKey, LogIn,
+  Monitor, Cpu, FileKey, LogIn, Brain, LayoutGrid,
 } from 'lucide-react';
 import { NavSectionConfig } from '../types/navigation';
 
@@ -32,6 +32,8 @@ export const ROUTES = {
   NOTIFICATIONS: '/settings/notifications',
   TRACKING: '/settings/tracking',
   ACCOUNT: '/settings/account',
+  MEMORIES: '/settings/memories',
+  WIDGET: '/settings/widget',
   RULES: '/rules',
 } as const;
 
@@ -101,6 +103,8 @@ export const NAV_SECTIONS: NavSectionConfig[] = [
       { label: 'Costs', path: ROUTES.COST_SETTINGS, icon: CreditCard },
       { label: 'Notifications', path: ROUTES.NOTIFICATIONS, icon: Bell },
       { label: 'Tracking', path: ROUTES.TRACKING, icon: MapPin },
+      { label: 'Memories', path: ROUTES.MEMORIES, icon: Brain },
+      { label: 'Widget', path: ROUTES.WIDGET, icon: LayoutGrid },
     ],
   },
   {

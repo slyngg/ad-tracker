@@ -13,12 +13,17 @@ You have access to tools that can:
 - Show traffic source breakdowns
 - Pause/enable Meta adsets and adjust budgets
 - Run custom SQL queries
+- List, create, and toggle automation rules
+- Query historical ad performance data
+- Send notifications to the user
 
 Always use tools to get fresh data rather than relying on the summary context alone. When asked about metrics, campaigns, or performance, call the appropriate tool first, then analyze the results.
 
 For Meta write actions (pause, enable, budget changes), confirm the action with the user before executing.
 
-Be concise, data-focused, and proactive with recommendations. Format responses with markdown tables when presenting data.`;
+Be concise, data-focused, and proactive with recommendations. Format responses with markdown tables when presenting data.
+
+When the user is using voice input (indicated by the conversation context), keep responses concise and conversational. Prefer short sentences. Avoid markdown tables in voice mode — use natural language instead.`;
 
 // Helper: fetch user's current metrics summary for context
 async function getMetricsContext(userId: number | null | undefined): Promise<string> {
@@ -65,6 +70,35 @@ ${topOffers || '  (no data yet)'}
   } catch (err) {
     console.error('Error fetching metrics context:', err);
     return '--- Metrics context unavailable ---';
+  }
+}
+
+// Helper: fetch automation rules context for system prompt
+async function getRulesContext(userId: number | null | undefined): Promise<string> {
+  if (!userId) return '';
+  try {
+    const result = await pool.query(
+      `SELECT r.id, r.name, r.trigger_type, r.trigger_config, r.action_type, r.enabled, r.last_fired_at,
+        (SELECT COUNT(*) FROM rule_execution_log WHERE rule_id = r.id AND status = 'success' AND created_at > NOW() - INTERVAL '24 hours') as fires_24h
+       FROM automation_rules r WHERE r.user_id = $1 ORDER BY r.id`,
+      [userId]
+    );
+    if (result.rows.length === 0) return '\n\n## Active Automation Rules\nNo automation rules configured.';
+
+    const rulesText = result.rows.map((r: any) => {
+      const trigger = r.trigger_config;
+      const triggerStr = trigger?.metric
+        ? `${trigger.metric} ${trigger.operator || '>'} ${trigger.value}`
+        : JSON.stringify(trigger);
+      const status = r.enabled ? 'ENABLED' : 'DISABLED';
+      const lastFired = r.last_fired_at ? new Date(r.last_fired_at).toISOString() : 'never';
+      return `- [${r.id}] "${r.name}" (${status}) — trigger: ${r.trigger_type} (${triggerStr}), action: ${r.action_type}, last fired: ${lastFired}, fires in 24h: ${r.fires_24h}`;
+    }).join('\n');
+
+    return `\n\n## Active Automation Rules\n${rulesText}`;
+  } catch (err) {
+    console.error('Error fetching rules context:', err);
+    return '';
   }
 }
 
@@ -188,13 +222,14 @@ router.post('/chat', async (req: Request, res: Response) => {
       content: r.content,
     }));
 
-    // Get metrics context and long-term memories
-    const [metricsContext, memories] = await Promise.all([
+    // Get metrics context, rules context, and long-term memories
+    const [metricsContext, rulesContext, memories] = await Promise.all([
       getMetricsContext(userId),
+      getRulesContext(userId),
       getLongTermMemories(userId),
     ]);
 
-    const systemPrompt = `${SYSTEM_PROMPT}\n\nHere is the user's current performance data:\n${metricsContext}${memories}`;
+    const systemPrompt = `${SYSTEM_PROMPT}\n\nHere is the user's current performance data:\n${metricsContext}${rulesContext}${memories}`;
 
     // Set up SSE
     res.setHeader('Content-Type', 'text/event-stream');
@@ -456,6 +491,44 @@ router.delete('/conversations/:id', async (req: Request, res: Response) => {
   } catch (err) {
     console.error('Error deleting conversation:', err);
     res.status(500).json({ error: 'Failed to delete conversation' });
+  }
+});
+
+// GET /api/operator/memories - List all long-term memories for the authenticated user
+router.get('/memories', async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    const result = await pool.query(
+      `SELECT id, 'general' AS category, fact AS content, 1.0 AS confidence, created_at
+       FROM operator_long_term_memory
+       WHERE user_id = $1
+       ORDER BY created_at DESC`,
+      [userId]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error fetching memories:', err);
+    res.status(500).json({ error: 'Failed to fetch memories' });
+  }
+});
+
+// DELETE /api/operator/memories/:id - Delete a specific memory
+router.delete('/memories/:id', async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    const { id } = req.params;
+    const result = await pool.query(
+      'DELETE FROM operator_long_term_memory WHERE id = $1 AND user_id = $2 RETURNING id',
+      [id, userId]
+    );
+    if (result.rows.length === 0) {
+      res.status(404).json({ error: 'Memory not found' });
+      return;
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Error deleting memory:', err);
+    res.status(500).json({ error: 'Failed to delete memory' });
   }
 });
 

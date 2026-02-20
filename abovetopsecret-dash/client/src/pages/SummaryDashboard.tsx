@@ -8,6 +8,8 @@ import { fmt } from '../lib/formatters';
 import PageShell from '../components/shared/PageShell';
 import SpendRevenueChart from '../components/charts/SpendRevenueChart';
 import MetricSparkline from '../components/charts/MetricSparkline';
+import AnimatedNumber from '../components/shared/AnimatedNumber';
+import LiveOrderFeed from '../components/dashboard/LiveOrderFeed';
 
 const WORKSPACES = [
   { label: 'Attribution', desc: 'Campaign performance & ROI tracking', icon: 'target', path: ROUTES.ATTRIBUTION, metric: 'roas' as const },
@@ -153,7 +155,9 @@ export default function SummaryDashboard() {
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-6">
           <div className="bg-ats-card rounded-xl p-4 border border-ats-border">
             <div className="text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Spend</div>
-            <div className="text-2xl font-bold text-ats-text font-mono">{fmt.currency(summary.total_spend)}</div>
+            <div className="text-2xl font-bold text-ats-text font-mono">
+              <AnimatedNumber value={summary.total_spend} format={fmt.currency} />
+            </div>
             {spendSpark.length > 0 && (
               <div className="mt-2">
                 <MetricSparkline data={spendSpark} color="#ef4444" height={28} />
@@ -162,7 +166,9 @@ export default function SummaryDashboard() {
           </div>
           <div className="bg-ats-card rounded-xl p-4 border border-ats-border">
             <div className="text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Revenue</div>
-            <div className="text-2xl font-bold text-ats-green font-mono">{fmt.currency(summary.total_revenue)}</div>
+            <div className="text-2xl font-bold text-ats-green font-mono">
+              <AnimatedNumber value={summary.total_revenue} format={fmt.currency} />
+            </div>
             {revenueSpark.length > 0 && (
               <div className="mt-2">
                 <MetricSparkline data={revenueSpark} color="#22c55e" height={28} />
@@ -171,11 +177,15 @@ export default function SummaryDashboard() {
           </div>
           <div className="bg-ats-card rounded-xl p-4 border border-ats-border">
             <div className="text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">ROAS</div>
-            <div className={`text-2xl font-bold font-mono ${roiColor}`}>{fmt.ratio(summary.total_roi)}</div>
+            <div className={`text-2xl font-bold font-mono ${roiColor}`}>
+              <AnimatedNumber value={summary.total_roi} format={fmt.ratio} />
+            </div>
           </div>
           <div className="bg-ats-card rounded-xl p-4 border border-ats-border">
             <div className="text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Conversions</div>
-            <div className="text-2xl font-bold text-ats-text font-mono">{fmt.num(summary.total_conversions)}</div>
+            <div className="text-2xl font-bold text-ats-text font-mono">
+              <AnimatedNumber value={summary.total_conversions} format={fmt.num} />
+            </div>
             {conversionSpark.length > 0 && (
               <div className="mt-2">
                 <MetricSparkline data={conversionSpark} color="#3b82f6" height={28} />
@@ -184,7 +194,9 @@ export default function SummaryDashboard() {
           </div>
           <div className="bg-ats-card rounded-xl p-4 border border-ats-border">
             <div className="text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Net Profit</div>
-            <div className={`text-2xl font-bold font-mono ${profitColor}`}>{fmt.currency(profit)}</div>
+            <div className={`text-2xl font-bold font-mono ${profitColor}`}>
+              <AnimatedNumber value={profit} format={fmt.currency} />
+            </div>
           </div>
         </div>
       )}
@@ -226,24 +238,32 @@ export default function SummaryDashboard() {
         ))}
       </div>
 
-      {/* Recent Activity */}
-      <h2 className="text-sm font-semibold text-ats-text-muted uppercase tracking-wider mb-3">Recent Activity</h2>
-      <div className="bg-ats-card rounded-xl border border-ats-border divide-y divide-ats-border">
-        {recentActivity.length === 0 ? (
-          <div className="p-6 text-center text-sm text-ats-text-muted">
-            No recent activity. Data will appear after sync.
-          </div>
-        ) : (
-          recentActivity.map((item, i) => (
-            <div key={i} className="flex items-start gap-3 px-4 py-3">
-              <span className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${activityDotColor(item.type)}`} />
-              <div className="flex-1 min-w-0">
-                <div className="text-sm text-ats-text">{item.text}</div>
-                <div className="text-[11px] text-ats-text-muted mt-0.5">{item.time}</div>
+      {/* Recent Activity & Live Orders */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+        <div>
+          <h2 className="text-sm font-semibold text-ats-text-muted uppercase tracking-wider mb-3">Recent Activity</h2>
+          <div className="bg-ats-card rounded-xl border border-ats-border divide-y divide-ats-border">
+            {recentActivity.length === 0 ? (
+              <div className="p-6 text-center text-sm text-ats-text-muted">
+                No recent activity. Data will appear after sync.
               </div>
-            </div>
-          ))
-        )}
+            ) : (
+              recentActivity.map((item, i) => (
+                <div key={i} className="flex items-start gap-3 px-4 py-3">
+                  <span className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${activityDotColor(item.type)}`} />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm text-ats-text">{item.text}</div>
+                    <div className="text-[11px] text-ats-text-muted mt-0.5">{item.time}</div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+        <div>
+          <h2 className="text-sm font-semibold text-ats-text-muted uppercase tracking-wider mb-3">Live Orders</h2>
+          <LiveOrderFeed />
+        </div>
       </div>
     </PageShell>
   );

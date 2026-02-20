@@ -6,6 +6,7 @@ import Filters from '../../components/dashboard/Filters';
 import MetricsTable from '../../components/dashboard/MetricsTable';
 import MobileCard from '../../components/dashboard/MobileCard';
 import ExportButton from '../../components/dashboard/ExportButton';
+import LiveOrderFeed from '../../components/dashboard/LiveOrderFeed';
 import PageShell from '../../components/shared/PageShell';
 
 export default function AttributionDashboard() {
@@ -211,6 +212,11 @@ export default function AttributionDashboard() {
               ))}
             </div>
           )}
+        </div>
+
+        {/* Live Order Feed */}
+        <div className="mt-4 mb-4">
+          <LiveOrderFeed />
         </div>
 
         {/* Footer info */}

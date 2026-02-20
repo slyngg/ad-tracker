@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import crypto from 'crypto';
 import pool from '../db';
 import { verifyCheckoutChamp, verifyShopify } from '../middleware/webhook-verify';
 import { getRealtime } from '../services/realtime';
@@ -9,11 +10,12 @@ const router = Router();
 async function resolveWebhookToken(token: string | undefined): Promise<number | null> {
   if (!token) return null;
   try {
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
     const result = await pool.query(
       `UPDATE webhook_tokens SET last_used_at = NOW()
        WHERE token = $1 AND active = true
        RETURNING user_id`,
-      [token]
+      [tokenHash]
     );
     if (result.rows.length > 0) {
       return result.rows[0].user_id;
@@ -104,7 +106,7 @@ async function handleCCWebhook(req: Request, res: Response) {
 
     // Emit real-time new order event
     getRealtime()?.emitNewOrder(userId, {
-      orderId, offerName, revenue: subtotal, status: orderStatus,
+      orderId, offerName, revenue: subtotal, status: orderStatus, newCustomer: !!newCustomer,
     });
 
     res.json({ success: true, order_id: orderId });
@@ -185,7 +187,7 @@ async function handleShopifyWebhook(req: Request, res: Response) {
 
     // Emit real-time new order event
     getRealtime()?.emitNewOrder(userId, {
-      orderId, offerName, revenue: subtotalPrice, status: orderStatus,
+      orderId, offerName, revenue: subtotalPrice, status: orderStatus, newCustomer: !!newCustomer,
     });
 
     res.json({ success: true, order_id: orderId });

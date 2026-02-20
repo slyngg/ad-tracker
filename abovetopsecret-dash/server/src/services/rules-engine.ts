@@ -206,15 +206,24 @@ async function executeWebhookWithRetry(rule: Rule, metrics: Record<string, numbe
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          rule: rule.name,
-          metrics,
-          triggered_at: new Date().toISOString(),
-        }),
-      });
+      // Per-request timeout of 10 seconds
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10000);
+      let response: Response;
+      try {
+        response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            rule: rule.name,
+            metrics,
+            triggered_at: new Date().toISOString(),
+          }),
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timeout);
+      }
 
       attempts.push({ attempt: attempt + 1, status: response.status, success: response.ok });
 
@@ -222,11 +231,20 @@ async function executeWebhookWithRetry(rule: Rule, metrics: Record<string, numbe
         return { type: 'webhook', attempts, delivered: true };
       }
 
-      // Non-2xx response, retry if not last attempt
+      // 4xx errors are client errors — do not retry, throw immediately
+      if (response.status >= 400 && response.status < 500) {
+        throw new Error(`Webhook returned client error ${response.status}, not retrying: ${JSON.stringify(attempts)}`);
+      }
+
+      // 5xx errors — retry if not last attempt
       if (attempt < maxAttempts - 1) {
         await new Promise((resolve) => setTimeout(resolve, delays[attempt]));
       }
     } catch (err: any) {
+      // Re-throw 4xx errors without retrying
+      if (err.message?.includes('not retrying')) {
+        throw err;
+      }
       attempts.push({ attempt: attempt + 1, error: err.message });
       if (attempt < maxAttempts - 1) {
         await new Promise((resolve) => setTimeout(resolve, delays[attempt]));

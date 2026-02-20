@@ -228,6 +228,7 @@ router.get('/summary', async (req: Request, res: Response) => {
     const userId = (req as any).user?.id as number | undefined;
     const userFilter = userId ? 'AND user_id = $1' : 'AND user_id IS NULL';
     const userParams = userId ? [userId] : [];
+    const prevUserFilter = userId ? 'AND user_id = $1' : '';
 
     // Compute totals from each table independently — no join needed for summary
     const result = await pool.query(`
@@ -237,14 +238,46 @@ router.get('/summary', async (req: Request, res: Response) => {
         (SELECT COUNT(DISTINCT order_id) FROM cc_orders_today WHERE order_status = 'completed' ${userFilter}) AS total_conversions
     `, userParams);
 
+    // Fetch previous period (yesterday) from archive tables
+    const prevSpendResult = await pool.query(`
+      SELECT COALESCE(SUM((ad_data->>'spend')::NUMERIC), 0) AS prev_spend
+      FROM fb_ads_archive
+      WHERE archived_date = CURRENT_DATE - INTERVAL '1 day' ${prevUserFilter}
+    `, userParams);
+
+    const prevOrdersResult = await pool.query(`
+      SELECT
+        COALESCE(SUM(CASE WHEN order_data->>'order_status' = 'completed'
+          THEN COALESCE((order_data->>'subtotal')::NUMERIC, (order_data->>'revenue')::NUMERIC) ELSE 0 END), 0) AS prev_revenue,
+        COUNT(DISTINCT CASE WHEN order_data->>'order_status' = 'completed'
+          THEN order_data->>'order_id' END) AS prev_conversions
+      FROM orders_archive
+      WHERE archived_date = CURRENT_DATE - INTERVAL '1 day' ${prevUserFilter}
+    `, userParams);
+
     const row = result.rows[0];
     const totalSpend = parseFloat(row.total_spend) || 0;
     const totalRevenue = parseFloat(row.total_revenue) || 0;
+
+    const prevSpend = parseFloat(prevSpendResult.rows[0]?.prev_spend) || 0;
+    const prevRevenue = parseFloat(prevOrdersResult.rows[0]?.prev_revenue) || 0;
+    const prevConversions = parseInt(prevOrdersResult.rows[0]?.prev_conversions) || 0;
+    const prevRoi = prevSpend > 0 ? prevRevenue / prevSpend : 0;
+
+    // Only include previous data if there's actually archived data for yesterday
+    const hasPrevData = prevSpend > 0 || prevRevenue > 0 || prevConversions > 0;
+
     res.json({
       total_spend: totalSpend,
       total_revenue: totalRevenue,
       total_roi: totalSpend > 0 ? totalRevenue / totalSpend : 0,
       total_conversions: parseInt(row.total_conversions) || 0,
+      previous: hasPrevData ? {
+        total_spend: prevSpend,
+        total_revenue: prevRevenue,
+        total_roi: prevRoi,
+        total_conversions: prevConversions,
+      } : null,
     });
   } catch (err) {
     console.error('Error fetching summary:', err);

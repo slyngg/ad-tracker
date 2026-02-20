@@ -13,6 +13,7 @@ import { fetchMetrics, fetchTimeseries, MetricRow, TimeseriesPoint } from '../..
 import { fmt } from '../../lib/formatters';
 import PageShell from '../../components/shared/PageShell';
 import MetricSparkline from '../../components/charts/MetricSparkline';
+import AnimatedNumber from '../../components/shared/AnimatedNumber';
 
 export default function WebsitePerformancePage() {
   const [metrics, setMetrics] = useState<MetricRow[]>([]);
@@ -171,7 +172,9 @@ export default function WebsitePerformancePage() {
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
             <div className="bg-ats-card rounded-xl p-4 border border-ats-border">
               <div className="text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Avg CTR</div>
-              <div className="text-2xl font-bold text-ats-accent font-mono">{fmt.pctRaw(kpis.avgCtr)}</div>
+              <div className="text-2xl font-bold text-ats-accent font-mono">
+                <AnimatedNumber value={kpis.avgCtr} format={fmt.pctRaw} />
+              </div>
               {clicksSpark.length > 0 && (
                 <div className="mt-2">
                   <MetricSparkline data={clicksSpark} color="#3b82f6" height={24} />
@@ -180,11 +183,15 @@ export default function WebsitePerformancePage() {
             </div>
             <div className="bg-ats-card rounded-xl p-4 border border-ats-border">
               <div className="text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Avg CPC</div>
-              <div className="text-2xl font-bold text-ats-text font-mono">{fmt.currency(kpis.avgCpc)}</div>
+              <div className="text-2xl font-bold text-ats-text font-mono">
+                <AnimatedNumber value={kpis.avgCpc} format={fmt.currency} />
+              </div>
             </div>
             <div className="bg-ats-card rounded-xl p-4 border border-ats-border">
               <div className="text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Avg CPM</div>
-              <div className="text-2xl font-bold text-ats-text font-mono">{fmt.currency(kpis.avgCpm)}</div>
+              <div className="text-2xl font-bold text-ats-text font-mono">
+                <AnimatedNumber value={kpis.avgCpm} format={fmt.currency} />
+              </div>
               {impressionsSpark.length > 0 && (
                 <div className="mt-2">
                   <MetricSparkline data={impressionsSpark} color="#8b5cf6" height={24} />
@@ -193,7 +200,9 @@ export default function WebsitePerformancePage() {
             </div>
             <div className="bg-ats-card rounded-xl p-4 border border-ats-border">
               <div className="text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Avg LP CTR</div>
-              <div className="text-2xl font-bold text-ats-green font-mono">{fmt.pctRaw(kpis.avgLpCtr)}</div>
+              <div className="text-2xl font-bold text-ats-green font-mono">
+                <AnimatedNumber value={kpis.avgLpCtr} format={fmt.pctRaw} />
+              </div>
             </div>
           </div>
 
@@ -201,15 +210,21 @@ export default function WebsitePerformancePage() {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
             <div className="bg-ats-card rounded-xl p-3 border border-ats-border">
               <div className="text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Est. Clicks</div>
-              <div className="text-lg font-bold text-ats-text font-mono">{fmt.num(Math.round(kpis.totalClicks))}</div>
+              <div className="text-lg font-bold text-ats-text font-mono">
+                <AnimatedNumber value={Math.round(kpis.totalClicks)} format={fmt.num} />
+              </div>
             </div>
             <div className="bg-ats-card rounded-xl p-3 border border-ats-border">
               <div className="text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Est. Impressions</div>
-              <div className="text-lg font-bold text-ats-text font-mono">{fmt.num(Math.round(kpis.totalImpressions))}</div>
+              <div className="text-lg font-bold text-ats-text font-mono">
+                <AnimatedNumber value={Math.round(kpis.totalImpressions)} format={fmt.num} />
+              </div>
             </div>
             <div className="bg-ats-card rounded-xl p-3 border border-ats-border">
               <div className="text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Ad Sets</div>
-              <div className="text-lg font-bold text-ats-text font-mono">{metrics.length}</div>
+              <div className="text-lg font-bold text-ats-text font-mono">
+                <AnimatedNumber value={metrics.length} format={fmt.num} />
+              </div>
             </div>
           </div>
 

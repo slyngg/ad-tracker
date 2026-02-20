@@ -1,0 +1,21 @@
+-- Migration 008: Security fixes
+--
+-- IMPORTANT: Existing plaintext tokens in the webhook_tokens table must be
+-- rehashed manually. After deploying the new application code, run the
+-- following steps:
+--
+--   1. Query all existing tokens: SELECT id, token FROM webhook_tokens;
+--   2. For each token, compute SHA256: echo -n "<token>" | sha256sum
+--   3. Update each row: UPDATE webhook_tokens SET token = '<hash>' WHERE id = <id>;
+--
+-- WARNING: After rehashing, any previously issued raw tokens will continue to
+-- work (since the app now hashes incoming tokens before lookup). However, the
+-- raw tokens cannot be recovered from the database — users who have lost their
+-- raw token will need to generate a new one.
+--
+-- No schema changes are required for token hashing — the token column already
+-- stores hex strings and SHA256 hex output is 64 characters, which fits within
+-- the existing column type.
+
+-- Add an index on the token column for faster lookups if not already present
+CREATE INDEX IF NOT EXISTS idx_webhook_tokens_token ON webhook_tokens (token);

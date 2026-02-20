@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import crypto from 'crypto';
 import pool from '../db';
 
 const router = Router();
@@ -102,13 +103,16 @@ router.get('/snippet/:funnelPage', async (req: Request, res: Response) => {
     }
 
     const config = result.rows[0];
-    const domain = req.headers.origin || req.headers.host || 'https://yourdomain.com';
+    // Sanitize domain and funnelPage to prevent header/template injection
+    const rawDomain = (req.headers.origin || req.headers.host || 'https://yourdomain.com') as string;
+    const domain = rawDomain.replace(/[^a-zA-Z0-9.\-:\/]/g, '');
+    const safeFunnelPage = funnelPage.replace(/[^a-zA-Z0-9.\-_]/g, '');
 
     let snippet: string;
     if (config.pixel_type === 'image') {
-      snippet = `<!-- OpticData Pixel — ${funnelPage} -->
+      snippet = `<!-- OpticData Pixel — ${safeFunnelPage} -->
 <noscript>
-  <img src="${domain}/api/pixel-configs/event?event_type=pageview&funnel_page=${funnelPage}" width="1" height="1" alt="" style="display:none" />
+  <img src="${domain}/api/pixel-configs/event?event_type=pageview&funnel_page=${safeFunnelPage}" width="1" height="1" alt="" style="display:none" />
 </noscript>
 <!-- End OpticData Pixel -->`;
     } else {
@@ -117,11 +121,11 @@ router.get('/snippet/:funnelPage', async (req: Request, res: Response) => {
       if (config.track_conversions) events.push("'conversion'");
       if (config.track_upsells) events.push("'upsell'");
 
-      snippet = `<!-- OpticData Pixel — ${funnelPage} -->
+      snippet = `<!-- OpticData Pixel — ${safeFunnelPage} -->
 <script>
 (function(){
   var ep='${domain}/api/pixel-configs/event';
-  var page='${funnelPage}';
+  var page='${safeFunnelPage}';
   var events=[${events.join(',')}];
   var params=new URLSearchParams(window.location.search);
   var data={funnel_page:page,fbclid:params.get('fbclid')||'',utm_source:params.get('utm_source')||'',utm_campaign:params.get('utm_campaign')||''};
@@ -169,9 +173,10 @@ router.post('/event', async (req: Request, res: Response) => {
     // If no authenticated user, try to resolve from pixel token/webhook token
     let resolvedUserId = userId;
     if (!resolvedUserId && pixelToken) {
+      const pixelTokenHash = crypto.createHash('sha256').update(pixelToken).digest('hex');
       const tokenResult = await pool.query(
         'SELECT user_id FROM webhook_tokens WHERE token = $1 AND active = true',
-        [pixelToken]
+        [pixelTokenHash]
       );
       if (tokenResult.rows.length > 0) {
         resolvedUserId = tokenResult.rows[0].user_id;

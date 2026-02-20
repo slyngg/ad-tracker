@@ -104,11 +104,28 @@ export default function OperatorPage() {
 
   const { speak, stop: stopSpeaking, isSpeaking, isSupported: voiceOutputSupported } = useVoiceOutput({ onEnd: handleSpeechEnd });
 
+  const voiceAutoSendTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const handleVoiceResult = useCallback((text: string) => {
     setInput(text);
-  }, []);
+    // Auto-send after a brief delay in manual mic mode (not hands-free)
+    // to give the user a moment to see/correct the transcript
+    if (!handsFreeActive) {
+      if (voiceAutoSendTimer.current) clearTimeout(voiceAutoSendTimer.current);
+      voiceAutoSendTimer.current = setTimeout(() => {
+        sendMessageRef.current?.(text);
+      }, 500);
+    }
+  }, [handsFreeActive]);
 
   const { isListening, startListening, stopListening, isSupported: voiceInputSupported } = useVoiceInput(handleVoiceResult);
+
+  // Cleanup voice auto-send timer on unmount
+  useEffect(() => {
+    return () => {
+      if (voiceAutoSendTimer.current) clearTimeout(voiceAutoSendTimer.current);
+    };
+  }, []);
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });

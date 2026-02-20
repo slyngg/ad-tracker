@@ -1,5 +1,5 @@
 import { Suspense, lazy, Component, ReactNode } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, Link } from 'react-router-dom';
 import AuthGate from './components/auth/AuthGate';
 import LoadingSpinner from './components/shared/LoadingSpinner';
 import AppLayout from './components/layout/AppLayout';
@@ -31,6 +31,8 @@ const TrackingSettingsPage = lazy(() => import('./pages/settings/TrackingSetting
 const AccountPage = lazy(() => import('./pages/settings/AccountPage'));
 const RulesEnginePage = lazy(() => import('./pages/rules/RulesEnginePage'));
 const PnLPage = lazy(() => import('./pages/finance/PnLPage'));
+const MemoriesPage = lazy(() => import('./pages/settings/MemoriesPage'));
+const WidgetConfigPage = lazy(() => import('./pages/settings/WidgetConfigPage'));
 
 // Error boundary
 interface ErrorBoundaryState {
@@ -77,7 +79,13 @@ function NotFoundPage() {
     <div className="flex items-center justify-center min-h-[60vh]">
       <div className="bg-ats-card border border-ats-border rounded-2xl p-8 text-center max-w-md">
         <h2 className="text-lg font-bold text-ats-text mb-2">Page Not Found</h2>
-        <p className="text-sm text-ats-text-muted">The page you're looking for doesn't exist.</p>
+        <p className="text-sm text-ats-text-muted mb-4">The page you're looking for doesn't exist.</p>
+        <Link
+          to="/"
+          className="px-6 py-3 bg-ats-accent rounded-lg text-white text-sm font-semibold hover:bg-blue-600 transition-colors inline-block"
+        >
+          Back to Dashboard
+        </Link>
       </div>
     </div>
   );
@@ -127,6 +135,8 @@ export default function App() {
               <Route path="/settings/notifications" element={<NotificationsPage />} />
               <Route path="/settings/tracking" element={<TrackingSettingsPage />} />
               <Route path="/settings/account" element={<AccountPage />} />
+              <Route path="/settings/memories" element={<MemoriesPage />} />
+              <Route path="/settings/widget" element={<WidgetConfigPage />} />
 
               {/* Finance */}
               <Route path="/finance/pnl" element={<PnLPage />} />

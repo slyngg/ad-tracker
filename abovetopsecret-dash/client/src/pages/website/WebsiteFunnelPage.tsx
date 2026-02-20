@@ -3,6 +3,7 @@ import { fetchFunnel, fetchMetrics, FunnelData, MetricRow } from '../../lib/api'
 import { fmt } from '../../lib/formatters';
 import PageShell from '../../components/shared/PageShell';
 import ConversionFunnel from '../../components/charts/ConversionFunnel';
+import AnimatedNumber from '../../components/shared/AnimatedNumber';
 
 const FUNNEL_COLORS = ['#3b82f6', '#8b5cf6', '#eab308', '#22c55e', '#ef4444', '#f97316'];
 
@@ -166,22 +167,26 @@ export default function WebsiteFunnelPage() {
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
             <div className="bg-ats-card rounded-xl p-4 border border-ats-border">
               <div className="text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Impressions</div>
-              <div className="text-2xl font-bold text-ats-text font-mono">{fmt.num(funnelData.impressions)}</div>
+              <div className="text-2xl font-bold text-ats-text font-mono">
+                <AnimatedNumber value={funnelData.impressions} format={fmt.num} />
+              </div>
             </div>
             <div className="bg-ats-card rounded-xl p-4 border border-ats-border">
               <div className="text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Orders</div>
-              <div className="text-2xl font-bold text-ats-green font-mono">{fmt.num(funnelData.orders)}</div>
+              <div className="text-2xl font-bold text-ats-green font-mono">
+                <AnimatedNumber value={funnelData.orders} format={fmt.num} />
+              </div>
             </div>
             <div className="bg-ats-card rounded-xl p-4 border border-ats-border">
               <div className="text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Overall CVR</div>
               <div className={`text-2xl font-bold font-mono ${overallRate >= 1 ? 'text-ats-green' : 'text-ats-yellow'}`}>
-                {overallRate.toFixed(2)}%
+                <AnimatedNumber value={overallRate} format={(n) => `${n.toFixed(2)}%`} />
               </div>
             </div>
             <div className="bg-ats-card rounded-xl p-4 border border-ats-border">
               <div className="text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Upsell Rate</div>
               <div className={`text-2xl font-bold font-mono ${upsellRate >= 30 ? 'text-ats-green' : upsellRate >= 15 ? 'text-ats-yellow' : 'text-ats-red'}`}>
-                {upsellRate.toFixed(1)}%
+                <AnimatedNumber value={upsellRate} format={(n) => `${n.toFixed(1)}%`} />
               </div>
             </div>
           </div>

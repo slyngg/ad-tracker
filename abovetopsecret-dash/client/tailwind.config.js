@@ -30,6 +30,16 @@ export default {
         'sidebar': '260px',
         'sidebar-collapsed': '64px',
       },
+      keyframes: {
+        'pulse-once': {
+          '0%': { opacity: '0.6' },
+          '50%': { opacity: '1' },
+          '100%': { opacity: '1' },
+        },
+      },
+      animation: {
+        'pulse-once': 'pulse-once 1s ease-out',
+      },
     },
   },
   plugins: [],

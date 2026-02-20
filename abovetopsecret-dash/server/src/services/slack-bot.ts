@@ -737,8 +737,9 @@ export function initSlackBot(): void {
           const pending = updateDebounce.get(channelId);
           if (pending) { clearTimeout(pending); updateDebounce.delete(channelId); }
           try { await client.pins.remove({ channel: channelId, timestamp: pinned.ts }); } catch {}
+          try { await client.chat.delete({ channel: channelId, ts: pinned.ts }); } catch {}
           pinnedDashboards.delete(channelId);
-          await respond({ text: ':x: Dashboard unpinned and auto-updates stopped.', response_type: 'ephemeral' });
+          await respond({ text: ':white_check_mark: Dashboard removed and auto-updates stopped.', response_type: 'ephemeral' });
         } else {
           await respond({ text: 'No pinned dashboard found in this channel.', response_type: 'ephemeral' });
         }
@@ -775,17 +776,86 @@ export function initSlackBot(): void {
         await respond(answer);
       } else {
         await respond({ blocks: [
-          { type: 'header', text: { type: 'plain_text', text: 'OpticData Commands' } },
+          { type: 'header', text: { type: 'plain_text', text: ':zap: OpticData Command Center — Full Guide' } },
+
+          // --- Slash Commands ---
+          { type: 'section', text: { type: 'mrkdwn', text: '*:keyboard: Slash Commands*' } },
           { type: 'section', text: { type: 'mrkdwn', text: [
-            '`/optic status` — Full dashboard (private)',
-            '`/optic pin` — Pin live dashboard to channel',
-            '`/optic unpin` — Stop auto-updating',
-            '`/optic roas` — Today\'s ROAS',
-            '`/optic spend` — Spend + CPC/CPM',
-            '`/optic cpa` — CPA + CAC + conversions',
-            '`/optic revenue` — Revenue + P/L',
-            '`/optic ask <question>` — Ask AI about your data',
+            '`/optic status` — Full dashboard with P/L, accounts, offers & alerts (private)',
+            '`/optic pin` — Pin a live dashboard to this channel (auto-updates on new data)',
+            '`/optic unpin` — Remove pinned dashboard & stop auto-updates',
+            '`/optic roas` — Quick ROAS check: revenue / spend',
+            '`/optic spend` — Today\'s ad spend + CPC + CPM',
+            '`/optic cpa` — Cost per acquisition + CAC + conversion count',
+            '`/optic revenue` — Revenue total + P/L',
+            '`/optic ask <question>` — Ask the AI anything (see below)',
+            '`/optic help` — This guide',
           ].join('\n') } },
+          { type: 'divider' },
+
+          // --- Live Dashboard ---
+          { type: 'section', text: { type: 'mrkdwn', text: '*:bar_chart: Live Dashboard Pages* (use arrow buttons to navigate)' } },
+          { type: 'section', text: { type: 'mrkdwn', text: [
+            '*Page 1 — Command Center Overview*',
+            '  P/L summary, per-account cards (Spend, Rev, ROAS, CPA, P/L), per-offer cards, :rotating_light: bleeding-money alerts',
+            '*Page 2 — Campaigns Deep Dive*',
+            '  Per-campaign: Spend, Rev, ROAS, P/L, CPA, CPC, CPM, CVR, CTR, Hook Rate, Clicks, Impressions, LP Views, Orders, New Customers, AOV, Ad Set & Ad counts',
+            '*Page 3 — Offers Deep Dive*',
+            '  Per-offer: Revenue, Orders, AOV, New Customers, Spend, ROAS, CPA, P/L, CPC, CPM, CVR, Hook Rate, CTR, Clicks, Impressions, LP Views',
+            '*Page 4 — Ad Accounts Deep Dive*',
+            '  Per-account: Spend, Rev, ROAS, P/L, CPA, CPC, CPM, CVR, CTR, Hook Rate, Clicks, Impressions, LP Views, Orders, New Customers, AOV + Campaign/AdSet/Ad counts',
+          ].join('\n') } },
+          { type: 'divider' },
+
+          // --- AI Agent: Data Queries ---
+          { type: 'section', text: { type: 'mrkdwn', text: '*:robot_face: AI Agent — Ask Anything*\nUse `/optic ask` or `@OpticData` to chat with the AI. It has 15 real-time tools:' } },
+          { type: 'section', text: { type: 'mrkdwn', text: [
+            '*:mag: Data & Analytics*',
+            '• *Campaign Metrics* — Spend, clicks, impressions, CPC, CTR per campaign',
+            '• *Adset Metrics* — Adset-level breakdown with spend, clicks, CPC',
+            '• *Order Stats* — Revenue, conversions, AOV summary',
+            '• *Top Offers* — Offers ranked by revenue',
+            '• *ROAS by Campaign* — ROAS per campaign (ad spend vs. order revenue)',
+            '• *Source/Medium* — Traffic source breakdown (UTM source & medium)',
+            '• *Historical Data* — Query past performance by day, campaign, or adset for any date range',
+            '• *Custom SQL* — Run any read-only query against your data',
+          ].join('\n') } },
+          { type: 'section', text: { type: 'mrkdwn', text: [
+            '*:joystick: Meta Ads Actions*',
+            '• *Pause Adset* — Instantly pause any adset to stop delivery',
+            '• *Enable Adset* — Re-activate a paused adset',
+            '• *Adjust Budget* — Change an adset\'s daily budget to any amount',
+          ].join('\n') } },
+          { type: 'section', text: { type: 'mrkdwn', text: [
+            '*:gear: Automation & Alerts*',
+            '• *List Rules* — See all your automation rules + status',
+            '• *Create Rule* — Build rules like "if CPA > $50, pause adset X"',
+            '• *Toggle Rule* — Enable/disable any automation rule',
+            '• *Send Notification* — Push an alert to your dashboard + Slack',
+          ].join('\n') } },
+          { type: 'divider' },
+
+          // --- Example Prompts ---
+          { type: 'section', text: { type: 'mrkdwn', text: '*:speech_balloon: Example Prompts — Try These*' } },
+          { type: 'section', text: { type: 'mrkdwn', text: [
+            ':chart_with_upwards_trend: _"What\'s my best performing campaign today?"_',
+            ':chart_with_downwards_trend: _"Which adsets are bleeding money? Show me anything with ROAS under 1.0"_',
+            ':pause_button: _"Pause adset 23851234567890"_',
+            ':moneybag: _"Boost the budget on adset 23851234567890 to $200/day"_',
+            ':arrows_counterclockwise: _"Re-enable adset 23851234567890"_',
+            ':shopping_bags: _"What are my top 5 offers by revenue?"_',
+            ':world_map: _"Break down my traffic by source and medium"_',
+            ':calendar: _"Compare last week\'s spend vs this week by campaign"_',
+            ':robot_face: _"Create a rule: if CPA goes above $40, pause adset 23851234567890"_',
+            ':clipboard: _"List all my automation rules"_',
+            ':bar_chart: _"Run SQL: SELECT campaign_name, SUM(spend) FROM fb_ads_today WHERE user_id=1 GROUP BY campaign_name"_',
+            ':bell: _"Send me a notification saying \'Check your campaigns\'"_',
+          ].join('\n') } },
+          { type: 'divider' },
+
+          // --- @mention ---
+          { type: 'section', text: { type: 'mrkdwn', text: '*:bulb: Pro Tips*\n• Mention `@OpticData` in any channel to chat without using `/optic ask`\n• The pinned dashboard auto-refreshes every time new webhook data arrives\n• The AI remembers context within a conversation — ask follow-up questions\n• All data is scoped to your account — multi-tenant safe' } },
+          dashboardLinkBlock(),
         ] });
       }
     } catch (err) {

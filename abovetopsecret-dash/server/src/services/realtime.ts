@@ -165,9 +165,10 @@ export class RealtimeService {
   private async fetchSnapshot(userId: number | null): Promise<any> {
     const uf = userId ? 'WHERE user_id = $1' : '';
     const ufAnd = userId ? 'AND user_id = $1' : '';
+    const prevUserFilter = userId ? 'AND user_id = $1' : '';
     const params = userId ? [userId] : [];
 
-    const [summaryResult, recentOrdersResult] = await Promise.all([
+    const [summaryResult, recentOrdersResult, prevSpendResult, prevOrdersResult] = await Promise.all([
       this.pool.query(`
         SELECT
           (SELECT COALESCE(SUM(spend), 0) FROM fb_ads_today ${uf ? 'WHERE user_id = $1' : ''}) AS total_spend,
@@ -181,11 +182,31 @@ export class RealtimeService {
         ORDER BY conversion_time DESC
         LIMIT 20
       `, params),
+      this.pool.query(`
+        SELECT COALESCE(SUM((ad_data->>'spend')::NUMERIC), 0) AS prev_spend
+        FROM fb_ads_archive
+        WHERE archived_date = CURRENT_DATE - INTERVAL '1 day' ${prevUserFilter}
+      `, params),
+      this.pool.query(`
+        SELECT
+          COALESCE(SUM(CASE WHEN order_data->>'order_status' = 'completed'
+            THEN COALESCE((order_data->>'subtotal')::NUMERIC, (order_data->>'revenue')::NUMERIC) ELSE 0 END), 0) AS prev_revenue,
+          COUNT(DISTINCT CASE WHEN order_data->>'order_status' = 'completed'
+            THEN order_data->>'order_id' END) AS prev_conversions
+        FROM orders_archive
+        WHERE archived_date = CURRENT_DATE - INTERVAL '1 day' ${prevUserFilter}
+      `, params),
     ]);
 
     const row = summaryResult.rows[0];
     const totalSpend = parseFloat(row.total_spend) || 0;
     const totalRevenue = parseFloat(row.total_revenue) || 0;
+
+    const prevSpend = parseFloat(prevSpendResult.rows[0]?.prev_spend) || 0;
+    const prevRevenue = parseFloat(prevOrdersResult.rows[0]?.prev_revenue) || 0;
+    const prevConversions = parseInt(prevOrdersResult.rows[0]?.prev_conversions) || 0;
+    const prevRoi = prevSpend > 0 ? prevRevenue / prevSpend : 0;
+    const hasPrevData = prevSpend > 0 || prevRevenue > 0 || prevConversions > 0;
 
     return {
       summary: {
@@ -193,6 +214,12 @@ export class RealtimeService {
         total_revenue: totalRevenue,
         total_roi: totalSpend > 0 ? totalRevenue / totalSpend : 0,
         total_conversions: parseInt(row.total_conversions) || 0,
+        previous: hasPrevData ? {
+          total_spend: prevSpend,
+          total_revenue: prevRevenue,
+          total_roi: prevRoi,
+          total_conversions: prevConversions,
+        } : null,
       },
       recentOrders: recentOrdersResult.rows.map((r: any) => ({
         orderId: r.order_id,
@@ -207,24 +234,53 @@ export class RealtimeService {
   private async fetchSummary(userId: number | null): Promise<any> {
     const uf = userId ? 'WHERE user_id = $1' : '';
     const ufAnd = userId ? 'AND user_id = $1' : '';
+    const prevUserFilter = userId ? 'AND user_id = $1' : '';
     const params = userId ? [userId] : [];
 
-    const result = await this.pool.query(`
-      SELECT
-        (SELECT COALESCE(SUM(spend), 0) FROM fb_ads_today ${uf ? 'WHERE user_id = $1' : ''}) AS total_spend,
-        (SELECT COALESCE(SUM(COALESCE(subtotal, revenue)), 0) FROM cc_orders_today WHERE order_status = 'completed' ${ufAnd}) AS total_revenue,
-        (SELECT COUNT(DISTINCT order_id) FROM cc_orders_today WHERE order_status = 'completed' ${ufAnd}) AS total_conversions
-    `, params);
+    const [result, prevSpendResult, prevOrdersResult] = await Promise.all([
+      this.pool.query(`
+        SELECT
+          (SELECT COALESCE(SUM(spend), 0) FROM fb_ads_today ${uf ? 'WHERE user_id = $1' : ''}) AS total_spend,
+          (SELECT COALESCE(SUM(COALESCE(subtotal, revenue)), 0) FROM cc_orders_today WHERE order_status = 'completed' ${ufAnd}) AS total_revenue,
+          (SELECT COUNT(DISTINCT order_id) FROM cc_orders_today WHERE order_status = 'completed' ${ufAnd}) AS total_conversions
+      `, params),
+      this.pool.query(`
+        SELECT COALESCE(SUM((ad_data->>'spend')::NUMERIC), 0) AS prev_spend
+        FROM fb_ads_archive
+        WHERE archived_date = CURRENT_DATE - INTERVAL '1 day' ${prevUserFilter}
+      `, params),
+      this.pool.query(`
+        SELECT
+          COALESCE(SUM(CASE WHEN order_data->>'order_status' = 'completed'
+            THEN COALESCE((order_data->>'subtotal')::NUMERIC, (order_data->>'revenue')::NUMERIC) ELSE 0 END), 0) AS prev_revenue,
+          COUNT(DISTINCT CASE WHEN order_data->>'order_status' = 'completed'
+            THEN order_data->>'order_id' END) AS prev_conversions
+        FROM orders_archive
+        WHERE archived_date = CURRENT_DATE - INTERVAL '1 day' ${prevUserFilter}
+      `, params),
+    ]);
 
     const row = result.rows[0];
     const totalSpend = parseFloat(row.total_spend) || 0;
     const totalRevenue = parseFloat(row.total_revenue) || 0;
+
+    const prevSpend = parseFloat(prevSpendResult.rows[0]?.prev_spend) || 0;
+    const prevRevenue = parseFloat(prevOrdersResult.rows[0]?.prev_revenue) || 0;
+    const prevConversions = parseInt(prevOrdersResult.rows[0]?.prev_conversions) || 0;
+    const prevRoi = prevSpend > 0 ? prevRevenue / prevSpend : 0;
+    const hasPrevData = prevSpend > 0 || prevRevenue > 0 || prevConversions > 0;
 
     return {
       total_spend: totalSpend,
       total_revenue: totalRevenue,
       total_roi: totalSpend > 0 ? totalRevenue / totalSpend : 0,
       total_conversions: parseInt(row.total_conversions) || 0,
+      previous: hasPrevData ? {
+        total_spend: prevSpend,
+        total_revenue: prevRevenue,
+        total_roi: prevRoi,
+        total_conversions: prevConversions,
+      } : null,
     };
   }
 
@@ -235,6 +291,7 @@ export class RealtimeService {
     offerName: string;
     revenue: number;
     status: string;
+    newCustomer?: boolean;
   }): Promise<void> {
     // Send the new order event
     this.broadcast(userId, {

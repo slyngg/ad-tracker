@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { fetchPnL, PnLData } from '../../lib/api';
 import PageShell from '../../components/shared/PageShell';
+import AnimatedNumber from '../../components/shared/AnimatedNumber';
 
 export default function PnLPage() {
   const [data, setData] = useState<PnLData | null>(null);
@@ -34,12 +35,14 @@ export default function PnLPage() {
 
   if (!data) return null;
 
+  const fmtPct = (n: number) => `${n.toFixed(1)}%`;
+
   const cards = [
-    { label: 'Revenue', value: fmt(data.revenue), color: 'text-ats-green' },
-    { label: 'Ad Spend', value: fmt(data.adSpend), color: 'text-ats-red' },
-    { label: 'COGS / Costs', value: fmt(data.cogs), color: 'text-yellow-400' },
-    { label: 'Net Profit', value: fmt(data.netProfit), color: data.netProfit >= 0 ? 'text-ats-green' : 'text-ats-red' },
-    { label: 'Margin', value: `${data.margin}%`, color: data.margin >= 0 ? 'text-ats-green' : 'text-ats-red' },
+    { label: 'Revenue', rawValue: data.revenue, format: fmt, color: 'text-ats-green' },
+    { label: 'Ad Spend', rawValue: data.adSpend, format: fmt, color: 'text-ats-red' },
+    { label: 'COGS / Costs', rawValue: data.cogs, format: fmt, color: 'text-yellow-400' },
+    { label: 'Net Profit', rawValue: data.netProfit, format: fmt, color: data.netProfit >= 0 ? 'text-ats-green' : 'text-ats-red' },
+    { label: 'Margin', rawValue: data.margin, format: fmtPct, color: data.margin >= 0 ? 'text-ats-green' : 'text-ats-red' },
   ];
 
   return (
@@ -54,7 +57,7 @@ export default function PnLPage() {
               {card.label}
             </div>
             <div className={`text-xl font-bold ${card.color}`}>
-              {card.value}
+              <AnimatedNumber value={card.rawValue} format={card.format} />
             </div>
           </div>
         ))}

@@ -12,6 +12,7 @@ import { fetchSourceMedium, SourceMediumRow } from '../../lib/api';
 import { fmt } from '../../lib/formatters';
 import PageShell from '../../components/shared/PageShell';
 import PieBreakdown from '../../components/charts/PieBreakdown';
+import AnimatedNumber from '../../components/shared/AnimatedNumber';
 
 interface SourceMediumGroup {
   source: string;
@@ -146,15 +147,21 @@ export default function SourceMediumPage() {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
             <div className="bg-ats-card rounded-xl p-4 border border-ats-border">
               <div className="text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Total Revenue</div>
-              <div className="text-xl font-bold text-ats-green font-mono">{fmt.currency(totals.revenue)}</div>
+              <div className="text-xl font-bold text-ats-green font-mono">
+                <AnimatedNumber value={totals.revenue} format={fmt.currency} />
+              </div>
             </div>
             <div className="bg-ats-card rounded-xl p-4 border border-ats-border">
               <div className="text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Total Conversions</div>
-              <div className="text-xl font-bold text-ats-text font-mono">{fmt.num(totals.conversions)}</div>
+              <div className="text-xl font-bold text-ats-text font-mono">
+                <AnimatedNumber value={totals.conversions} format={fmt.num} />
+              </div>
             </div>
             <div className="bg-ats-card rounded-xl p-4 border border-ats-border">
               <div className="text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Sources</div>
-              <div className="text-xl font-bold text-ats-text font-mono">{grouped.length}</div>
+              <div className="text-xl font-bold text-ats-text font-mono">
+                <AnimatedNumber value={grouped.length} format={fmt.num} />
+              </div>
             </div>
           </div>
 

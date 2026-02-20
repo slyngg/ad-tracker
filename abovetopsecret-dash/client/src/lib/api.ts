@@ -67,11 +67,19 @@ export interface MetricRow {
   }>;
 }
 
+export interface PreviousSummaryData {
+  total_spend: number;
+  total_revenue: number;
+  total_roi: number;
+  total_conversions: number;
+}
+
 export interface SummaryData {
   total_spend: number;
   total_revenue: number;
   total_roi: number;
   total_conversions: number;
+  previous?: PreviousSummaryData | null;
 }
 
 export interface OverrideRow {
