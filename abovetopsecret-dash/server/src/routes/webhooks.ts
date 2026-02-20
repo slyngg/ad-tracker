@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import pool from '../db';
 import { verifyCheckoutChamp, verifyShopify } from '../middleware/webhook-verify';
+import { getRealtime } from '../services/realtime';
 
 const router = Router();
 
@@ -101,6 +102,11 @@ async function handleCCWebhook(req: Request, res: Response) {
       }
     }
 
+    // Emit real-time new order event
+    getRealtime()?.emitNewOrder(userId, {
+      orderId, offerName, revenue: subtotal, status: orderStatus,
+    });
+
     res.json({ success: true, order_id: orderId });
   } catch (err) {
     console.error('Error processing CC webhook:', err);
@@ -176,6 +182,11 @@ async function handleShopifyWebhook(req: Request, res: Response) {
          user_id = EXCLUDED.user_id`,
       [orderId, offerName, totalPrice, subtotalPrice, totalTax, orderStatus, newCustomer, utmCampaign, fbclid, quantity, utmSource, utmMedium, utmContent, utmTerm, userId]
     );
+
+    // Emit real-time new order event
+    getRealtime()?.emitNewOrder(userId, {
+      orderId, offerName, revenue: subtotalPrice, status: orderStatus,
+    });
 
     res.json({ success: true, order_id: orderId });
   } catch (err) {

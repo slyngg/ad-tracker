@@ -108,7 +108,7 @@ router.get('/snippet/:funnelPage', async (req: Request, res: Response) => {
     if (config.pixel_type === 'image') {
       snippet = `<!-- OpticData Pixel — ${funnelPage} -->
 <noscript>
-  <img src="${domain}/api/tracking/pixel.gif?t=pageview&page=${funnelPage}&r=\${encodeURIComponent(document.referrer)}&u=\${encodeURIComponent(location.href)}" width="1" height="1" alt="" style="display:none" />
+  <img src="${domain}/api/pixel-configs/event?event_type=pageview&funnel_page=${funnelPage}" width="1" height="1" alt="" style="display:none" />
 </noscript>
 <!-- End OpticData Pixel -->`;
     } else {
@@ -119,18 +119,19 @@ router.get('/snippet/:funnelPage', async (req: Request, res: Response) => {
 
       snippet = `<!-- OpticData Pixel — ${funnelPage} -->
 <script>
-(function(o,d,t){
-  o._odt=o._odt||[];
-  var s=d.createElement('script');
-  s.async=true;
-  s.src=t+'/tracking/pixel.js';
-  d.head.appendChild(s);
-  o._odt.push(['init',{
-    domain:'${domain}',
-    page:'${funnelPage}',
-    events:[${events.join(',')}]
-  }]);
-})(window,document,'${domain}');
+(function(){
+  var ep='${domain}/api/pixel-configs/event';
+  var page='${funnelPage}';
+  var events=[${events.join(',')}];
+  var params=new URLSearchParams(window.location.search);
+  var data={funnel_page:page,fbclid:params.get('fbclid')||'',utm_source:params.get('utm_source')||'',utm_campaign:params.get('utm_campaign')||''};
+  function fire(t){
+    data.event_type=t;
+    fetch(ep,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}).catch(function(){});
+  }
+  events.forEach(function(e){if(e==='pageview')fire('pageview');});
+  window._odtFire=fire;
+})();
 </script>
 <!-- End OpticData Pixel -->`;
     }
@@ -143,6 +144,54 @@ router.get('/snippet/:funnelPage', async (req: Request, res: Response) => {
   } catch (err) {
     console.error('Error generating pixel snippet:', err);
     res.status(500).json({ error: 'Failed to generate snippet' });
+  }
+});
+
+// POST /api/pixel-configs/event — receive pixel fire events (called from tracking snippet)
+router.post('/event', async (req: Request, res: Response) => {
+  try {
+    // Accept both authenticated and token-based requests
+    const userId = req.user?.id;
+    const {
+      funnel_page,
+      event_type,
+      fbclid,
+      utm_source,
+      utm_campaign,
+      token: pixelToken,
+    } = req.body;
+
+    if (!event_type) {
+      res.status(400).json({ error: 'event_type is required' });
+      return;
+    }
+
+    // If no authenticated user, try to resolve from pixel token/webhook token
+    let resolvedUserId = userId;
+    if (!resolvedUserId && pixelToken) {
+      const tokenResult = await pool.query(
+        'SELECT user_id FROM webhook_tokens WHERE token = $1 AND active = true',
+        [pixelToken]
+      );
+      if (tokenResult.rows.length > 0) {
+        resolvedUserId = tokenResult.rows[0].user_id;
+      }
+    }
+
+    const ipAddress = req.headers['x-forwarded-for'] as string || req.socket.remoteAddress || null;
+    const userAgent = req.headers['user-agent'] || null;
+
+    await pool.query(
+      `INSERT INTO pixel_events (user_id, funnel_page, event_type, fbclid, utm_source, utm_campaign, ip_address, user_agent)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [resolvedUserId, funnel_page || null, event_type, fbclid || null, utm_source || null, utm_campaign || null, ipAddress, userAgent]
+    );
+
+    // Return 1x1 transparent GIF for image pixel compatibility
+    res.status(200).json({ success: true });
+  } catch (err) {
+    console.error('Error recording pixel event:', err);
+    res.status(500).json({ error: 'Failed to record event' });
   }
 });
 

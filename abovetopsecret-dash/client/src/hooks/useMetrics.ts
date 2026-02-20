@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { fetchMetrics, fetchSummary, MetricRow, SummaryData } from '../lib/api';
+import { useWebSocket, WsMessage } from './useWebSocket';
 
 interface UseMetricsReturn {
   data: MetricRow[];
@@ -9,6 +10,7 @@ interface UseMetricsReturn {
   error: string | null;
   lastFetched: Date | null;
   refresh: () => Promise<void>;
+  wsStatus: 'connecting' | 'connected' | 'disconnected';
 }
 
 export function useMetrics(
@@ -24,6 +26,8 @@ export function useMetrics(
   const [lastFetched, setLastFetched] = useState<Date | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const hasLoaded = useRef(false);
+
+  const { status: wsStatus, subscribe } = useWebSocket();
 
   const refresh = useCallback(async () => {
     try {
@@ -53,18 +57,43 @@ export function useMetrics(
     }
   }, [offer, account, onUnauthorized]);
 
+  // Subscribe to WS events for live summary updates
+  useEffect(() => {
+    const unsubMetrics = subscribe('metrics_update', (msg: WsMessage) => {
+      if (msg.data) {
+        setSummary(msg.data);
+        setLastFetched(new Date());
+      }
+    });
+
+    const unsubSnapshot = subscribe('snapshot', (msg: WsMessage) => {
+      if (msg.data?.summary) {
+        setSummary(msg.data.summary);
+        setLastFetched(new Date());
+      }
+    });
+
+    // On override change, do a full refresh to get recalculated metrics
+    const unsubOverride = subscribe('override_change', () => {
+      refresh();
+    });
+
+    return () => { unsubMetrics(); unsubSnapshot(); unsubOverride(); };
+  }, [subscribe, refresh]);
+
   useEffect(() => {
     refresh();
 
-    // Auto-refresh every 60 seconds
-    intervalRef.current = setInterval(refresh, 60000);
+    // Fallback polling: 120s when WS is connected, 60s when disconnected
+    const interval = wsStatus === 'connected' ? 120000 : 60000;
+    intervalRef.current = setInterval(refresh, interval);
 
     return () => {
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
       }
     };
-  }, [refresh]);
+  }, [refresh, wsStatus]);
 
-  return { data, summary, loading, refreshing, error, lastFetched, refresh };
+  return { data, summary, loading, refreshing, error, lastFetched, refresh, wsStatus };
 }

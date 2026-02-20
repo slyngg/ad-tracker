@@ -258,6 +258,15 @@ export interface SourceMediumRow {
   orders: number;
 }
 
+// --- P&L types ---
+export interface PnLData {
+  revenue: number;
+  adSpend: number;
+  cogs: number;
+  netProfit: number;
+  margin: number;
+}
+
 export function fetchMetrics(offer?: string, account?: string): Promise<MetricRow[]> {
   const params = new URLSearchParams();
   if (offer && offer !== 'All') params.set('offer', offer);
@@ -529,6 +538,14 @@ export function fetchPixelSnippet(funnelPage: string): Promise<{ snippet: string
 }
 
 // --- Source/Medium API ---
-export function fetchSourceMedium(): Promise<SourceMediumRow[]> {
-  return request<SourceMediumRow[]>('/analytics/source-medium');
+export function fetchSourceMedium(dateRange?: string): Promise<SourceMediumRow[]> {
+  const params = new URLSearchParams();
+  if (dateRange) params.set('dateRange', dateRange);
+  const qs = params.toString();
+  return request<SourceMediumRow[]>(`/analytics/source-medium${qs ? `?${qs}` : ''}`);
+}
+
+// --- P&L API ---
+export function fetchPnL(): Promise<PnLData> {
+  return request<PnLData>('/analytics/pnl');
 }

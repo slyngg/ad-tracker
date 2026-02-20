@@ -179,7 +179,7 @@ export default function CostSettingsPage() {
       )}
 
       {/* Summary cards */}
-      <div className="grid grid-cols-3 gap-3 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
         <div className="bg-ats-card rounded-xl p-4 border border-ats-border">
           <div className="text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Cost Rules</div>
           <div className="text-2xl font-bold text-ats-text font-mono">{costs.length}</div>

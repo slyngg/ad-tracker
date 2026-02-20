@@ -17,6 +17,10 @@ const ACTIONS = [
   { value: 'notification', label: 'Send Notification' },
   { value: 'webhook', label: 'Fire Webhook' },
   { value: 'flag_review', label: 'Flag for Review' },
+  { value: 'pause_adset', label: 'Pause Meta Adset' },
+  { value: 'enable_adset', label: 'Enable Meta Adset' },
+  { value: 'adjust_budget', label: 'Adjust Adset Budget' },
+  { value: 'slack_notify', label: 'Slack Notification' },
 ];
 
 interface RuleFormData {
@@ -27,6 +31,9 @@ interface RuleFormData {
   value: string;
   action_type: string;
   action_config: string;
+  cooldown_minutes: string;
+  adset_id: string;
+  budget: string;
 }
 
 const EMPTY_FORM: RuleFormData = {
@@ -37,7 +44,12 @@ const EMPTY_FORM: RuleFormData = {
   value: '',
   action_type: 'notification',
   action_config: '',
+  cooldown_minutes: '0',
+  adset_id: '',
+  budget: '',
 };
+
+const META_ACTIONS = ['pause_adset', 'enable_adset', 'adjust_budget'];
 
 export default function RulesEnginePage() {
   const [rules, setRules] = useState<Rule[]>([]);
@@ -99,6 +111,7 @@ export default function RulesEnginePage() {
 
   const openEdit = (rule: Rule) => {
     const tc = rule.trigger_config || {};
+    const am = (rule as any).action_meta || {};
     setForm({
       name: rule.name,
       description: rule.description || '',
@@ -106,7 +119,10 @@ export default function RulesEnginePage() {
       operator: tc.operator || '>',
       value: String(tc.value ?? ''),
       action_type: rule.action_type,
-      action_config: rule.action_config?.webhook_url || rule.action_config?.message || '',
+      action_config: rule.action_config?.webhook_url || rule.action_config?.url || rule.action_config?.message || '',
+      cooldown_minutes: String((rule as any).cooldown_minutes ?? '0'),
+      adset_id: am.adset_id || rule.action_config?.adset_id || '',
+      budget: am.budget || rule.action_config?.budget || '',
     });
     setEditingId(rule.id);
     setShowForm(true);
@@ -120,7 +136,21 @@ export default function RulesEnginePage() {
     setSaving(true);
     setMessage(null);
 
-    const payload: Partial<Rule> = {
+    let action_config: any = {};
+    let action_meta: any = {};
+
+    if (form.action_type === 'webhook') {
+      action_config = { webhook_url: form.action_config };
+    } else if (form.action_type === 'notification') {
+      action_config = { message: form.action_config || `${form.name} triggered` };
+    } else if (META_ACTIONS.includes(form.action_type)) {
+      action_meta = { adset_id: form.adset_id };
+      if (form.action_type === 'adjust_budget') {
+        action_meta.budget = form.budget;
+      }
+    }
+
+    const payload: any = {
       name: form.name,
       description: form.description || undefined,
       trigger_type: 'metric_threshold',
@@ -130,12 +160,9 @@ export default function RulesEnginePage() {
         value: parseFloat(form.value),
       },
       action_type: form.action_type,
-      action_config:
-        form.action_type === 'webhook'
-          ? { webhook_url: form.action_config }
-          : form.action_type === 'notification'
-          ? { message: form.action_config || `${form.name} triggered` }
-          : {},
+      action_config,
+      action_meta,
+      cooldown_minutes: parseInt(form.cooldown_minutes) || 0,
     };
 
     try {
@@ -173,6 +200,12 @@ export default function RulesEnginePage() {
     } finally {
       setLogsLoading(false);
     }
+  };
+
+  const formatCooldown = (minutes: number): string => {
+    if (!minutes) return '';
+    if (minutes < 60) return `${minutes}m`;
+    return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
   };
 
   const inputCls =
@@ -316,6 +349,56 @@ export default function RulesEnginePage() {
             </div>
           )}
 
+          {/* Meta Action Config */}
+          {META_ACTIONS.includes(form.action_type) && (
+            <div className="bg-ats-bg border border-ats-border rounded-lg p-4 mb-4">
+              <label className="text-[11px] text-ats-text-muted block mb-3 uppercase tracking-wide font-semibold">
+                Meta Ads Configuration
+              </label>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[11px] text-ats-text-muted block mb-1 uppercase tracking-wide">
+                    Adset ID
+                  </label>
+                  <input
+                    value={form.adset_id}
+                    onChange={(e) => setForm({ ...form, adset_id: e.target.value })}
+                    placeholder="e.g. 23856789012345"
+                    className={inputCls}
+                  />
+                </div>
+                {form.action_type === 'adjust_budget' && (
+                  <div>
+                    <label className="text-[11px] text-ats-text-muted block mb-1 uppercase tracking-wide">
+                      Daily Budget ($)
+                    </label>
+                    <input
+                      type="number"
+                      value={form.budget}
+                      onChange={(e) => setForm({ ...form, budget: e.target.value })}
+                      placeholder="e.g. 50"
+                      className={inputCls}
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Cooldown */}
+          <div className="mb-4">
+            <label className="text-[11px] text-ats-text-muted block mb-1 uppercase tracking-wide">
+              Cooldown (minutes) — prevents re-firing too quickly
+            </label>
+            <input
+              type="number"
+              value={form.cooldown_minutes}
+              onChange={(e) => setForm({ ...form, cooldown_minutes: e.target.value })}
+              placeholder="0 = no cooldown"
+              className={`${inputCls} max-w-[200px]`}
+            />
+          </div>
+
           <div className="flex gap-2">
             <button
               onClick={handleSave}
@@ -352,6 +435,9 @@ export default function RulesEnginePage() {
         <div className="space-y-3">
           {rules.map((rule) => {
             const tc = rule.trigger_config || {};
+            const cooldown = (rule as any).cooldown_minutes || 0;
+            const lastFired = (rule as any).last_fired_at;
+            const actionLabel = ACTIONS.find((a) => a.value === rule.action_type)?.label || rule.action_type;
             return (
               <div key={rule.id}>
                 <div className="bg-ats-card border border-ats-border rounded-lg p-4">
@@ -376,12 +462,19 @@ export default function RulesEnginePage() {
                           {rule.name}
                         </div>
                         <div className="text-xs text-ats-text-muted mt-0.5">
-                          IF {tc.metric?.toUpperCase()} {tc.operator} {tc.value} THEN{' '}
-                          {ACTIONS.find((a) => a.value === rule.action_type)?.label || rule.action_type}
+                          IF {tc.metric?.toUpperCase()} {tc.operator} {tc.value} THEN {actionLabel}
                         </div>
                         {rule.description && (
                           <div className="text-xs text-ats-text-muted/70 mt-0.5">{rule.description}</div>
                         )}
+                        <div className="flex items-center gap-3 mt-1 text-[10px] text-ats-text-muted/60">
+                          {cooldown > 0 && (
+                            <span>Cooldown: {formatCooldown(cooldown)}</span>
+                          )}
+                          {lastFired && (
+                            <span>Last fired: {new Date(lastFired).toLocaleString()}</span>
+                          )}
+                        </div>
                       </div>
                     </div>
 

@@ -198,7 +198,7 @@ export default function WebsitePerformancePage() {
           </div>
 
           {/* Secondary metrics */}
-          <div className="grid grid-cols-3 gap-3 mb-6">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
             <div className="bg-ats-card rounded-xl p-3 border border-ats-border">
               <div className="text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Est. Clicks</div>
               <div className="text-lg font-bold text-ats-text font-mono">{fmt.num(Math.round(kpis.totalClicks))}</div>

@@ -20,6 +20,7 @@ services:
     build: ../server
     environment:
       DATABASE_URL: postgres://ats_user:${DB_PASSWORD}@db:5432/abovetopsecret
+      JWT_SECRET: ${JWT_SECRET}
       AUTH_TOKEN: ${AUTH_TOKEN}
       FB_ACCESS_TOKEN: ${FB_ACCESS_TOKEN:-}
       FB_AD_ACCOUNT_IDS: ${FB_AD_ACCOUNT_IDS:-}
@@ -29,6 +30,9 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       CC_API_KEY: ${CC_API_KEY:-}
       CC_API_URL: ${CC_API_URL:-}
+      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
+      SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET:-}
+      SLACK_APP_TOKEN: ${SLACK_APP_TOKEN:-}
       NODE_ENV: production
     depends_on:
       db:

@@ -1,3 +1,4 @@
+import { createServer } from 'http';
 import express from 'express';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
@@ -20,6 +21,9 @@ import webhookTokensRouter from './routes/webhook-tokens';
 import pixelConfigsRouter from './routes/pixel-configs';
 import { authMiddleware } from './middleware/auth';
 import { startScheduler } from './services/scheduler';
+import { initRealtime } from './services/realtime';
+import { initSlackBot } from './services/slack-bot';
+import pool from './db';
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '4000', 10);
@@ -98,9 +102,15 @@ app.use('/api/upload', uploadRouter);
 app.use('/api/webhook-tokens', webhookTokensRouter);
 app.use('/api/pixel-configs', pixelConfigsRouter);
 
-const server = app.listen(PORT, '0.0.0.0', () => {
+const httpServer = createServer(app);
+
+// Initialize WebSocket realtime layer
+initRealtime(httpServer, pool);
+
+const server = httpServer.listen(PORT, '0.0.0.0', () => {
   console.log(`[ATS Server] Running on port ${PORT}`);
   startScheduler();
+  initSlackBot();
 });
 
 // Graceful shutdown

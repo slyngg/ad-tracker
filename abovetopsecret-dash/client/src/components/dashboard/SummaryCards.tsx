@@ -1,9 +1,11 @@
 import { fmt } from '../../lib/formatters';
 import { SummaryData } from '../../lib/api';
+import AnimatedNumber from '../shared/AnimatedNumber';
 
-function SummaryCard({ label, value, color }: {
+function SummaryCard({ label, value, format, color }: {
   label: string;
-  value: string | number;
+  value: number;
+  format: (n: number) => string;
   color?: string;
 }) {
   return (
@@ -15,7 +17,7 @@ function SummaryCard({ label, value, color }: {
         className="text-[22px] font-bold font-mono"
         style={{ color: color || '#f9fafb' }}
       >
-        {value}
+        <AnimatedNumber value={value} format={format} />
       </div>
     </div>
   );
@@ -28,10 +30,10 @@ export default function SummaryCards({ summary }: { summary: SummaryData | null 
 
   return (
     <div className="px-4 py-3 flex gap-2 overflow-x-auto">
-      <SummaryCard label="Spend" value={fmt.currency(summary.total_spend)} />
-      <SummaryCard label="Revenue" value={fmt.currency(summary.total_revenue)} color="#10b981" />
-      <SummaryCard label="ROI" value={fmt.ratio(summary.total_roi)} color={roiColor} />
-      <SummaryCard label="Orders" value={fmt.num(summary.total_conversions)} />
+      <SummaryCard label="Spend" value={summary.total_spend} format={fmt.currency} />
+      <SummaryCard label="Revenue" value={summary.total_revenue} format={fmt.currency} color="#10b981" />
+      <SummaryCard label="ROI" value={summary.total_roi} format={fmt.ratio} color={roiColor} />
+      <SummaryCard label="Orders" value={summary.total_conversions} format={fmt.num} />
     </div>
   );
 }

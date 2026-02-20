@@ -6,6 +6,7 @@ const router = Router();
 // Allowed read-only SQL keywords at statement start
 const ALLOWED_PREFIXES = /^\s*(SELECT|WITH|EXPLAIN)\s/i;
 const FORBIDDEN_KEYWORDS = /\b(INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE|GRANT|REVOKE|COPY|EXECUTE|DO)\b/i;
+const SQL_COMMENT_PATTERN = /--[^\n]*|\/\*[\s\S]*?\*\//g;
 
 // POST /api/sql/execute - Execute read-only SQL
 router.post('/execute', async (req: Request, res: Response) => {
@@ -18,7 +19,8 @@ router.post('/execute', async (req: Request, res: Response) => {
       return;
     }
 
-    const trimmedSql = sql.trim();
+    // Strip SQL comments before validation to prevent bypass attacks
+    const trimmedSql = sql.replace(SQL_COMMENT_PATTERN, ' ').trim();
 
     // Reject non-SELECT queries
     if (!ALLOWED_PREFIXES.test(trimmedSql)) {

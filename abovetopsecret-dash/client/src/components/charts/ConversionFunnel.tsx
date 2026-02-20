@@ -39,8 +39,8 @@ export default function ConversionFunnel({ data }: ConversionFunnelProps) {
               </div>
             )}
             <div className="flex items-center gap-3">
-              <div className="w-28 shrink-0 text-right">
-                <span className="text-xs text-ats-text truncate block">{step.label}</span>
+              <div className="w-16 sm:w-28 shrink-0 text-right">
+                <span className="text-[11px] sm:text-xs text-ats-text truncate block">{step.label}</span>
               </div>
               <div className="flex-1 relative h-8 bg-ats-bg rounded overflow-hidden">
                 <div
@@ -52,7 +52,7 @@ export default function ConversionFunnel({ data }: ConversionFunnelProps) {
                   }}
                 />
               </div>
-              <div className="w-24 shrink-0 text-left">
+              <div className="w-20 sm:w-24 shrink-0 text-left">
                 <span className="text-sm font-mono font-semibold text-ats-text">
                   {step.value.toLocaleString()}
                 </span>

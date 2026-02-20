@@ -208,21 +208,56 @@ router.get('/funnel', async (req: Request, res: Response) => {
 router.get('/source-medium', async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
+    const dateRange = (req.query.dateRange as string) || 'today';
     const ufAnd = userId ? 'AND user_id = $1' : '';
     const params = userId ? [userId] : [];
 
-    const result = await pool.query(`
-      SELECT
-        COALESCE(NULLIF(utm_source, ''), 'direct') AS utm_source,
-        COALESCE(NULLIF(utm_medium, ''), '(none)') AS utm_medium,
-        COALESCE(SUM(COALESCE(subtotal, revenue)), 0) AS revenue,
-        COUNT(DISTINCT order_id) AS conversions,
-        COUNT(*) AS orders
-      FROM cc_orders_today
-      WHERE order_status = 'completed' ${ufAnd}
-      GROUP BY utm_source, utm_medium
-      ORDER BY revenue DESC
-    `, params);
+    let query: string;
+
+    if (dateRange === 'today' || dateRange === '1d') {
+      query = `
+        SELECT
+          COALESCE(NULLIF(utm_source, ''), 'direct') AS utm_source,
+          COALESCE(NULLIF(utm_medium, ''), '(none)') AS utm_medium,
+          COALESCE(SUM(COALESCE(subtotal, revenue)), 0) AS revenue,
+          COUNT(DISTINCT order_id) AS conversions,
+          COUNT(*) AS orders
+        FROM cc_orders_today
+        WHERE order_status = 'completed' ${ufAnd}
+        GROUP BY utm_source, utm_medium
+        ORDER BY revenue DESC
+      `;
+    } else {
+      // For date ranges > today, UNION with orders_archive
+      const days = dateRange === '30d' ? 30 : dateRange === '7d' ? 7 : 90;
+      const ufArchive = userId ? 'AND user_id = $1' : '';
+      query = `
+        WITH combined AS (
+          SELECT utm_source, utm_medium, COALESCE(subtotal, revenue) AS revenue, order_id
+          FROM cc_orders_today
+          WHERE order_status = 'completed' ${ufAnd}
+          UNION ALL
+          SELECT
+            order_data->>'utm_source' AS utm_source,
+            order_data->>'utm_medium' AS utm_medium,
+            (order_data->>'revenue')::NUMERIC AS revenue,
+            order_data->>'order_id' AS order_id
+          FROM orders_archive
+          WHERE archived_date >= CURRENT_DATE - INTERVAL '${days} days' ${ufArchive}
+        )
+        SELECT
+          COALESCE(NULLIF(utm_source, ''), 'direct') AS utm_source,
+          COALESCE(NULLIF(utm_medium, ''), '(none)') AS utm_medium,
+          COALESCE(SUM(revenue), 0) AS revenue,
+          COUNT(DISTINCT order_id) AS conversions,
+          COUNT(*) AS orders
+        FROM combined
+        GROUP BY utm_source, utm_medium
+        ORDER BY revenue DESC
+      `;
+    }
+
+    const result = await pool.query(query, params);
 
     res.json(result.rows.map(r => ({
       utm_source: r.utm_source,
@@ -234,6 +269,49 @@ router.get('/source-medium', async (req: Request, res: Response) => {
   } catch (err) {
     console.error('Error fetching source/medium:', err);
     res.status(500).json({ error: 'Failed to fetch source/medium data' });
+  }
+});
+
+// GET /api/analytics/pnl — Profit & Loss summary
+router.get('/pnl', async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    const uf = userId ? 'WHERE user_id = $1' : '';
+    const ufAnd = userId ? 'AND user_id = $1' : '';
+    const params = userId ? [userId] : [];
+
+    const [adSpendResult, revenueResult, costsResult] = await Promise.all([
+      pool.query(`
+        SELECT COALESCE(SUM(spend), 0) AS total_spend
+        FROM fb_ads_today ${uf}
+      `, params),
+      pool.query(`
+        SELECT COALESCE(SUM(COALESCE(subtotal, revenue)), 0) AS total_revenue
+        FROM cc_orders_today
+        WHERE order_status = 'completed' ${ufAnd}
+      `, params),
+      pool.query(`
+        SELECT COALESCE(SUM(cost_value), 0) AS total_cogs
+        FROM cost_settings ${uf}
+      `, params),
+    ]);
+
+    const adSpend = parseFloat(adSpendResult.rows[0].total_spend) || 0;
+    const revenue = parseFloat(revenueResult.rows[0].total_revenue) || 0;
+    const cogs = parseFloat(costsResult.rows[0].total_cogs) || 0;
+    const netProfit = revenue - adSpend - cogs;
+    const margin = revenue > 0 ? (netProfit / revenue) * 100 : 0;
+
+    res.json({
+      revenue,
+      adSpend,
+      cogs,
+      netProfit,
+      margin: parseFloat(margin.toFixed(2)),
+    });
+  } catch (err) {
+    console.error('Error fetching P&L:', err);
+    res.status(500).json({ error: 'Failed to fetch P&L data' });
   }
 });
 

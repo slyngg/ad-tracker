@@ -1,10 +1,24 @@
 import { Router, Request, Response } from 'express';
 import Anthropic from '@anthropic-ai/sdk';
 import pool from '../db';
+import { operatorTools, executeTool } from '../services/operator-tools';
 
 const router = Router();
 
-const SYSTEM_PROMPT = `You are OpticData Operator, an AI media buying assistant. You help users analyze their advertising performance, optimize campaigns, and make data-driven decisions. You have access to the user's current metrics and can provide actionable insights about their ad spend, revenue, ROI, CPA, and other key performance indicators. Be concise, data-focused, and proactive with recommendations.`;
+const SYSTEM_PROMPT = `You are OpticData Operator, an AI media buying assistant with tool-calling capabilities. You help users analyze their advertising performance, optimize campaigns, and make data-driven decisions.
+
+You have access to tools that can:
+- Pull real-time campaign, adset, and order metrics
+- Calculate ROAS by campaign
+- Show traffic source breakdowns
+- Pause/enable Meta adsets and adjust budgets
+- Run custom SQL queries
+
+Always use tools to get fresh data rather than relying on the summary context alone. When asked about metrics, campaigns, or performance, call the appropriate tool first, then analyze the results.
+
+For Meta write actions (pause, enable, budget changes), confirm the action with the user before executing.
+
+Be concise, data-focused, and proactive with recommendations. Format responses with markdown tables when presenting data.`;
 
 // Helper: fetch user's current metrics summary for context
 async function getMetricsContext(userId: number | null | undefined): Promise<string> {
@@ -37,7 +51,7 @@ async function getMetricsContext(userId: number | null | undefined): Promise<str
     ).join('\n');
 
     return `
---- Current Metrics (Today) ---
+--- Current Metrics Summary (Today) ---
 Total Spend: $${totalSpend.toFixed(2)}
 Total Revenue: $${totalRevenue.toFixed(2)}
 ROI: ${roi}x
@@ -54,7 +68,78 @@ ${topOffers || '  (no data yet)'}
   }
 }
 
-// POST /api/operator/chat - Send message, stream response via SSE
+// Helper: fetch long-term memories for user
+async function getLongTermMemories(userId: number | null | undefined): Promise<string> {
+  if (!userId) return '';
+  try {
+    const result = await pool.query(
+      'SELECT fact FROM operator_long_term_memory WHERE user_id = $1 ORDER BY created_at DESC LIMIT 20',
+      [userId]
+    );
+    if (result.rows.length === 0) return '';
+    const facts = result.rows.map((r: any) => `- ${r.fact}`).join('\n');
+    return `\n\nThings you remember about this user:\n${facts}`;
+  } catch {
+    return '';
+  }
+}
+
+// Helper: extract memories from conversation (every 5th message)
+async function maybeExtractMemories(
+  conversationId: number,
+  userId: number | null | undefined,
+  apiKey: string
+): Promise<void> {
+  if (!userId) return;
+  try {
+    const countResult = await pool.query(
+      'SELECT COUNT(*) AS cnt FROM operator_memories WHERE conversation_id = $1 AND user_id = $2',
+      [conversationId, userId]
+    );
+    const messageCount = parseInt(countResult.rows[0].cnt) || 0;
+    if (messageCount % 5 !== 0 || messageCount === 0) return;
+
+    // Get recent messages for extraction
+    const messagesResult = await pool.query(
+      `SELECT role, content FROM operator_memories
+       WHERE conversation_id = $1 AND user_id = $2
+       ORDER BY created_at DESC LIMIT 10`,
+      [conversationId, userId]
+    );
+
+    const recentConvo = messagesResult.rows.reverse().map((r: any) =>
+      `${r.role}: ${r.content.slice(0, 500)}`
+    ).join('\n');
+
+    const client = new Anthropic({ apiKey });
+    const response = await client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 300,
+      messages: [{
+        role: 'user',
+        content: `Extract 0-3 factual preferences or key decisions from this conversation that would be useful to remember for future conversations. Return a JSON array of strings, or empty array if nothing worth remembering.\n\nConversation:\n${recentConvo}`,
+      }],
+    });
+
+    const text = response.content[0]?.type === 'text' ? response.content[0].text : '';
+    const match = text.match(/\[[\s\S]*\]/);
+    if (!match) return;
+
+    const facts: string[] = JSON.parse(match[0]);
+    for (const fact of facts) {
+      if (fact && fact.trim()) {
+        await pool.query(
+          'INSERT INTO operator_long_term_memory (user_id, fact) VALUES ($1, $2)',
+          [userId, fact.trim()]
+        );
+      }
+    }
+  } catch (err) {
+    console.error('Error extracting memories:', err);
+  }
+}
+
+// POST /api/operator/chat - Send message, stream response via SSE with tool-use loop
 router.post('/chat', async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
@@ -98,13 +183,18 @@ router.post('/chat', async (req: Request, res: Response) => {
       [convId, userId]
     );
 
-    const messages = historyResult.rows.map((r: any) => ({
+    const messages: Anthropic.MessageParam[] = historyResult.rows.map((r: any) => ({
       role: r.role as 'user' | 'assistant',
       content: r.content,
     }));
 
-    // Get metrics context
-    const metricsContext = await getMetricsContext(userId);
+    // Get metrics context and long-term memories
+    const [metricsContext, memories] = await Promise.all([
+      getMetricsContext(userId),
+      getLongTermMemories(userId),
+    ]);
+
+    const systemPrompt = `${SYSTEM_PROMPT}\n\nHere is the user's current performance data:\n${metricsContext}${memories}`;
 
     // Set up SSE
     res.setHeader('Content-Type', 'text/event-stream');
@@ -113,48 +203,123 @@ router.post('/chat', async (req: Request, res: Response) => {
     res.setHeader('X-Conversation-Id', String(convId));
     res.flushHeaders();
 
-    // Stream from Anthropic
     const client = new Anthropic({ apiKey });
-    let fullResponse = '';
+    let currentMessages = [...messages];
+    let aborted = false;
 
-    const stream = client.messages.stream({
+    req.on('close', () => {
+      aborted = true;
+    });
+
+    // Tool-use loop: non-streaming calls until no more tool_use
+    let response = await client.messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 4096,
-      system: `${SYSTEM_PROMPT}\n\nHere is the user's current performance data:\n${metricsContext}`,
-      messages,
+      system: systemPrompt,
+      messages: currentMessages,
+      tools: operatorTools,
     });
 
-    stream.on('text', (text) => {
-      fullResponse += text;
-      res.write(`data: ${JSON.stringify({ type: 'text', text })}\n\n`);
-    });
+    while (response.stop_reason === 'tool_use' && !aborted) {
+      // Extract tool_use blocks
+      const toolUseBlocks = response.content
+        .filter((block) => block.type === 'tool_use')
+        .map((block) => block as any as { type: 'tool_use'; id: string; name: string; input: Record<string, any> });
 
-    stream.on('error', (error) => {
-      console.error('Anthropic streaming error:', error);
-      res.write(`data: ${JSON.stringify({ type: 'error', error: 'Stream error' })}\n\n`);
+      // Append assistant message with tool_use blocks to conversation
+      currentMessages.push({ role: 'assistant', content: response.content as any });
+
+      const toolResults: any[] = [];
+
+      for (const toolBlock of toolUseBlocks) {
+        // Send tool_status running event
+        res.write(`data: ${JSON.stringify({ type: 'tool_status', tool: toolBlock.name, status: 'running' })}\n\n`);
+
+        try {
+          const { result, summary } = await executeTool(toolBlock.name, toolBlock.input, userId ?? null);
+
+          toolResults.push({
+            type: 'tool_result',
+            tool_use_id: toolBlock.id,
+            content: JSON.stringify(result),
+          });
+
+          // Send tool_status done event
+          res.write(`data: ${JSON.stringify({ type: 'tool_status', tool: toolBlock.name, status: 'done', summary })}\n\n`);
+        } catch (err: any) {
+          const errorMsg = err.message || 'Tool execution failed';
+          toolResults.push({
+            type: 'tool_result',
+            tool_use_id: toolBlock.id,
+            content: JSON.stringify({ error: errorMsg }),
+            is_error: true,
+          });
+          res.write(`data: ${JSON.stringify({ type: 'tool_status', tool: toolBlock.name, status: 'error', summary: errorMsg })}\n\n`);
+        }
+      }
+
+      // Append tool results as user message
+      currentMessages.push({ role: 'user', content: toolResults });
+
+      // Next iteration
+      response = await client.messages.create({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 4096,
+        system: systemPrompt,
+        messages: currentMessages,
+        tools: operatorTools,
+      });
+    }
+
+    if (aborted) {
       res.end();
-    });
+      return;
+    }
 
-    stream.on('end', async () => {
-      // Store assistant response
+    // Final response: stream the text content
+    // Extract any text from the non-streaming response first
+    let fullResponse = '';
+
+    // If the final response has text content, stream it
+    const textBlocks = response.content.filter((b) => b.type === 'text');
+    if (textBlocks.length > 0) {
+      // Use streaming for the final text response for better UX
+      const finalMessages = [...currentMessages];
+
+      // If we already have text content from non-streaming, just send it
+      for (const block of textBlocks) {
+        if (block.type === 'text') {
+          fullResponse += block.text;
+        }
+      }
+
+      // Stream the text in chunks for smoother UX
+      const chunkSize = 20;
+      for (let i = 0; i < fullResponse.length; i += chunkSize) {
+        if (aborted) break;
+        const chunk = fullResponse.slice(i, i + chunkSize);
+        res.write(`data: ${JSON.stringify({ type: 'text', text: chunk })}\n\n`);
+      }
+    }
+
+    // Store assistant response
+    if (fullResponse) {
       try {
         await pool.query(
           `INSERT INTO operator_memories (user_id, conversation_id, role, content)
            VALUES ($1, $2, $3, $4)`,
           [userId, convId, 'assistant', fullResponse]
         );
+
+        // Maybe extract long-term memories
+        maybeExtractMemories(convId, userId, apiKey).catch(() => {});
       } catch (err) {
         console.error('Error storing assistant message:', err);
       }
+    }
 
-      res.write(`data: ${JSON.stringify({ type: 'done', conversationId: convId })}\n\n`);
-      res.end();
-    });
-
-    // Handle client disconnect
-    req.on('close', () => {
-      stream.abort();
-    });
+    res.write(`data: ${JSON.stringify({ type: 'done', conversationId: convId })}\n\n`);
+    res.end();
   } catch (err) {
     console.error('Error in operator chat:', err);
     if (!res.headersSent) {

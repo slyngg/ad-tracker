@@ -1,6 +1,7 @@
 import pool from '../db';
 import https from 'https';
 import { getSetting } from './settings';
+import { getRealtime } from './realtime';
 
 interface FBAction {
   action_type: string;
@@ -109,6 +110,11 @@ export async function syncFacebook(userId?: number): Promise<{ synced: number; a
     } catch (err) {
       console.error(`[Meta Sync] Error syncing account ${accountId}:`, err);
     }
+  }
+
+  // Emit real-time metrics update after sync
+  if (totalSynced > 0) {
+    getRealtime()?.emitMetricsUpdate(userId || null);
   }
 
   return { synced: totalSynced, accounts: accounts.length, skipped: false };

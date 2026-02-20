@@ -143,7 +143,7 @@ export default function SourceMediumPage() {
       {!loading && !error && (
         <>
           {/* Summary strip */}
-          <div className="grid grid-cols-3 gap-3 mb-6">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
             <div className="bg-ats-card rounded-xl p-4 border border-ats-border">
               <div className="text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Total Revenue</div>
               <div className="text-xl font-bold text-ats-green font-mono">{fmt.currency(totals.revenue)}</div>

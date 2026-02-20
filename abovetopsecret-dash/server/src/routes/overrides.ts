@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import pool from '../db';
+import { getRealtime } from '../services/realtime';
 
 const router = Router();
 
@@ -44,6 +45,7 @@ router.post('/', async (req: Request, res: Response) => {
       [metric_key, offer_name || 'ALL', override_value, set_by || 'admin', userId || null]
     );
 
+    getRealtime()?.emitOverrideChange(userId || null);
     res.json(result.rows[0]);
   } catch (err) {
     console.error('Error creating override:', err);
@@ -61,6 +63,7 @@ router.delete('/:id', async (req: Request, res: Response) => {
     } else {
       await pool.query('DELETE FROM manual_overrides WHERE id = $1 AND user_id IS NULL', [id]);
     }
+    getRealtime()?.emitOverrideChange(userId || null);
     res.json({ success: true });
   } catch (err) {
     console.error('Error deleting override:', err);

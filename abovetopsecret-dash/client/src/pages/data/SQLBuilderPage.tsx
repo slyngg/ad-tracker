@@ -21,7 +21,7 @@ export default function SQLBuilderPage() {
   const [expandedTables, setExpandedTables] = useState<Set<string>>(new Set());
   const [saveName, setSaveName] = useState('');
   const [showSaveInput, setShowSaveInput] = useState(false);
-  const [showSchema, setShowSchema] = useState(true);
+  const [showSchema, setShowSchema] = useState(() => typeof window !== 'undefined' && window.innerWidth >= 640);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const loadSidebar = useCallback(async () => {
@@ -133,10 +133,10 @@ export default function SQLBuilderPage() {
         </div>
       )}
 
-      <div className="flex gap-4 h-[calc(100vh-200px)]">
+      <div className="flex gap-4 h-[calc(100vh-200px)] relative">
         {/* Schema Sidebar */}
         {showSchema && (
-          <div className="w-56 bg-ats-card border border-ats-border rounded-lg flex flex-col shrink-0 overflow-hidden">
+          <div className="absolute inset-y-0 left-0 z-30 w-56 sm:static sm:z-auto bg-ats-card border border-ats-border rounded-lg flex flex-col shrink-0 overflow-hidden shadow-lg sm:shadow-none">
             <div className="p-3 border-b border-ats-border">
               <h3 className="text-xs font-bold text-ats-text uppercase tracking-wide">Schema</h3>
             </div>

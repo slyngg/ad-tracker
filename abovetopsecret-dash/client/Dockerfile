@@ -12,11 +12,21 @@ COPY --from=builder /app/public/sw.js /usr/share/nginx/html/sw.js
 COPY --from=builder /app/public/icon-192.png /usr/share/nginx/html/icon-192.png
 COPY --from=builder /app/public/icon-512.png /usr/share/nginx/html/icon-512.png
 
-# Nginx config: API reverse proxy + SPA fallback
+# Nginx config: API reverse proxy + WebSocket + SPA fallback
 RUN printf 'server {\n\
   listen 80;\n\
   root /usr/share/nginx/html;\n\
   index index.html;\n\
+\n\
+  location /ws {\n\
+    proxy_pass http://server:4000;\n\
+    proxy_http_version 1.1;\n\
+    proxy_set_header Upgrade $http_upgrade;\n\
+    proxy_set_header Connection "upgrade";\n\
+    proxy_set_header Host $host;\n\
+    proxy_set_header X-Real-IP $remote_addr;\n\
+    proxy_read_timeout 86400;\n\
+  }\n\
 \n\
   location /api/ {\n\
     proxy_pass http://server:4000;\n\

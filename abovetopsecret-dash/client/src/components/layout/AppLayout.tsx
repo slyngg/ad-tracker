@@ -1,8 +1,38 @@
 import { Outlet } from 'react-router-dom';
 import { Menu } from 'lucide-react';
 import { useSidebarStore } from '../../stores/sidebarStore';
+import { useWebSocket } from '../../hooks/useWebSocket';
 import Sidebar from './Sidebar';
 import CommandPalette from '../shared/CommandPalette';
+
+function ConnectionStatus() {
+  const { status } = useWebSocket();
+
+  if (status === 'connected') {
+    return (
+      <div className="flex items-center gap-1.5 text-[10px] text-ats-text-muted">
+        <span className="w-1.5 h-1.5 rounded-full bg-ats-green animate-pulse" />
+        Live
+      </div>
+    );
+  }
+
+  if (status === 'connecting') {
+    return (
+      <div className="flex items-center gap-1.5 text-[10px] text-yellow-400">
+        <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse" />
+        Connecting...
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-1.5 text-[10px] text-ats-text-muted">
+      <span className="w-1.5 h-1.5 rounded-full bg-ats-text-muted" />
+      Offline
+    </div>
+  );
+}
 
 export default function AppLayout() {
   const { collapsed, toggleMobileOpen } = useSidebarStore();
@@ -22,6 +52,9 @@ export default function AppLayout() {
         </button>
         <span className="text-ats-accent font-bold text-sm">Optic</span>
         <span className="text-ats-text font-bold text-sm">Data</span>
+        <div className="ml-auto">
+          <ConnectionStatus />
+        </div>
       </div>
 
       {/* Main content */}

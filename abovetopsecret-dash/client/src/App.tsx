@@ -30,6 +30,7 @@ const NotificationsPage = lazy(() => import('./pages/settings/NotificationsPage'
 const TrackingSettingsPage = lazy(() => import('./pages/settings/TrackingSettingsPage'));
 const AccountPage = lazy(() => import('./pages/settings/AccountPage'));
 const RulesEnginePage = lazy(() => import('./pages/rules/RulesEnginePage'));
+const PnLPage = lazy(() => import('./pages/finance/PnLPage'));
 
 // Error boundary
 interface ErrorBoundaryState {
@@ -126,6 +127,9 @@ export default function App() {
               <Route path="/settings/notifications" element={<NotificationsPage />} />
               <Route path="/settings/tracking" element={<TrackingSettingsPage />} />
               <Route path="/settings/account" element={<AccountPage />} />
+
+              {/* Finance */}
+              <Route path="/finance/pnl" element={<PnLPage />} />
 
               {/* Rules */}
               <Route path="/rules" element={<RulesEnginePage />} />
