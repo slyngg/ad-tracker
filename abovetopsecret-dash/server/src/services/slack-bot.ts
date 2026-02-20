@@ -450,18 +450,26 @@ export function initSlackBot(): void {
         let postResult;
         try {
           // Try joining the channel first (works for public channels)
-          try { await client.conversations.join({ channel: channelId }); } catch { /* already in or private */ }
+          try {
+            const joinResult = await client.conversations.join({ channel: channelId });
+            console.log('[Slack Bot] Joined channel:', channelId, joinResult.ok);
+          } catch (joinErr: any) {
+            console.log('[Slack Bot] Join attempt:', channelId, joinErr?.data?.error || joinErr?.message);
+          }
           postResult = await client.chat.postMessage({
             channel: channelId,
             blocks,
             text: 'OpticData Live Dashboard',
           });
         } catch (postErr: any) {
-          if (postErr?.data?.error === 'channel_not_found' || postErr?.data?.error === 'not_in_channel') {
-            await respond({ text: ':warning: Bot cannot post in this channel. Please invite the bot first: type `/invite @OpticData` in the channel, or add `chat:write.public` scope to the Slack app.', response_type: 'ephemeral' });
-            return;
+          const slackError = postErr?.data?.error || postErr?.message || 'unknown';
+          console.error('[Slack Bot] postMessage failed:', channelId, slackError, JSON.stringify(postErr?.data));
+          if (slackError === 'channel_not_found' || slackError === 'not_in_channel') {
+            await respond({ text: ':warning: Bot cannot post in this channel. Go to channel settings > Integrations > Add Apps and add OpticData. Then retry `/optic pin`.', response_type: 'ephemeral' });
+          } else {
+            await respond({ text: `:warning: Failed to post dashboard: \`${slackError}\`. Check bot scopes and channel permissions.`, response_type: 'ephemeral' });
           }
-          throw postErr;
+          return;
         }
 
         if (postResult.ok && postResult.ts) {
