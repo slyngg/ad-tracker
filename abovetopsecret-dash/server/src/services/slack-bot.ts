@@ -355,37 +355,99 @@ function buildHeaderBlocks(m: FullMetrics): any[] {
   ];
 }
 
-// Page 0: Overview
-function buildOverviewPage(m: FullMetrics): any[] {
-  return [
-    {
-      type: 'section',
-      fields: [
-        { type: 'mrkdwn', text: `:moneybag: *Spend*\n${$(m.spend)}` },
-        { type: 'mrkdwn', text: `:money_with_wings: *Revenue*\n${$(m.revenue)}` },
-        { type: 'mrkdwn', text: `:chart_with_upwards_trend: *ROAS*\n${m.roas.toFixed(2)}x` },
-        { type: 'mrkdwn', text: `:package: *Orders*\n${m.conversions}` },
-      ],
+// Status emoji based on ROAS threshold
+function statusEmoji(roas: number): string {
+  if (roas >= 2.5) return ':large_green_circle:';
+  if (roas >= 1.5) return ':large_yellow_circle:';
+  if (roas >= 1.0) return ':large_orange_circle:';
+  if (roas > 0) return ':red_circle:';
+  return ':white_circle:';
+}
+
+// Page 0: Command Center — per-account + per-offer at a glance
+async function buildOverviewPage(userId: number | null, m: FullMetrics): Promise<any[]> {
+  const [accounts, offers] = await Promise.all([
+    fetchAccountBreakdown(userId),
+    fetchOfferBreakdown(userId),
+  ]);
+
+  const blocks: any[] = [];
+
+  // ── P&L summary bar ──
+  const profit = m.revenue - m.spend;
+  const margin = m.revenue > 0 ? (profit / m.revenue) * 100 : 0;
+  blocks.push({
+    type: 'section',
+    text: {
+      type: 'mrkdwn',
+      text: `:bank: *P&L*:  ${$(m.revenue)} rev  −  ${$(m.spend)} spend  =  *${profit >= 0 ? '+' : ''}${$(profit)}*  (${pct(margin)} margin)`,
     },
-    {
+  });
+
+  // ── Per-Account breakdown ──
+  blocks.push({ type: 'divider' });
+  if (accounts.length === 0) {
+    blocks.push({
       type: 'section',
-      fields: [
-        { type: 'mrkdwn', text: `*CPA*\n${$(m.cpa)}` },
-        { type: 'mrkdwn', text: `*CAC*\n${$(m.cac)}` },
-        { type: 'mrkdwn', text: `*CPC*\n${$(m.cpc)}` },
-        { type: 'mrkdwn', text: `*CPM*\n${$(m.cpm)}` },
-      ],
-    },
-    {
+      text: { type: 'mrkdwn', text: ':office: *Ad Accounts*\n_No ad data yet today._' },
+    });
+  } else {
+    blocks.push({
       type: 'section',
-      fields: [
-        { type: 'mrkdwn', text: `*CVR*\n${pct(m.cvr)}` },
-        { type: 'mrkdwn', text: `*Hook Rate*\n${pct(m.hookRate)}` },
-        { type: 'mrkdwn', text: `*Clicks*\n${m.clicks.toLocaleString()}` },
-        { type: 'mrkdwn', text: `*Impressions*\n${m.impressions.toLocaleString()}` },
-      ],
-    },
-  ];
+      text: { type: 'mrkdwn', text: ':office: *Ad Accounts*' },
+    });
+    for (const acct of accounts.slice(0, 5)) {
+      const acctProfit = acct.revenue - acct.spend;
+      blocks.push({
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `${statusEmoji(acct.roas)} *${(acct.label || 'Unknown').substring(0, 25)}*\n`
+            + `Spend ${$(acct.spend)}  |  Rev ${$(acct.revenue)}  |  ROAS ${acct.roas.toFixed(2)}x  |  CPA ${$(acct.cpa)}  |  P/L ${acctProfit >= 0 ? '+' : ''}${$(acctProfit)}`,
+        },
+      });
+    }
+  }
+
+  // ── Per-Offer breakdown ──
+  blocks.push({ type: 'divider' });
+  if (offers.length === 0) {
+    blocks.push({
+      type: 'section',
+      text: { type: 'mrkdwn', text: ':shopping_bags: *Offers*\n_No order data yet today._' },
+    });
+  } else {
+    blocks.push({
+      type: 'section',
+      text: { type: 'mrkdwn', text: ':shopping_bags: *Offers*' },
+    });
+    for (const offer of offers.slice(0, 5)) {
+      const offerProfit = offer.revenue - offer.spend;
+      blocks.push({
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `${statusEmoji(offer.roas)} *${(offer.label || 'Unknown').substring(0, 25)}*\n`
+            + `${$(offer.revenue)} rev  |  ${offer.conversions} orders  |  ROAS ${offer.roas.toFixed(2)}x  |  CPA ${$(offer.cpa)}  |  P/L ${offerProfit >= 0 ? '+' : ''}${$(offerProfit)}`,
+        },
+      });
+    }
+  }
+
+  // ── Alerts: flag anything bleeding money ──
+  const bleeders = [...accounts, ...offers].filter(r => r.spend > 5 && r.roas < 1.0);
+  if (bleeders.length > 0) {
+    blocks.push({ type: 'divider' });
+    const alertLines = bleeders.slice(0, 3).map(b =>
+      `:warning: *${(b.label || 'Unknown').substring(0, 20)}* — ROAS ${b.roas.toFixed(2)}x, burning ${$(b.spend - b.revenue)}`
+    );
+    blocks.push({
+      type: 'section',
+      text: { type: 'mrkdwn', text: `:rotating_light: *Needs Attention*\n${alertLines.join('\n')}` },
+    });
+  }
+
+  return blocks;
 }
 
 async function buildPageBlocks(userId: number | null, page: number): Promise<any[]> {
@@ -393,18 +455,18 @@ async function buildPageBlocks(userId: number | null, page: number): Promise<any
   const blocks: any[] = [...buildHeaderBlocks(m)];
 
   if (page === 0) {
-    // Overview
-    blocks.push(...buildOverviewPage(m));
+    // Command Center: per-account + per-offer + alerts
+    blocks.push(...await buildOverviewPage(userId, m));
   } else if (page === 1) {
-    // Campaigns
+    // Campaigns deep dive
     const campaigns = await fetchCampaignBreakdown(userId);
     blocks.push(...buildBreakdownTable(':bar_chart: Campaigns', campaigns));
   } else if (page === 2) {
-    // Offers
+    // Offers deep dive
     const offers = await fetchOfferBreakdown(userId);
     blocks.push(...buildBreakdownTable(':shopping_bags: Offers', offers));
   } else if (page === 3) {
-    // Accounts
+    // Accounts deep dive
     const accounts = await fetchAccountBreakdown(userId);
     blocks.push(...buildBreakdownTable(':office: Ad Accounts', accounts));
   }
