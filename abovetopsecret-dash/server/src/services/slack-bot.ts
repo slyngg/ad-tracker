@@ -4,39 +4,260 @@ import pool from '../db';
 
 let slackApp: App | null = null;
 
-async function fetchMetricsForSlack(userId: number | null): Promise<{
+// Pinned dashboard tracking: channelId -> { ts, userId, intervalId }
+const pinnedDashboards: Map<string, { ts: string; userId: number | null; intervalId: NodeJS.Timeout }> = new Map();
+
+// ----- Data Fetchers -----
+
+interface FullMetrics {
+  // Totals
   spend: number;
   revenue: number;
   roas: number;
   cpa: number;
   conversions: number;
-}> {
+  clicks: number;
+  impressions: number;
+  lpViews: number;
+  newCustomers: number;
+  // Derived
+  cpc: number;
+  cpm: number;
+  cvr: number;
+  hookRate: number;
+  holdRate: number;
+  cac: number;
+}
+
+interface BreakdownRow {
+  label: string;
+  spend: number;
+  revenue: number;
+  roas: number;
+  cpa: number;
+  conversions: number;
+  clicks: number;
+  impressions: number;
+  cpc: number;
+  cpm: number;
+  cvr: number;
+}
+
+function computeDerived(spend: number, revenue: number, conversions: number, clicks: number, impressions: number, lpViews: number, newCustomers: number): FullMetrics {
+  return {
+    spend, revenue, conversions, clicks, impressions, lpViews, newCustomers,
+    roas: spend > 0 ? revenue / spend : 0,
+    cpa: conversions > 0 ? spend / conversions : 0,
+    cpc: clicks > 0 ? spend / clicks : 0,
+    cpm: impressions > 0 ? (spend / impressions) * 1000 : 0,
+    cvr: clicks > 0 ? (conversions / clicks) * 100 : 0,
+    hookRate: impressions > 0 ? (lpViews / impressions) * 100 : 0,
+    holdRate: 0, // Requires ThruPlay data not currently synced
+    cac: newCustomers > 0 ? spend / newCustomers : 0,
+  };
+}
+
+async function fetchFullMetrics(userId: number | null): Promise<FullMetrics> {
   const uf = userId ? 'WHERE user_id = $1' : '';
   const ufAnd = userId ? 'AND user_id = $1' : '';
   const params = userId ? [userId] : [];
 
   const [adsResult, ordersResult] = await Promise.all([
-    pool.query(`SELECT COALESCE(SUM(spend), 0) AS spend FROM fb_ads_today ${uf}`, params),
+    pool.query(`
+      SELECT COALESCE(SUM(spend), 0) AS spend,
+             COALESCE(SUM(clicks), 0) AS clicks,
+             COALESCE(SUM(impressions), 0) AS impressions,
+             COALESCE(SUM(landing_page_views), 0) AS lp_views
+      FROM fb_ads_today ${uf}
+    `, params),
     pool.query(`
       SELECT COALESCE(SUM(COALESCE(subtotal, revenue)), 0) AS revenue,
-             COUNT(DISTINCT order_id) AS conversions
+             COUNT(DISTINCT order_id) AS conversions,
+             COUNT(DISTINCT CASE WHEN new_customer THEN order_id END) AS new_customers
       FROM cc_orders_today WHERE order_status = 'completed' ${ufAnd}
     `, params),
   ]);
 
-  const spend = parseFloat(adsResult.rows[0].spend) || 0;
-  const revenue = parseFloat(ordersResult.rows[0].revenue) || 0;
-  const conversions = parseInt(ordersResult.rows[0].conversions) || 0;
-  const roas = spend > 0 ? revenue / spend : 0;
-  const cpa = conversions > 0 ? spend / conversions : 0;
-
-  return { spend, revenue, roas, cpa, conversions };
+  const a = adsResult.rows[0];
+  const o = ordersResult.rows[0];
+  return computeDerived(
+    parseFloat(a.spend) || 0,
+    parseFloat(o.revenue) || 0,
+    parseInt(o.conversions) || 0,
+    parseInt(a.clicks) || 0,
+    parseInt(a.impressions) || 0,
+    parseInt(a.lp_views) || 0,
+    parseInt(o.new_customers) || 0,
+  );
 }
 
-// Resolve Slack user to OpticData userId via linked settings
+async function fetchAccountBreakdown(userId: number | null): Promise<BreakdownRow[]> {
+  const uf = userId ? 'WHERE user_id = $1' : '';
+  const ufAnd = userId ? 'AND user_id = $1' : '';
+  const params = userId ? [userId] : [];
+
+  const result = await pool.query(`
+    WITH fb AS (
+      SELECT account_name,
+             SUM(spend) AS spend, SUM(clicks) AS clicks, SUM(impressions) AS impressions
+      FROM fb_ads_today ${uf}
+      GROUP BY account_name
+    ),
+    cc AS (
+      SELECT utm_source AS label,
+             COALESCE(SUM(COALESCE(subtotal, revenue)), 0) AS revenue,
+             COUNT(DISTINCT order_id) AS conversions
+      FROM cc_orders_today WHERE order_status = 'completed' ${ufAnd}
+      GROUP BY utm_source
+    )
+    SELECT fb.account_name AS label,
+           COALESCE(fb.spend, 0) AS spend,
+           COALESCE(cc.revenue, 0) AS revenue,
+           COALESCE(fb.clicks, 0) AS clicks,
+           COALESCE(fb.impressions, 0) AS impressions,
+           COALESCE(cc.conversions, 0) AS conversions
+    FROM fb
+    LEFT JOIN cc ON true
+    ORDER BY fb.spend DESC
+    LIMIT 8
+  `, params);
+
+  return result.rows.map((r: any) => {
+    const spend = parseFloat(r.spend) || 0;
+    const revenue = parseFloat(r.revenue) || 0;
+    const conversions = parseInt(r.conversions) || 0;
+    const clicks = parseInt(r.clicks) || 0;
+    const impressions = parseInt(r.impressions) || 0;
+    return {
+      label: r.label || 'Unknown',
+      spend, revenue, clicks, impressions, conversions,
+      roas: spend > 0 ? revenue / spend : 0,
+      cpa: conversions > 0 ? spend / conversions : 0,
+      cpc: clicks > 0 ? spend / clicks : 0,
+      cpm: impressions > 0 ? (spend / impressions) * 1000 : 0,
+      cvr: clicks > 0 ? (conversions / clicks) * 100 : 0,
+    };
+  });
+}
+
+async function fetchOfferBreakdown(userId: number | null): Promise<BreakdownRow[]> {
+  const ufAnd = userId ? 'AND user_id = $1' : '';
+  const uf = userId ? 'WHERE user_id = $1' : '';
+  const params = userId ? [userId] : [];
+
+  const result = await pool.query(`
+    WITH cc AS (
+      SELECT offer_name,
+             COALESCE(SUM(COALESCE(subtotal, revenue)), 0) AS revenue,
+             COUNT(DISTINCT order_id) AS conversions
+      FROM cc_orders_today WHERE order_status = 'completed' ${ufAnd}
+      GROUP BY offer_name
+    ),
+    fb AS (
+      SELECT ad_set_name AS campaign,
+             SUM(spend) AS spend, SUM(clicks) AS clicks, SUM(impressions) AS impressions
+      FROM fb_ads_today ${uf}
+      GROUP BY ad_set_name
+    )
+    SELECT cc.offer_name AS label,
+           COALESCE(fb.spend, 0) AS spend,
+           cc.revenue,
+           COALESCE(fb.clicks, 0) AS clicks,
+           COALESCE(fb.impressions, 0) AS impressions,
+           cc.conversions
+    FROM cc
+    LEFT JOIN fb ON fb.campaign = cc.offer_name
+    ORDER BY cc.revenue DESC
+    LIMIT 8
+  `, params);
+
+  return result.rows.map((r: any) => {
+    const spend = parseFloat(r.spend) || 0;
+    const revenue = parseFloat(r.revenue) || 0;
+    const conversions = parseInt(r.conversions) || 0;
+    const clicks = parseInt(r.clicks) || 0;
+    const impressions = parseInt(r.impressions) || 0;
+    return {
+      label: r.label || 'Unknown',
+      spend, revenue, clicks, impressions, conversions,
+      roas: spend > 0 ? revenue / spend : 0,
+      cpa: conversions > 0 ? spend / conversions : 0,
+      cpc: clicks > 0 ? spend / clicks : 0,
+      cpm: impressions > 0 ? (spend / impressions) * 1000 : 0,
+      cvr: clicks > 0 ? (conversions / clicks) * 100 : 0,
+    };
+  });
+}
+
+async function fetchCampaignBreakdown(userId: number | null): Promise<BreakdownRow[]> {
+  const uf = userId ? 'WHERE user_id = $1' : '';
+  const ufAnd = userId ? 'AND user_id = $1' : '';
+  const params = userId ? [userId] : [];
+
+  const result = await pool.query(`
+    WITH fb AS (
+      SELECT campaign_name,
+             SUM(spend) AS spend, SUM(clicks) AS clicks, SUM(impressions) AS impressions
+      FROM fb_ads_today ${uf}
+      GROUP BY campaign_name
+    ),
+    cc AS (
+      SELECT utm_campaign,
+             COALESCE(SUM(COALESCE(subtotal, revenue)), 0) AS revenue,
+             COUNT(DISTINCT order_id) AS conversions
+      FROM cc_orders_today WHERE order_status = 'completed' ${ufAnd}
+      GROUP BY utm_campaign
+    )
+    SELECT fb.campaign_name AS label,
+           COALESCE(fb.spend, 0) AS spend,
+           COALESCE(cc.revenue, 0) AS revenue,
+           COALESCE(fb.clicks, 0) AS clicks,
+           COALESCE(fb.impressions, 0) AS impressions,
+           COALESCE(cc.conversions, 0) AS conversions
+    FROM fb
+    LEFT JOIN cc ON fb.campaign_name = cc.utm_campaign
+    ORDER BY fb.spend DESC
+    LIMIT 10
+  `, params);
+
+  return result.rows.map((r: any) => {
+    const spend = parseFloat(r.spend) || 0;
+    const revenue = parseFloat(r.revenue) || 0;
+    const conversions = parseInt(r.conversions) || 0;
+    const clicks = parseInt(r.clicks) || 0;
+    const impressions = parseInt(r.impressions) || 0;
+    return {
+      label: r.label || 'Unknown',
+      spend, revenue, clicks, impressions, conversions,
+      roas: spend > 0 ? revenue / spend : 0,
+      cpa: conversions > 0 ? spend / conversions : 0,
+      cpc: clicks > 0 ? spend / clicks : 0,
+      cpm: impressions > 0 ? (spend / impressions) * 1000 : 0,
+      cvr: clicks > 0 ? (conversions / clicks) * 100 : 0,
+    };
+  });
+}
+
+// ----- Formatters -----
+
+function $(n: number): string {
+  if (n >= 10000) return `$${(n / 1000).toFixed(1)}K`;
+  return `$${n.toFixed(2)}`;
+}
+
+function pct(n: number): string {
+  return `${n.toFixed(1)}%`;
+}
+
+function roasEmoji(roas: number): string {
+  if (roas >= 3) return ':rocket:';
+  if (roas >= 2) return ':large_green_circle:';
+  if (roas >= 1) return ':large_yellow_circle:';
+  return ':red_circle:';
+}
+
+// Resolve Slack user to OpticData userId
 async function resolveSlackUser(_slackUserId: string): Promise<number | null> {
-  // Default: use first user (single-tenant) or return null
-  // In production, you'd link Slack users to OpticData users via a settings table
   try {
     const result = await pool.query('SELECT id FROM users ORDER BY id LIMIT 1');
     return result.rows[0]?.id || null;
@@ -45,9 +266,113 @@ async function resolveSlackUser(_slackUserId: string): Promise<number | null> {
   }
 }
 
-function fmt(n: number): string {
-  return n >= 1000 ? `$${(n / 1000).toFixed(1)}K` : `$${n.toFixed(2)}`;
+// ----- Block Kit Builders -----
+
+function buildBreakdownTable(title: string, rows: BreakdownRow[]): any[] {
+  if (rows.length === 0) return [];
+
+  const header = `*${title}*`;
+  let table = '```\n';
+  table += 'Name             Spend     Rev       ROAS   CPA     CPC    CPM     CVR\n';
+  table += '───────────────  ────────  ────────  ─────  ──────  ─────  ──────  ────\n';
+
+  for (const r of rows) {
+    const name = (r.label || '').substring(0, 15).padEnd(15);
+    const spend = $(r.spend).padStart(8);
+    const rev = $(r.revenue).padStart(8);
+    const roas = `${r.roas.toFixed(2)}x`.padStart(5);
+    const cpa = $(r.cpa).padStart(6);
+    const cpc = $(r.cpc).padStart(5);
+    const cpm = $(r.cpm).padStart(6);
+    const cvr = pct(r.cvr).padStart(4);
+    table += `${name}  ${spend}  ${rev}  ${roas}  ${cpa}  ${cpc}  ${cpm}  ${cvr}\n`;
+  }
+  table += '```';
+
+  return [
+    { type: 'section', text: { type: 'mrkdwn', text: header } },
+    { type: 'section', text: { type: 'mrkdwn', text: table } },
+  ];
 }
+
+async function buildDashboardBlocks(userId: number | null): Promise<any[]> {
+  const [m, campaigns, offers] = await Promise.all([
+    fetchFullMetrics(userId),
+    fetchCampaignBreakdown(userId),
+    fetchOfferBreakdown(userId),
+  ]);
+
+  const profitLoss = m.revenue - m.spend;
+  const plSign = profitLoss >= 0 ? '+' : '';
+  const plEmoji = profitLoss >= 0 ? ':chart_with_upwards_trend:' : ':chart_with_downwards_trend:';
+  const now = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: 'America/New_York' });
+
+  const blocks: any[] = [
+    {
+      type: 'header',
+      text: { type: 'plain_text', text: `OpticData Live Dashboard` },
+    },
+    {
+      type: 'context',
+      elements: [
+        { type: 'mrkdwn', text: `:clock1: Updated ${now} ET  |  ${roasEmoji(m.roas)} ROAS ${m.roas.toFixed(2)}x  |  ${plEmoji} P/L ${plSign}${$(profitLoss)}` },
+      ],
+    },
+    { type: 'divider' },
+    // Row 1: Core financials
+    {
+      type: 'section',
+      fields: [
+        { type: 'mrkdwn', text: `:moneybag: *Spend*\n${$(m.spend)}` },
+        { type: 'mrkdwn', text: `:money_with_wings: *Revenue*\n${$(m.revenue)}` },
+        { type: 'mrkdwn', text: `:chart_with_upwards_trend: *ROAS*\n${m.roas.toFixed(2)}x` },
+        { type: 'mrkdwn', text: `:package: *Orders*\n${m.conversions}` },
+      ],
+    },
+    // Row 2: Efficiency metrics
+    {
+      type: 'section',
+      fields: [
+        { type: 'mrkdwn', text: `*CPA*\n${$(m.cpa)}` },
+        { type: 'mrkdwn', text: `*CAC*\n${$(m.cac)}` },
+        { type: 'mrkdwn', text: `*CPC*\n${$(m.cpc)}` },
+        { type: 'mrkdwn', text: `*CPM*\n${$(m.cpm)}` },
+      ],
+    },
+    // Row 3: Engagement metrics
+    {
+      type: 'section',
+      fields: [
+        { type: 'mrkdwn', text: `*CVR*\n${pct(m.cvr)}` },
+        { type: 'mrkdwn', text: `*Hook Rate*\n${pct(m.hookRate)}` },
+        { type: 'mrkdwn', text: `*Clicks*\n${m.clicks.toLocaleString()}` },
+        { type: 'mrkdwn', text: `*Impressions*\n${m.impressions.toLocaleString()}` },
+      ],
+    },
+    { type: 'divider' },
+  ];
+
+  // Campaign breakdown
+  blocks.push(...buildBreakdownTable(':bar_chart: Campaigns', campaigns));
+
+  // Offer breakdown
+  if (offers.length > 0) {
+    blocks.push({ type: 'divider' });
+    blocks.push(...buildBreakdownTable(':shopping_bags: Offers', offers));
+  }
+
+  // Footer
+  blocks.push({
+    type: 'context',
+    elements: [
+      { type: 'mrkdwn', text: `_Auto-refreshes every 5 min  |  /optic pin to create  |  /optic unpin to stop_` },
+    ],
+  });
+
+  return blocks;
+}
+
+// ----- Slack Bot Init -----
 
 export function initSlackBot(): void {
   const token = process.env.SLACK_BOT_TOKEN;
@@ -67,7 +392,7 @@ export function initSlackBot(): void {
   });
 
   // /optic slash command
-  slackApp.command('/optic', async ({ command, ack, respond }) => {
+  slackApp.command('/optic', async ({ command, ack, respond, client }: { command: any; ack: any; respond: any; client: any }) => {
     await ack();
     const args = command.text.trim().split(/\s+/);
     const subCommand = args[0]?.toLowerCase() || 'help';
@@ -75,34 +400,88 @@ export function initSlackBot(): void {
 
     try {
       if (subCommand === 'status' || subCommand === 'dashboard') {
-        const m = await fetchMetricsForSlack(userId);
-        await respond({
-          blocks: [
-            { type: 'header', text: { type: 'plain_text', text: 'OpticData Dashboard' } },
-            {
-              type: 'section',
-              fields: [
-                { type: 'mrkdwn', text: `*Spend:* ${fmt(m.spend)}` },
-                { type: 'mrkdwn', text: `*Revenue:* ${fmt(m.revenue)}` },
-                { type: 'mrkdwn', text: `*ROAS:* ${m.roas.toFixed(2)}x` },
-                { type: 'mrkdwn', text: `*CPA:* ${fmt(m.cpa)}` },
-                { type: 'mrkdwn', text: `*Orders:* ${m.conversions}` },
-              ],
-            },
-          ],
+        const blocks = await buildDashboardBlocks(userId);
+        await respond({ blocks, response_type: 'ephemeral' });
+
+      } else if (subCommand === 'pin') {
+        // Post a public dashboard message and pin it, then auto-update
+        const channelId = command.channel_id;
+
+        // Remove existing pinned dashboard in this channel
+        if (pinnedDashboards.has(channelId)) {
+          const existing = pinnedDashboards.get(channelId)!;
+          clearInterval(existing.intervalId);
+          pinnedDashboards.delete(channelId);
+        }
+
+        const blocks = await buildDashboardBlocks(userId);
+        const postResult = await client.chat.postMessage({
+          channel: channelId,
+          blocks,
+          text: 'OpticData Live Dashboard',
         });
+
+        if (postResult.ok && postResult.ts) {
+          // Pin it
+          try {
+            await client.pins.add({ channel: channelId, timestamp: postResult.ts });
+          } catch {
+            // May fail if already pinned or no permission
+          }
+
+          // Auto-update every 5 minutes
+          const messageTs = postResult.ts;
+          const intervalId = setInterval(async () => {
+            try {
+              const updatedBlocks = await buildDashboardBlocks(userId);
+              await client.chat.update({
+                channel: channelId,
+                ts: messageTs,
+                blocks: updatedBlocks,
+                text: 'OpticData Live Dashboard',
+              });
+            } catch (err) {
+              console.error('[Slack Bot] Failed to update pinned dashboard:', err);
+              // If message was deleted, stop updating
+              const pinned = pinnedDashboards.get(channelId);
+              if (pinned) {
+                clearInterval(pinned.intervalId);
+                pinnedDashboards.delete(channelId);
+              }
+            }
+          }, 5 * 60 * 1000); // 5 minutes
+
+          pinnedDashboards.set(channelId, { ts: messageTs, userId, intervalId });
+          await respond({ text: ':white_check_mark: Live dashboard pinned! It will auto-update every 5 minutes. Use `/optic unpin` to stop.', response_type: 'ephemeral' });
+        }
+
+      } else if (subCommand === 'unpin') {
+        const channelId = command.channel_id;
+        const pinned = pinnedDashboards.get(channelId);
+        if (pinned) {
+          clearInterval(pinned.intervalId);
+          try {
+            await client.pins.remove({ channel: channelId, timestamp: pinned.ts });
+          } catch { /* ignore */ }
+          pinnedDashboards.delete(channelId);
+          await respond({ text: ':x: Live dashboard unpinned and auto-updates stopped.', response_type: 'ephemeral' });
+        } else {
+          await respond({ text: 'No pinned dashboard found in this channel.', response_type: 'ephemeral' });
+        }
+
       } else if (subCommand === 'roas') {
-        const m = await fetchMetricsForSlack(userId);
-        await respond(`ROAS today: *${m.roas.toFixed(2)}x* (${fmt(m.revenue)} / ${fmt(m.spend)})`);
+        const m = await fetchFullMetrics(userId);
+        await respond(`ROAS today: *${m.roas.toFixed(2)}x* (${$(m.revenue)} rev / ${$(m.spend)} spend)`);
       } else if (subCommand === 'spend') {
-        const m = await fetchMetricsForSlack(userId);
-        await respond(`Ad spend today: *${fmt(m.spend)}*`);
+        const m = await fetchFullMetrics(userId);
+        await respond(`Ad spend today: *${$(m.spend)}* | CPC ${$(m.cpc)} | CPM ${$(m.cpm)}`);
       } else if (subCommand === 'cpa') {
-        const m = await fetchMetricsForSlack(userId);
-        await respond(`CPA today: *${fmt(m.cpa)}* (${m.conversions} conversions)`);
+        const m = await fetchFullMetrics(userId);
+        await respond(`CPA today: *${$(m.cpa)}* | CAC ${$(m.cac)} | ${m.conversions} conversions (${m.newCustomers} new)`);
       } else if (subCommand === 'revenue') {
-        const m = await fetchMetricsForSlack(userId);
-        await respond(`Revenue today: *${fmt(m.revenue)}* from ${m.conversions} orders`);
+        const m = await fetchFullMetrics(userId);
+        const profit = m.revenue - m.spend;
+        await respond(`Revenue today: *${$(m.revenue)}* from ${m.conversions} orders | P/L: ${profit >= 0 ? '+' : ''}${$(profit)}`);
       } else if (subCommand === 'ask') {
         const question = args.slice(1).join(' ');
         if (!question) {
@@ -120,11 +499,13 @@ export function initSlackBot(): void {
               text: {
                 type: 'mrkdwn',
                 text: [
-                  '`/optic status` — Dashboard overview',
+                  '`/optic status` — Full dashboard (private)',
+                  '`/optic pin` — Post & pin live dashboard to channel (auto-updates every 5 min)',
+                  '`/optic unpin` — Stop auto-updating pinned dashboard',
                   '`/optic roas` — Today\'s ROAS',
-                  '`/optic spend` — Today\'s ad spend',
-                  '`/optic cpa` — Today\'s CPA',
-                  '`/optic revenue` — Today\'s revenue',
+                  '`/optic spend` — Spend + CPC/CPM',
+                  '`/optic cpa` — CPA + CAC + conversions',
+                  '`/optic revenue` — Revenue + P/L',
                   '`/optic ask <question>` — Ask AI about your data',
                 ].join('\n'),
               },
@@ -172,9 +553,8 @@ async function askOperatorAI(question: string, userId: number | null): Promise<s
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return 'Anthropic API key not configured.';
 
-  // Fetch metrics for context
-  const m = await fetchMetricsForSlack(userId);
-  const context = `Current metrics: Spend=$${m.spend.toFixed(2)}, Revenue=$${m.revenue.toFixed(2)}, ROAS=${m.roas.toFixed(2)}x, CPA=$${m.cpa.toFixed(2)}, Orders=${m.conversions}`;
+  const m = await fetchFullMetrics(userId);
+  const context = `Current metrics today: Spend=${$(m.spend)}, Revenue=${$(m.revenue)}, ROAS=${m.roas.toFixed(2)}x, CPA=${$(m.cpa)}, CAC=${$(m.cac)}, CPC=${$(m.cpc)}, CPM=${$(m.cpm)}, CVR=${pct(m.cvr)}, Hook Rate=${pct(m.hookRate)}, Orders=${m.conversions}, New Customers=${m.newCustomers}, Clicks=${m.clicks}, Impressions=${m.impressions}`;
 
   const client = new Anthropic({ apiKey });
   const response = await client.messages.create({
