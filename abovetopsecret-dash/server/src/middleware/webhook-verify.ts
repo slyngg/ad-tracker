@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
+import pool from '../db';
 import { getSetting } from '../services/settings';
 
 // Express Request with rawBody attached by the verify callback in index.ts
@@ -7,8 +8,26 @@ interface RawBodyRequest extends Request {
   rawBody?: Buffer;
 }
 
+// Resolve webhook token to userId for user-scoped secret lookup
+async function resolveTokenUserId(token: string | undefined): Promise<number | null> {
+  if (!token) return null;
+  try {
+    const result = await pool.query(
+      'SELECT user_id FROM webhook_tokens WHERE token = $1 AND active = true',
+      [token]
+    );
+    if (result.rows.length > 0) {
+      return result.rows[0].user_id;
+    }
+  } catch {
+    // Table may not exist yet
+  }
+  return null;
+}
+
 export async function verifyCheckoutChamp(req: Request, res: Response, next: NextFunction): Promise<void> {
-  const secret = await getSetting('cc_webhook_secret');
+  const userId = await resolveTokenUserId(req.params.webhookToken);
+  const secret = await getSetting('cc_webhook_secret', userId);
   if (!secret) {
     if (process.env.NODE_ENV === 'production') {
       console.warn('[Webhook] CC_WEBHOOK_SECRET not configured in production — rejecting request');
@@ -43,7 +62,8 @@ export async function verifyCheckoutChamp(req: Request, res: Response, next: Nex
 }
 
 export async function verifyShopify(req: Request, res: Response, next: NextFunction): Promise<void> {
-  const secret = await getSetting('shopify_webhook_secret');
+  const userId = await resolveTokenUserId(req.params.webhookToken);
+  const secret = await getSetting('shopify_webhook_secret', userId);
   if (!secret) {
     if (process.env.NODE_ENV === 'production') {
       console.warn('[Webhook] SHOPIFY_WEBHOOK_SECRET not configured in production — rejecting request');

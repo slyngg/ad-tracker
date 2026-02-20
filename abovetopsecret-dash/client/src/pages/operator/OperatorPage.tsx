@@ -173,7 +173,11 @@ export default function OperatorPage() {
             if (data === '[DONE]') break;
             try {
               const parsed = JSON.parse(data);
-              if (parsed.content) {
+              if (parsed.type === 'done') {
+                break;
+              } else if (parsed.type === 'text' && parsed.text) {
+                accumulated += parsed.text;
+              } else if (parsed.content) {
                 accumulated += parsed.content;
               } else if (parsed.token) {
                 accumulated += parsed.token;

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { fetchSettings, updateSettings } from '../../lib/api';
+import { fetchSettings, updateSettings, fetchPixelConfigs, savePixelConfig, PixelConfig } from '../../lib/api';
 import PageShell from '../../components/shared/PageShell';
 
 const UTM_PARAMS = [
@@ -19,8 +19,6 @@ const FIELD_OPTIONS = [
   'keyword',
   'offer_name',
   'account_name',
-  'custom_1',
-  'custom_2',
 ];
 
 const ATTRIBUTION_WINDOWS = [
@@ -40,8 +38,16 @@ const ATTRIBUTION_MODELS = [
   { value: 'time_decay', label: 'Time Decay', description: 'More credit to touchpoints closer to conversion' },
 ];
 
+const FUNNEL_PAGES = [
+  { key: 'landing', label: 'Landing Page', description: 'Initial landing/presell page' },
+  { key: 'checkout', label: 'Checkout', description: 'Main checkout/order form page' },
+  { key: 'upsell1', label: 'Upsell 1', description: 'First upsell offer page' },
+  { key: 'upsell2', label: 'Upsell 2', description: 'Second upsell offer page' },
+  { key: 'upsell3', label: 'Upsell 3', description: 'Third upsell offer page' },
+  { key: 'thankyou', label: 'Thank You', description: 'Order confirmation page' },
+];
+
 export default function TrackingSettingsPage() {
-  const [settings, setSettings] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -61,18 +67,15 @@ export default function TrackingSettingsPage() {
   const [viewWindow, setViewWindow] = useState('1');
   const [attributionModel, setAttributionModel] = useState('last_click');
 
-  // Pixel settings
-  const [pixelDomain, setPixelDomain] = useState('');
-  const [pixelType, setPixelType] = useState<'javascript' | 'image'>('javascript');
-  const [trackPageviews, setTrackPageviews] = useState(true);
-  const [trackConversions, setTrackConversions] = useState(true);
-  const [trackUpsells, setTrackUpsells] = useState(true);
+  // Multi-pixel state
+  const [pixelConfigs, setPixelConfigs] = useState<Record<string, PixelConfig>>({});
+  const [expandedPage, setExpandedPage] = useState<string | null>(null);
+  const [snippets, setSnippets] = useState<Record<string, string>>({});
 
-  const loadSettings = useCallback(async () => {
+  const loadData = useCallback(async () => {
     try {
       setLoading(true);
-      const s = await fetchSettings();
-      setSettings(s);
+      const [s, configs] = await Promise.all([fetchSettings(), fetchPixelConfigs()]);
 
       // Load UTM mappings from settings
       for (const param of UTM_PARAMS) {
@@ -87,12 +90,12 @@ export default function TrackingSettingsPage() {
       if (s.tracking_view_window) setViewWindow(s.tracking_view_window);
       if (s.tracking_attribution_model) setAttributionModel(s.tracking_attribution_model);
 
-      // Load pixel settings
-      if (s.tracking_pixel_domain) setPixelDomain(s.tracking_pixel_domain);
-      if (s.tracking_pixel_type) setPixelType(s.tracking_pixel_type as 'javascript' | 'image');
-      if (s.tracking_pageviews !== undefined) setTrackPageviews(s.tracking_pageviews !== 'false');
-      if (s.tracking_conversions !== undefined) setTrackConversions(s.tracking_conversions !== 'false');
-      if (s.tracking_upsells !== undefined) setTrackUpsells(s.tracking_upsells !== 'false');
+      // Load pixel configs into map by funnel_page
+      const configMap: Record<string, PixelConfig> = {};
+      for (const c of configs) {
+        configMap[c.funnel_page] = c;
+      }
+      setPixelConfigs(configMap);
 
       setError(null);
     } catch (err) {
@@ -103,8 +106,8 @@ export default function TrackingSettingsPage() {
   }, []);
 
   useEffect(() => {
-    loadSettings();
-  }, [loadSettings]);
+    loadData();
+  }, [loadData]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -122,15 +125,7 @@ export default function TrackingSettingsPage() {
       data.tracking_view_window = viewWindow;
       data.tracking_attribution_model = attributionModel;
 
-      // Pixel
-      if (pixelDomain) data.tracking_pixel_domain = pixelDomain;
-      data.tracking_pixel_type = pixelType;
-      data.tracking_pageviews = String(trackPageviews);
-      data.tracking_conversions = String(trackConversions);
-      data.tracking_upsells = String(trackUpsells);
-
-      const updated = await updateSettings(data);
-      setSettings(updated);
+      await updateSettings(data);
       setMessage({ type: 'success', text: 'Tracking settings saved successfully' });
     } catch (err) {
       setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed to save settings' });
@@ -139,21 +134,66 @@ export default function TrackingSettingsPage() {
     }
   };
 
+  const handleSavePixel = async (funnelPage: string) => {
+    const config = pixelConfigs[funnelPage];
+    if (!config) return;
+    try {
+      const saved = await savePixelConfig(config);
+      setPixelConfigs((prev) => ({ ...prev, [funnelPage]: saved }));
+      setMessage({ type: 'success', text: `Pixel config saved for ${funnelPage}` });
+    } catch {
+      setMessage({ type: 'error', text: `Failed to save pixel config for ${funnelPage}` });
+    }
+  };
+
+  const updatePixelConfig = (funnelPage: string, updates: Partial<PixelConfig>) => {
+    setPixelConfigs((prev) => ({
+      ...prev,
+      [funnelPage]: {
+        ...prev[funnelPage] || {
+          id: 0,
+          user_id: 0,
+          name: `${funnelPage} pixel`,
+          funnel_page: funnelPage,
+          pixel_type: 'javascript',
+          enabled: true,
+          track_pageviews: true,
+          track_conversions: true,
+          track_upsells: false,
+          custom_code: null,
+          created_at: '',
+          updated_at: '',
+        },
+        ...updates,
+      } as PixelConfig,
+    }));
+  };
+
   const updateUtmMapping = (key: string, value: string) => {
     setUtmMappings((prev) => ({ ...prev, [key]: value }));
   };
 
-  // Generate tracking pixel snippet
-  const domain = pixelDomain || (typeof window !== 'undefined' ? window.location.origin : 'https://yourdomain.com');
+  const generateSnippet = (funnelPage: string): string => {
+    const config = pixelConfigs[funnelPage];
+    const domain = typeof window !== 'undefined' ? window.location.origin : 'https://yourdomain.com';
 
-  const pixelSnippet = useMemo(() => {
-    if (pixelType === 'javascript') {
-      const events = [];
-      if (trackPageviews) events.push("'pageview'");
-      if (trackConversions) events.push("'conversion'");
-      if (trackUpsells) events.push("'upsell'");
+    if (!config || !config.enabled) {
+      return '<!-- Pixel disabled for this page -->';
+    }
 
-      return `<!-- OpticData Tracking Pixel -->
+    if (config.pixel_type === 'image') {
+      return `<!-- OpticData Pixel \u2014 ${funnelPage} -->
+<noscript>
+  <img src="${domain}/api/tracking/pixel.gif?t=pageview&page=${funnelPage}" width="1" height="1" alt="" style="display:none" />
+</noscript>`;
+    }
+
+    const events: string[] = [];
+    if (config.track_pageviews) events.push("'pageview'");
+    if (config.track_conversions) events.push("'conversion'");
+    if (config.track_upsells) events.push("'upsell'");
+
+    let snippet = `<!-- OpticData Pixel \u2014 ${funnelPage} -->
 <script>
 (function(o,d,t){
   o._odt=o._odt||[];
@@ -163,33 +203,18 @@ export default function TrackingSettingsPage() {
   d.head.appendChild(s);
   o._odt.push(['init',{
     domain:'${domain}',
+    page:'${funnelPage}',
     events:[${events.join(',')}]
   }]);
 })(window,document,'${domain}');
-</script>
-<!-- End OpticData Tracking Pixel -->`;
+</script>`;
+
+    if (config.custom_code) {
+      snippet += `\n${config.custom_code}`;
     }
 
-    return `<!-- OpticData Tracking Pixel (Image) -->
-<noscript>
-  <img src="${domain}/api/tracking/pixel.gif?t=pageview&r=${encodeURIComponent('{{referrer}}')}&u=${encodeURIComponent('{{url}}')}" width="1" height="1" alt="" style="display:none" />
-</noscript>
-<!-- End OpticData Tracking Pixel -->`;
-  }, [pixelType, domain, trackPageviews, trackConversions, trackUpsells]);
-
-  const conversionSnippet = useMemo(() => {
-    return `<!-- OpticData Conversion Tracking -->
-<script>
-  // Place this on your thank-you / order confirmation page
-  window._odt = window._odt || [];
-  window._odt.push(['track', 'conversion', {
-    order_id: '{{ORDER_ID}}',
-    revenue: {{REVENUE}},
-    currency: 'USD',
-    offer_name: '{{OFFER_NAME}}'
-  }]);
-</script>`;
-  }, []);
+    return snippet;
+  };
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text).then(() => {
@@ -335,116 +360,175 @@ export default function TrackingSettingsPage() {
             </div>
           </div>
 
-          {/* Tracking Pixel Generator */}
+          {/* Multi-Pixel Funnel Page Manager */}
           <div className={sectionCls}>
-            <h3 className="text-sm font-bold text-ats-text mb-1">Tracking Pixel</h3>
-            <p className="text-xs text-ats-text-muted mb-4">Generate a tracking pixel snippet for your landing pages and checkout flow.</p>
+            <h3 className="text-sm font-bold text-ats-text mb-1">Funnel Page Pixels</h3>
+            <p className="text-xs text-ats-text-muted mb-4">Configure a separate tracking pixel for each page in your checkout funnel. Each page gets its own snippet with customized tracking events.</p>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
-              <div>
-                <label className={labelCls}>Tracking Domain</label>
-                <input
-                  type="text"
-                  value={pixelDomain}
-                  onChange={(e) => setPixelDomain(e.target.value)}
-                  placeholder={typeof window !== 'undefined' ? window.location.origin : 'https://yourdomain.com'}
-                  className={inputCls}
-                />
-              </div>
-              <div>
-                <label className={labelCls}>Pixel Type</label>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setPixelType('javascript')}
-                    className={`flex-1 px-3 py-2.5 rounded-md text-sm font-mono transition-colors ${
-                      pixelType === 'javascript'
-                        ? 'bg-ats-accent text-white'
-                        : 'bg-ats-bg border border-[#374151] text-ats-text-muted hover:bg-ats-hover'
-                    }`}
-                  >
-                    JavaScript
-                  </button>
-                  <button
-                    onClick={() => setPixelType('image')}
-                    className={`flex-1 px-3 py-2.5 rounded-md text-sm font-mono transition-colors ${
-                      pixelType === 'image'
-                        ? 'bg-ats-accent text-white'
-                        : 'bg-ats-bg border border-[#374151] text-ats-text-muted hover:bg-ats-hover'
-                    }`}
-                  >
-                    Image
-                  </button>
-                </div>
-              </div>
-            </div>
+            <div className="space-y-3">
+              {FUNNEL_PAGES.map((page) => {
+                const config = pixelConfigs[page.key];
+                const isExpanded = expandedPage === page.key;
+                const isEnabled = config?.enabled ?? false;
 
-            {/* Event toggles */}
-            <div className="flex flex-wrap gap-4 mb-4">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={trackPageviews}
-                  onChange={(e) => setTrackPageviews(e.target.checked)}
-                  className="w-4 h-4 rounded border-[#374151] bg-ats-bg text-ats-accent focus:ring-ats-accent"
-                />
-                <span className="text-sm text-ats-text">Track Pageviews</span>
-              </label>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={trackConversions}
-                  onChange={(e) => setTrackConversions(e.target.checked)}
-                  className="w-4 h-4 rounded border-[#374151] bg-ats-bg text-ats-accent focus:ring-ats-accent"
-                />
-                <span className="text-sm text-ats-text">Track Conversions</span>
-              </label>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={trackUpsells}
-                  onChange={(e) => setTrackUpsells(e.target.checked)}
-                  className="w-4 h-4 rounded border-[#374151] bg-ats-bg text-ats-accent focus:ring-ats-accent"
-                />
-                <span className="text-sm text-ats-text">Track Upsells</span>
-              </label>
-            </div>
+                return (
+                  <div key={page.key} className={`rounded-lg border ${isEnabled ? 'border-ats-border' : 'border-[#374151]'} bg-ats-bg overflow-hidden`}>
+                    {/* Header */}
+                    <div
+                      className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-ats-hover/50 transition-colors"
+                      onClick={() => setExpandedPage(isExpanded ? null : page.key)}
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className={`inline-block w-2.5 h-2.5 rounded-full ${isEnabled ? 'bg-ats-green' : 'bg-[#374151]'}`} />
+                        <div>
+                          <span className="text-sm font-semibold text-ats-text">{page.label}</span>
+                          <span className="text-xs text-ats-text-muted ml-2">{page.description}</span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {isEnabled && (
+                          <span className="text-[10px] text-ats-text-muted bg-ats-bg px-2 py-0.5 rounded border border-ats-border">
+                            {config?.pixel_type || 'javascript'}
+                          </span>
+                        )}
+                        <span className="text-ats-text-muted text-sm">{isExpanded ? '\u25B2' : '\u25BC'}</span>
+                      </div>
+                    </div>
 
-            {/* Base pixel snippet */}
-            <div className="mb-4">
-              <div className="flex items-center justify-between mb-1">
-                <label className={labelCls}>Base Tracking Snippet</label>
-                <button
-                  onClick={() => copyToClipboard(pixelSnippet)}
-                  className="text-xs text-ats-accent hover:text-blue-400 transition-colors"
-                >
-                  Copy
-                </button>
-              </div>
-              <pre className="bg-ats-bg border border-[#374151] rounded-lg p-3 text-xs font-mono text-ats-text overflow-x-auto whitespace-pre leading-relaxed">
-                {pixelSnippet}
-              </pre>
-              <div className="text-[10px] text-ats-text-muted mt-1">
-                Place this snippet in the &lt;head&gt; section of every page you want to track.
-              </div>
-            </div>
+                    {/* Expanded config */}
+                    {isExpanded && (
+                      <div className="px-4 pb-4 border-t border-ats-border">
+                        <div className="pt-3 space-y-3">
+                          {/* Enable toggle + name */}
+                          <div className="flex items-center gap-4">
+                            <label className="flex items-center gap-2 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={isEnabled}
+                                onChange={(e) => updatePixelConfig(page.key, {
+                                  enabled: e.target.checked,
+                                  funnel_page: page.key,
+                                  name: config?.name || `${page.label} pixel`,
+                                })}
+                                className="w-4 h-4 rounded border-[#374151] bg-ats-bg text-ats-accent focus:ring-ats-accent"
+                              />
+                              <span className="text-sm text-ats-text">Enabled</span>
+                            </label>
+                          </div>
 
-            {/* Conversion snippet */}
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className={labelCls}>Conversion Tracking Snippet</label>
-                <button
-                  onClick={() => copyToClipboard(conversionSnippet)}
-                  className="text-xs text-ats-accent hover:text-blue-400 transition-colors"
-                >
-                  Copy
-                </button>
-              </div>
-              <pre className="bg-ats-bg border border-[#374151] rounded-lg p-3 text-xs font-mono text-ats-text overflow-x-auto whitespace-pre leading-relaxed">
-                {conversionSnippet}
-              </pre>
-              <div className="text-[10px] text-ats-text-muted mt-1">
-                Place this on your order confirmation / thank-you page. Replace placeholders with dynamic values from your order system.
-              </div>
+                          {isEnabled && (
+                            <>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div>
+                                  <label className={labelCls}>Name</label>
+                                  <input
+                                    type="text"
+                                    value={config?.name || ''}
+                                    onChange={(e) => updatePixelConfig(page.key, { name: e.target.value })}
+                                    className={inputCls}
+                                    placeholder={`${page.label} pixel`}
+                                  />
+                                </div>
+                                <div>
+                                  <label className={labelCls}>Pixel Type</label>
+                                  <div className="flex gap-2">
+                                    <button
+                                      onClick={() => updatePixelConfig(page.key, { pixel_type: 'javascript' })}
+                                      className={`flex-1 px-3 py-2 rounded-md text-xs font-mono transition-colors ${
+                                        (config?.pixel_type || 'javascript') === 'javascript'
+                                          ? 'bg-ats-accent text-white'
+                                          : 'bg-ats-bg border border-[#374151] text-ats-text-muted hover:bg-ats-hover'
+                                      }`}
+                                    >
+                                      JavaScript
+                                    </button>
+                                    <button
+                                      onClick={() => updatePixelConfig(page.key, { pixel_type: 'image' })}
+                                      className={`flex-1 px-3 py-2 rounded-md text-xs font-mono transition-colors ${
+                                        config?.pixel_type === 'image'
+                                          ? 'bg-ats-accent text-white'
+                                          : 'bg-ats-bg border border-[#374151] text-ats-text-muted hover:bg-ats-hover'
+                                      }`}
+                                    >
+                                      Image
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Event toggles */}
+                              <div className="flex flex-wrap gap-4">
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={config?.track_pageviews !== false}
+                                    onChange={(e) => updatePixelConfig(page.key, { track_pageviews: e.target.checked })}
+                                    className="w-4 h-4 rounded border-[#374151] bg-ats-bg text-ats-accent focus:ring-ats-accent"
+                                  />
+                                  <span className="text-xs text-ats-text">Pageviews</span>
+                                </label>
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={config?.track_conversions !== false}
+                                    onChange={(e) => updatePixelConfig(page.key, { track_conversions: e.target.checked })}
+                                    className="w-4 h-4 rounded border-[#374151] bg-ats-bg text-ats-accent focus:ring-ats-accent"
+                                  />
+                                  <span className="text-xs text-ats-text">Conversions</span>
+                                </label>
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={config?.track_upsells || false}
+                                    onChange={(e) => updatePixelConfig(page.key, { track_upsells: e.target.checked })}
+                                    className="w-4 h-4 rounded border-[#374151] bg-ats-bg text-ats-accent focus:ring-ats-accent"
+                                  />
+                                  <span className="text-xs text-ats-text">Upsells</span>
+                                </label>
+                              </div>
+
+                              {/* Custom code */}
+                              <div>
+                                <label className={labelCls}>Custom Code (optional)</label>
+                                <textarea
+                                  value={config?.custom_code || ''}
+                                  onChange={(e) => updatePixelConfig(page.key, { custom_code: e.target.value || null })}
+                                  className={`${inputCls} h-16 resize-y`}
+                                  placeholder="Additional tracking code appended to the snippet..."
+                                />
+                              </div>
+
+                              {/* Snippet preview */}
+                              <div>
+                                <div className="flex items-center justify-between mb-1">
+                                  <label className={labelCls}>Generated Snippet</label>
+                                  <button
+                                    onClick={() => copyToClipboard(generateSnippet(page.key))}
+                                    className="text-xs text-ats-accent hover:text-blue-400 transition-colors"
+                                  >
+                                    Copy
+                                  </button>
+                                </div>
+                                <pre className="bg-[#0d1117] border border-[#374151] rounded-lg p-3 text-xs font-mono text-ats-text overflow-x-auto whitespace-pre leading-relaxed max-h-48">
+                                  {generateSnippet(page.key)}
+                                </pre>
+                              </div>
+
+                              {/* Save button */}
+                              <button
+                                onClick={() => handleSavePixel(page.key)}
+                                className="px-4 py-2 bg-ats-accent text-white rounded-md text-xs font-semibold hover:bg-blue-600 transition-colors"
+                              >
+                                Save {page.label} Pixel
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
 

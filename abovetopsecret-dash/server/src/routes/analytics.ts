@@ -204,4 +204,37 @@ router.get('/funnel', async (req: Request, res: Response) => {
   }
 });
 
+// GET /api/analytics/source-medium — real UTM-based source/medium breakdown
+router.get('/source-medium', async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    const ufAnd = userId ? 'AND user_id = $1' : '';
+    const params = userId ? [userId] : [];
+
+    const result = await pool.query(`
+      SELECT
+        COALESCE(NULLIF(utm_source, ''), 'direct') AS utm_source,
+        COALESCE(NULLIF(utm_medium, ''), '(none)') AS utm_medium,
+        COALESCE(SUM(COALESCE(subtotal, revenue)), 0) AS revenue,
+        COUNT(DISTINCT order_id) AS conversions,
+        COUNT(*) AS orders
+      FROM cc_orders_today
+      WHERE order_status = 'completed' ${ufAnd}
+      GROUP BY utm_source, utm_medium
+      ORDER BY revenue DESC
+    `, params);
+
+    res.json(result.rows.map(r => ({
+      utm_source: r.utm_source,
+      utm_medium: r.utm_medium,
+      revenue: parseFloat(r.revenue) || 0,
+      conversions: parseInt(r.conversions) || 0,
+      orders: parseInt(r.orders) || 0,
+    })));
+  } catch (err) {
+    console.error('Error fetching source/medium:', err);
+    res.status(500).json({ error: 'Failed to fetch source/medium data' });
+  }
+});
+
 export default router;

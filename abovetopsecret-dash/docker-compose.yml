@@ -26,6 +26,9 @@ services:
       CC_WEBHOOK_SECRET: ${CC_WEBHOOK_SECRET:-}
       SHOPIFY_WEBHOOK_SECRET: ${SHOPIFY_WEBHOOK_SECRET:-}
       ALLOWED_ORIGIN: ${ALLOWED_ORIGIN:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      CC_API_KEY: ${CC_API_KEY:-}
+      CC_API_URL: ${CC_API_URL:-}
       NODE_ENV: production
     ports:
       - "4000:4000"

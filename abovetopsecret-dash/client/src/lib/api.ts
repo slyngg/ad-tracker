@@ -222,6 +222,42 @@ export interface UploadResult {
   errors: string[];
 }
 
+// --- Webhook Token types ---
+export interface WebhookToken {
+  id: number;
+  token: string;
+  source: string;
+  label: string | null;
+  active: boolean;
+  last_used_at: string | null;
+  created_at: string;
+}
+
+// --- Pixel Config types ---
+export interface PixelConfig {
+  id: number;
+  user_id: number;
+  name: string;
+  funnel_page: string;
+  pixel_type: string;
+  enabled: boolean;
+  track_pageviews: boolean;
+  track_conversions: boolean;
+  track_upsells: boolean;
+  custom_code: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// --- Source/Medium types ---
+export interface SourceMediumRow {
+  utm_source: string;
+  utm_medium: string;
+  revenue: number;
+  conversions: number;
+  orders: number;
+}
+
 export function fetchMetrics(offer?: string, account?: string): Promise<MetricRow[]> {
   const params = new URLSearchParams();
   if (offer && offer !== 'All') params.set('offer', offer);
@@ -454,4 +490,45 @@ export function uploadCsv(
 
 export function fetchUploadTemplates(): Promise<Record<string, { required: string[]; optional: string[] }>> {
   return request<Record<string, { required: string[]; optional: string[] }>>('/upload/templates');
+}
+
+// --- Webhook Tokens API ---
+export function fetchWebhookTokens(): Promise<WebhookToken[]> {
+  return request<WebhookToken[]>('/webhook-tokens');
+}
+
+export function createWebhookToken(source: string, label?: string): Promise<WebhookToken> {
+  return request<WebhookToken>('/webhook-tokens', {
+    method: 'POST',
+    body: JSON.stringify({ source, label }),
+  });
+}
+
+export function revokeWebhookToken(id: number): Promise<{ success: boolean }> {
+  return request<{ success: boolean }>(`/webhook-tokens/${id}`, { method: 'DELETE' });
+}
+
+// --- Pixel Configs API ---
+export function fetchPixelConfigs(): Promise<PixelConfig[]> {
+  return request<PixelConfig[]>('/pixel-configs');
+}
+
+export function savePixelConfig(data: Partial<PixelConfig>): Promise<PixelConfig> {
+  return request<PixelConfig>('/pixel-configs', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export function deletePixelConfig(id: number): Promise<{ success: boolean }> {
+  return request<{ success: boolean }>(`/pixel-configs/${id}`, { method: 'DELETE' });
+}
+
+export function fetchPixelSnippet(funnelPage: string): Promise<{ snippet: string }> {
+  return request<{ snippet: string }>(`/pixel-configs/snippet/${encodeURIComponent(funnelPage)}`);
+}
+
+// --- Source/Medium API ---
+export function fetchSourceMedium(): Promise<SourceMediumRow[]> {
+  return request<SourceMediumRow[]>('/analytics/source-medium');
 }

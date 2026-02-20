@@ -80,14 +80,15 @@ export async function syncFacebook(userId?: number): Promise<{ synced: number; a
         )?.value || '0';
 
         await pool.query(
-          `INSERT INTO fb_ads_today (account_name, campaign_name, ad_set_name, ad_set_id, ad_name, spend, clicks, impressions, landing_page_views, synced_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+          `INSERT INTO fb_ads_today (account_name, campaign_name, ad_set_name, ad_set_id, ad_name, spend, clicks, impressions, landing_page_views, synced_at, user_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), $10)
            ON CONFLICT (ad_set_id, ad_name) DO UPDATE SET
              spend = EXCLUDED.spend,
              clicks = EXCLUDED.clicks,
              impressions = EXCLUDED.impressions,
              landing_page_views = EXCLUDED.landing_page_views,
-             synced_at = NOW()`,
+             synced_at = NOW(),
+             user_id = EXCLUDED.user_id`,
           [
             row.account_name,
             row.campaign_name,
@@ -98,6 +99,7 @@ export async function syncFacebook(userId?: number): Promise<{ synced: number; a
             parseInt(row.clicks) || 0,
             parseInt(row.impressions) || 0,
             parseInt(lpViews) || 0,
+            userId || null,
           ]
         );
         totalSynced++;

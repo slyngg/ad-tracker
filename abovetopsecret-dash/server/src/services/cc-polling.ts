@@ -2,7 +2,7 @@ import pool from '../db';
 import https from 'https';
 import { getSetting } from './settings';
 
-let lastPollTime: Date | null = null;
+const lastPollTimes = new Map<string, Date>();
 
 function fetchJSON(url: string, apiKey: string): Promise<{ data?: CCOrder[]; message?: string }> {
   return new Promise((resolve, reject) => {
@@ -59,6 +59,14 @@ interface CCOrder {
   new_customer?: boolean;
   utmCampaign?: string;
   utm_campaign?: string;
+  utmSource?: string;
+  utm_source?: string;
+  utmMedium?: string;
+  utm_medium?: string;
+  utmContent?: string;
+  utm_content?: string;
+  utmTerm?: string;
+  utm_term?: string;
   fbclid?: string;
   subscriptionId?: string;
   subscription_id?: string;
@@ -69,16 +77,17 @@ function formatDate(d: Date): string {
   return d.toISOString().replace('T', ' ').slice(0, 19);
 }
 
-export async function pollCheckoutChamp(): Promise<{ polled: number; inserted: number }> {
-  const apiKey = await getSetting('cc_api_key');
-  const apiUrl = await getSetting('cc_api_url');
+export async function pollCheckoutChamp(userId?: number): Promise<{ polled: number; inserted: number }> {
+  const apiKey = await getSetting('cc_api_key', userId);
+  const apiUrl = await getSetting('cc_api_url', userId);
 
   if (!apiKey || !apiUrl) {
     return { polled: 0, inserted: 0 };
   }
 
+  const pollKey = userId ? String(userId) : '_global';
   const now = new Date();
-  const since = lastPollTime || new Date(now.getTime() - 2 * 60 * 1000); // Default: last 2 minutes
+  const since = lastPollTimes.get(pollKey) || new Date(now.getTime() - 2 * 60 * 1000); // Default: last 2 minutes
 
   const url = `${apiUrl.replace(/\/$/, '')}/orders?startDate=${encodeURIComponent(formatDate(since))}&endDate=${encodeURIComponent(formatDate(now))}`;
 
@@ -86,7 +95,7 @@ export async function pollCheckoutChamp(): Promise<{ polled: number; inserted: n
   try {
     response = await fetchJSON(url, apiKey);
   } catch (err) {
-    console.error('[CC Poll] API request failed:', err);
+    console.error(`[CC Poll] API request failed${userId ? ` for user ${userId}` : ''}:`, err);
     return { polled: 0, inserted: 0 };
   }
 
@@ -118,14 +127,18 @@ export async function pollCheckoutChamp(): Promise<{ polled: number; inserted: n
     const offerName = order.productName || order.product_name || order.offer_name || 'Unknown';
     const newCustomer = order.isNewCustomer ?? order.new_customer ?? false;
     const utmCampaign = order.utmCampaign || order.utm_campaign || '';
+    const utmSource = order.utmSource || order.utm_source || '';
+    const utmMedium = order.utmMedium || order.utm_medium || '';
+    const utmContent = order.utmContent || order.utm_content || '';
+    const utmTerm = order.utmTerm || order.utm_term || '';
     const fbclid = order.fbclid || '';
     const subscriptionId = order.subscriptionId || order.subscription_id || null;
     const quantity = order.quantity || 1;
 
     try {
       await pool.query(
-        `INSERT INTO cc_orders_today (order_id, offer_name, revenue, subtotal, tax_amount, order_status, new_customer, utm_campaign, fbclid, subscription_id, quantity, is_core_sku, source)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, true, 'checkout_champ')
+        `INSERT INTO cc_orders_today (order_id, offer_name, revenue, subtotal, tax_amount, order_status, new_customer, utm_campaign, fbclid, subscription_id, quantity, is_core_sku, source, utm_source, utm_medium, utm_content, utm_term, user_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, true, 'checkout_champ', $12, $13, $14, $15, $16)
          ON CONFLICT (order_id) DO UPDATE SET
            revenue = EXCLUDED.revenue,
            subtotal = EXCLUDED.subtotal,
@@ -133,8 +146,13 @@ export async function pollCheckoutChamp(): Promise<{ polled: number; inserted: n
            order_status = EXCLUDED.order_status,
            new_customer = EXCLUDED.new_customer,
            subscription_id = EXCLUDED.subscription_id,
-           quantity = EXCLUDED.quantity`,
-        [orderId, offerName, total, subtotal, tax, orderStatus, newCustomer, utmCampaign, fbclid, subscriptionId, quantity]
+           quantity = EXCLUDED.quantity,
+           utm_source = EXCLUDED.utm_source,
+           utm_medium = EXCLUDED.utm_medium,
+           utm_content = EXCLUDED.utm_content,
+           utm_term = EXCLUDED.utm_term,
+           user_id = EXCLUDED.user_id`,
+        [orderId, offerName, total, subtotal, tax, orderStatus, newCustomer, utmCampaign, fbclid, subscriptionId, quantity, utmSource, utmMedium, utmContent, utmTerm, userId || null]
       );
       inserted++;
     } catch (err) {
@@ -142,6 +160,6 @@ export async function pollCheckoutChamp(): Promise<{ polled: number; inserted: n
     }
   }
 
-  lastPollTime = now;
+  lastPollTimes.set(pollKey, now);
   return { polled: orders.length, inserted };
 }

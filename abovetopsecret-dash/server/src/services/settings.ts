@@ -50,29 +50,16 @@ export async function getSetting(key: string, userId?: number | null): Promise<s
 }
 
 export async function setSetting(key: string, value: string, updatedBy = 'admin', userId?: number | null): Promise<void> {
-  if (userId) {
-    await pool.query(
-      `INSERT INTO app_settings (key, value, updated_by, updated_at, user_id)
-       VALUES ($1, $2, $3, NOW(), $4)
-       ON CONFLICT (key) DO UPDATE SET
-         value = EXCLUDED.value,
-         updated_by = EXCLUDED.updated_by,
-         updated_at = NOW(),
-         user_id = EXCLUDED.user_id
-       WHERE app_settings.user_id = $4 OR (app_settings.user_id IS NULL AND $4::int IS NULL)`,
-      [key, value, updatedBy, userId]
-    );
-  } else {
-    await pool.query(
-      `INSERT INTO app_settings (key, value, updated_by, updated_at)
-       VALUES ($1, $2, $3, NOW())
-       ON CONFLICT (key) DO UPDATE SET
-         value = EXCLUDED.value,
-         updated_by = EXCLUDED.updated_by,
-         updated_at = NOW()`,
-      [key, value, updatedBy]
-    );
-  }
+  // Use DELETE+INSERT to work with the composite unique index on (key, COALESCE(user_id, -1))
+  await pool.query(
+    'DELETE FROM app_settings WHERE key = $1 AND COALESCE(user_id, -1) = COALESCE($2::int, -1)',
+    [key, userId || null]
+  );
+  await pool.query(
+    `INSERT INTO app_settings (key, value, updated_by, updated_at, user_id)
+     VALUES ($1, $2, $3, NOW(), $4)`,
+    [key, value, updatedBy, userId || null]
+  );
 }
 
 export async function deleteSetting(key: string, userId?: number | null): Promise<void> {

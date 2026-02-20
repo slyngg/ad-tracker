@@ -1,5 +1,14 @@
 import { useState, useEffect, useCallback } from 'react';
-import { fetchSettings, updateSettings, testFacebookConnection, testCCConnection } from '../../lib/api';
+import {
+  fetchSettings,
+  updateSettings,
+  testFacebookConnection,
+  testCCConnection,
+  fetchWebhookTokens,
+  createWebhookToken,
+  revokeWebhookToken,
+  WebhookToken,
+} from '../../lib/api';
 import PageShell from '../../components/shared/PageShell';
 
 export default function ConnectionsPage() {
@@ -21,6 +30,12 @@ export default function ConnectionsPage() {
   const [ccTestStatus, setCcTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [ccTestMessage, setCcTestMessage] = useState('');
 
+  // Webhook tokens
+  const [tokens, setTokens] = useState<WebhookToken[]>([]);
+  const [newTokenSource, setNewTokenSource] = useState('checkout_champ');
+  const [newTokenLabel, setNewTokenLabel] = useState('');
+  const [creatingToken, setCreatingToken] = useState(false);
+
   const loadSettings = useCallback(async () => {
     try {
       const s = await fetchSettings();
@@ -34,9 +49,19 @@ export default function ConnectionsPage() {
     }
   }, []);
 
+  const loadTokens = useCallback(async () => {
+    try {
+      const t = await fetchWebhookTokens();
+      setTokens(t);
+    } catch {
+      // Table may not exist yet
+    }
+  }, []);
+
   useEffect(() => {
     loadSettings();
-  }, [loadSettings]);
+    loadTokens();
+  }, [loadSettings, loadTokens]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -100,10 +125,38 @@ export default function ConnectionsPage() {
     }
   };
 
+  const handleCreateToken = async () => {
+    setCreatingToken(true);
+    try {
+      await createWebhookToken(newTokenSource, newTokenLabel || undefined);
+      setNewTokenLabel('');
+      loadTokens();
+      setMessage({ type: 'success', text: 'Webhook token created' });
+    } catch {
+      setMessage({ type: 'error', text: 'Failed to create token' });
+    } finally {
+      setCreatingToken(false);
+    }
+  };
+
+  const handleRevokeToken = async (id: number) => {
+    if (!confirm('Revoke this webhook token? Webhooks using this token will stop working.')) return;
+    try {
+      await revokeWebhookToken(id);
+      loadTokens();
+      setMessage({ type: 'success', text: 'Token revoked' });
+    } catch {
+      setMessage({ type: 'error', text: 'Failed to revoke token' });
+    }
+  };
+
   const webhookBaseUrl = typeof window !== 'undefined' ? window.location.origin : 'https://yourdomain.com';
 
   const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text).catch(() => {});
+    navigator.clipboard.writeText(text).then(() => {
+      setMessage({ type: 'success', text: 'Copied to clipboard' });
+      setTimeout(() => setMessage(null), 2000);
+    }).catch(() => {});
   };
 
   const statusDot = (status: 'idle' | 'testing' | 'success' | 'error') => {
@@ -176,7 +229,7 @@ export default function ConnectionsPage() {
               placeholder={settings.cc_webhook_secret || 'Enter webhook secret'} className={inputCls} />
           </div>
           <div>
-            <label className={labelCls}>Webhook URL</label>
+            <label className={labelCls}>Webhook URL (legacy)</label>
             <div className="flex gap-2">
               <input type="text" readOnly value={`${webhookBaseUrl}/api/webhooks/checkout-champ`}
                 className={`${inputCls} text-ats-text-muted flex-1`} />
@@ -185,7 +238,7 @@ export default function ConnectionsPage() {
                 Copy
               </button>
             </div>
-            <div className="text-[11px] text-[#4b5563] mt-1">Register this URL in your CheckoutChamp webhook settings</div>
+            <div className="text-[11px] text-[#4b5563] mt-1">Use a token-based URL below for multi-user support</div>
           </div>
           <div className="flex items-center gap-3">
             <label className={`${labelCls} mb-0`}>API Polling</label>
@@ -206,7 +259,7 @@ export default function ConnectionsPage() {
       </div>
 
       {/* Shopify */}
-      <div className="bg-ats-surface border border-ats-border rounded-lg p-4 mb-6">
+      <div className="bg-ats-surface border border-ats-border rounded-lg p-4 mb-4">
         <h3 className="text-sm font-bold text-ats-text mb-4">Shopify</h3>
         <div className="space-y-3">
           <div>
@@ -215,7 +268,7 @@ export default function ConnectionsPage() {
               placeholder={settings.shopify_webhook_secret || 'Enter Shopify webhook secret'} className={inputCls} />
           </div>
           <div>
-            <label className={labelCls}>Webhook URL</label>
+            <label className={labelCls}>Webhook URL (legacy)</label>
             <div className="flex gap-2">
               <input type="text" readOnly value={`${webhookBaseUrl}/api/webhooks/shopify`}
                 className={`${inputCls} text-ats-text-muted flex-1`} />
@@ -231,6 +284,88 @@ export default function ConnectionsPage() {
               placeholder={settings.shopify_store_url || 'mystore.myshopify.com'} className={inputCls} />
           </div>
         </div>
+      </div>
+
+      {/* Webhook Tokens */}
+      <div className="bg-ats-surface border border-ats-border rounded-lg p-4 mb-6">
+        <h3 className="text-sm font-bold text-ats-text mb-1">Webhook Tokens</h3>
+        <p className="text-xs text-ats-text-muted mb-4">
+          Generate user-scoped webhook tokens. Orders received via token-based URLs are automatically associated with your account.
+        </p>
+
+        {/* Generate new token */}
+        <div className="flex gap-2 mb-4 flex-wrap">
+          <select
+            value={newTokenSource}
+            onChange={(e) => setNewTokenSource(e.target.value)}
+            className={`${inputCls} w-auto`}
+          >
+            <option value="checkout_champ">CheckoutChamp</option>
+            <option value="shopify">Shopify</option>
+          </select>
+          <input
+            type="text"
+            value={newTokenLabel}
+            onChange={(e) => setNewTokenLabel(e.target.value)}
+            placeholder="Label (optional)"
+            className={`${inputCls} flex-1 min-w-[150px]`}
+          />
+          <button
+            onClick={handleCreateToken}
+            disabled={creatingToken}
+            className="px-4 py-2 bg-ats-accent text-white rounded-md text-sm font-semibold hover:bg-blue-600 transition-colors disabled:opacity-60 whitespace-nowrap"
+          >
+            {creatingToken ? 'Creating...' : 'Generate Token'}
+          </button>
+        </div>
+
+        {/* Token list */}
+        {tokens.length === 0 ? (
+          <div className="text-xs text-ats-text-muted text-center py-4">No webhook tokens yet</div>
+        ) : (
+          <div className="space-y-2">
+            {tokens.map((t) => {
+              const sourceRoute = t.source === 'shopify' ? 'shopify' : 'checkout-champ';
+              const webhookUrl = `${webhookBaseUrl}/api/webhooks/${sourceRoute}/${t.token}`;
+              return (
+                <div
+                  key={t.id}
+                  className={`p-3 rounded-lg border ${t.active ? 'border-ats-border bg-ats-bg' : 'border-[#374151] bg-ats-bg/50 opacity-60'}`}
+                >
+                  <div className="flex items-center justify-between mb-1.5">
+                    <div className="flex items-center gap-2">
+                      <span className={`inline-block w-2 h-2 rounded-full ${t.active ? 'bg-ats-green' : 'bg-ats-red'}`} />
+                      <span className="text-xs font-semibold text-ats-text uppercase">{t.source}</span>
+                      {t.label && <span className="text-xs text-ats-text-muted">- {t.label}</span>}
+                    </div>
+                    {t.active && (
+                      <button
+                        onClick={() => handleRevokeToken(t.id)}
+                        className="text-xs text-ats-red hover:text-red-400 transition-colors"
+                      >
+                        Revoke
+                      </button>
+                    )}
+                  </div>
+                  {t.active && (
+                    <div className="flex gap-2">
+                      <input type="text" readOnly value={webhookUrl}
+                        className="flex-1 px-2 py-1.5 bg-ats-bg border border-[#374151] rounded text-xs font-mono text-ats-text-muted outline-none" />
+                      <button onClick={() => copyToClipboard(webhookUrl)}
+                        className="px-3 py-1.5 bg-ats-border border border-[#374151] rounded text-xs text-ats-text-muted hover:bg-ats-hover transition-colors">
+                        Copy
+                      </button>
+                    </div>
+                  )}
+                  <div className="text-[10px] text-ats-text-muted mt-1">
+                    {t.last_used_at ? `Last used: ${new Date(t.last_used_at).toLocaleString()}` : 'Never used'}
+                    {' | '}Created: {new Date(t.created_at).toLocaleDateString()}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       <button onClick={handleSave} disabled={saving}

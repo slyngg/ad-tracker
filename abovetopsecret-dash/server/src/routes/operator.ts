@@ -11,22 +11,16 @@ async function getMetricsContext(userId: number | null | undefined): Promise<str
   try {
     const [spendResult, revenueResult, topOffersResult] = await Promise.all([
       pool.query(
-        userId
-          ? 'SELECT COALESCE(SUM(spend), 0) AS total_spend, COALESCE(SUM(clicks), 0) AS total_clicks, COALESCE(SUM(impressions), 0) AS total_impressions FROM fb_ads_today WHERE user_id = $1'
-          : 'SELECT COALESCE(SUM(spend), 0) AS total_spend, COALESCE(SUM(clicks), 0) AS total_clicks, COALESCE(SUM(impressions), 0) AS total_impressions FROM fb_ads_today',
-        userId ? [userId] : []
+        'SELECT COALESCE(SUM(spend), 0) AS total_spend, COALESCE(SUM(clicks), 0) AS total_clicks, COALESCE(SUM(impressions), 0) AS total_impressions FROM fb_ads_today WHERE user_id = $1',
+        [userId || null]
       ),
       pool.query(
-        userId
-          ? "SELECT COALESCE(SUM(COALESCE(subtotal, revenue)), 0) AS total_revenue, COUNT(DISTINCT order_id) AS total_conversions FROM cc_orders_today WHERE order_status = 'completed' AND user_id = $1"
-          : "SELECT COALESCE(SUM(COALESCE(subtotal, revenue)), 0) AS total_revenue, COUNT(DISTINCT order_id) AS total_conversions FROM cc_orders_today WHERE order_status = 'completed'",
-        userId ? [userId] : []
+        "SELECT COALESCE(SUM(COALESCE(subtotal, revenue)), 0) AS total_revenue, COUNT(DISTINCT order_id) AS total_conversions FROM cc_orders_today WHERE order_status = 'completed' AND user_id = $1",
+        [userId || null]
       ),
       pool.query(
-        userId
-          ? "SELECT offer_name, COALESCE(SUM(COALESCE(subtotal, revenue)), 0) AS revenue, COUNT(DISTINCT order_id) AS conversions FROM cc_orders_today WHERE order_status = 'completed' AND user_id = $1 GROUP BY offer_name ORDER BY revenue DESC LIMIT 5"
-          : "SELECT offer_name, COALESCE(SUM(COALESCE(subtotal, revenue)), 0) AS revenue, COUNT(DISTINCT order_id) AS conversions FROM cc_orders_today WHERE order_status = 'completed' GROUP BY offer_name ORDER BY revenue DESC LIMIT 5",
-        userId ? [userId] : []
+        "SELECT offer_name, COALESCE(SUM(COALESCE(subtotal, revenue)), 0) AS revenue, COUNT(DISTINCT order_id) AS conversions FROM cc_orders_today WHERE order_status = 'completed' AND user_id = $1 GROUP BY offer_name ORDER BY revenue DESC LIMIT 5",
+        [userId || null]
       ),
     ]);
 

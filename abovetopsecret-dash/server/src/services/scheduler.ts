@@ -48,15 +48,34 @@ export function startScheduler(): void {
     }
   });
 
-  // CheckoutChamp API polling every minute
+  // CheckoutChamp API polling every minute — per-user iteration
   cron.schedule('* * * * *', async () => {
     try {
-      const pollEnabled = await getSetting('cc_poll_enabled');
-      if (pollEnabled === 'false') return;
+      // Legacy global poll for backward compatibility
+      const globalPollEnabled = await getSetting('cc_poll_enabled');
+      if (globalPollEnabled !== 'false') {
+        const legacyResult = await pollCheckoutChamp();
+        if (legacyResult.inserted > 0) {
+          console.log(`[Scheduler] CC poll (legacy): ${legacyResult.inserted} orders inserted (${legacyResult.polled} total)`);
+        }
+      }
 
-      const result = await pollCheckoutChamp();
-      if (result.inserted > 0) {
-        console.log(`[Scheduler] CC poll: ${result.inserted} orders inserted (${result.polled} total)`);
+      // Per-user CC polling
+      const userIds = await getActiveUserIds();
+      for (const userId of userIds) {
+        try {
+          const pollEnabled = await getSetting('cc_poll_enabled', userId);
+          if (pollEnabled === 'false') continue;
+
+          const result = await pollCheckoutChamp(userId);
+          if (result.inserted > 0) {
+            console.log(`[Scheduler] CC poll for user ${userId}: ${result.inserted} orders inserted (${result.polled} total)`);
+            await evaluateRules(userId);
+            await checkThresholds(userId);
+          }
+        } catch (err) {
+          console.error(`[Scheduler] CC poll failed for user ${userId}:`, err);
+        }
       }
     } catch (err) {
       console.error('[Scheduler] CC poll failed:', err);

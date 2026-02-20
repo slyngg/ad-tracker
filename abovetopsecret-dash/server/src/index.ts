@@ -16,6 +16,8 @@ import rulesRouter from './routes/rules';
 import sqlBuilderRouter from './routes/sql-builder';
 import apiKeysRouter from './routes/api-keys';
 import uploadRouter from './routes/upload';
+import webhookTokensRouter from './routes/webhook-tokens';
+import pixelConfigsRouter from './routes/pixel-configs';
 import { authMiddleware } from './middleware/auth';
 import { startScheduler } from './services/scheduler';
 
@@ -93,6 +95,8 @@ app.use('/api/rules', rulesRouter);
 app.use('/api/sql', sqlBuilderRouter);
 app.use('/api/keys', apiKeysRouter);
 app.use('/api/upload', uploadRouter);
+app.use('/api/webhook-tokens', webhookTokensRouter);
+app.use('/api/pixel-configs', pixelConfigsRouter);
 
 const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`[ATS Server] Running on port ${PORT}`);
