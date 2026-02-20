@@ -177,17 +177,17 @@ export default function ConnectionsPage() {
         </div>
       )}
 
-      {/* Facebook */}
+      {/* Meta Ads */}
       <div className="bg-ats-surface border border-ats-border rounded-lg p-4 mb-4">
         <div className="flex justify-between items-center">
-          <h3 className="text-sm font-bold text-ats-text mb-4">Facebook Ads</h3>
+          <h3 className="text-sm font-bold text-ats-text mb-4">Meta Ads</h3>
           {statusDot(fbTestStatus)}
         </div>
         <div className="space-y-3">
           <div>
             <label className={labelCls}>Access Token</label>
             <input type="password" value={fbToken} onChange={(e) => setFbToken(e.target.value)}
-              placeholder={settings.fb_access_token || 'Enter FB access token'} className={inputCls} />
+              placeholder={settings.fb_access_token || 'Enter Meta access token'} className={inputCls} />
           </div>
           <div>
             <label className={labelCls}>Ad Account IDs</label>

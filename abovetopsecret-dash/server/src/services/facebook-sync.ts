@@ -61,7 +61,7 @@ export async function syncFacebook(userId?: number): Promise<{ synced: number; a
   const accountIds = await getSetting('fb_ad_account_ids', userId);
 
   if (!accessToken || !accountIds) {
-    console.warn('[FB Sync] FB_ACCESS_TOKEN or FB_AD_ACCOUNT_IDS not set, skipping sync');
+    console.warn('[Meta Sync] Access token or ad account IDs not set, skipping sync');
     return { synced: 0, accounts: 0, skipped: true };
   }
 
@@ -105,9 +105,9 @@ export async function syncFacebook(userId?: number): Promise<{ synced: number; a
         totalSynced++;
       }
 
-      console.log(`[FB Sync] Synced ${rows.length} rows from ${accountId}`);
+      console.log(`[Meta Sync] Synced ${rows.length} rows from ${accountId}`);
     } catch (err) {
-      console.error(`[FB Sync] Error syncing account ${accountId}:`, err);
+      console.error(`[Meta Sync] Error syncing account ${accountId}:`, err);
     }
   }
 

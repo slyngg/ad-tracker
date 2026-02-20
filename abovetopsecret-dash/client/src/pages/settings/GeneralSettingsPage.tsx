@@ -68,7 +68,7 @@ export default function GeneralSettingsPage() {
       <div className="bg-ats-surface border border-ats-border rounded-lg p-4 mb-6">
         <h3 className="text-sm font-bold text-ats-text mb-4">Sync Settings</h3>
         <div>
-          <label className={labelCls}>Facebook Sync Interval (minutes)</label>
+          <label className={labelCls}>Meta Ads Sync Interval (minutes)</label>
           <input type="number" min="1" max="60" value={syncInterval}
             onChange={(e) => setSyncInterval(e.target.value)} className={inputCls} />
         </div>

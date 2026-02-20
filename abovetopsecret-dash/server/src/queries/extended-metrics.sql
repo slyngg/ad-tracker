@@ -1,3 +1,8 @@
+-- Extended metrics queries — reference file.
+-- In production, these are inlined in metrics.ts with user_id filtering.
+-- Parameter $1 = user_id (NULL for legacy/global scope).
+-- Filter clause: WHERE ... AND (user_id = $1 OR ($1 IS NULL AND user_id IS NULL))
+
 -- Pack Take Rates (1v3v5) for core SKUs
 -- query:take_rates
 SELECT
@@ -6,7 +11,7 @@ SELECT
   ROUND(SUM(CASE WHEN quantity = 3 THEN 1 ELSE 0 END)::FLOAT / NULLIF(COUNT(*), 0) * 100, 1) AS take_rate_3,
   ROUND(SUM(CASE WHEN quantity = 5 THEN 1 ELSE 0 END)::FLOAT / NULLIF(COUNT(*), 0) * 100, 1) AS take_rate_5
 FROM cc_orders_today
-WHERE is_core_sku = true
+WHERE is_core_sku = true AND (user_id = $1 OR ($1 IS NULL AND user_id IS NULL))
 GROUP BY offer_name;
 
 -- Subscription Opt-in %
@@ -15,6 +20,7 @@ SELECT
   offer_name,
   ROUND(SUM(CASE WHEN subscription_id IS NOT NULL THEN 1 ELSE 0 END)::FLOAT / NULLIF(COUNT(*), 0) * 100, 1) AS subscription_pct
 FROM cc_orders_today
+WHERE (user_id = $1 OR ($1 IS NULL AND user_id IS NULL))
 GROUP BY offer_name;
 
 -- Subscription Pack Take Rates
@@ -25,7 +31,7 @@ SELECT
   ROUND(SUM(CASE WHEN quantity = 3 THEN 1 ELSE 0 END)::FLOAT / NULLIF(COUNT(*), 0) * 100, 1) AS sub_take_rate_3,
   ROUND(SUM(CASE WHEN quantity = 5 THEN 1 ELSE 0 END)::FLOAT / NULLIF(COUNT(*), 0) * 100, 1) AS sub_take_rate_5
 FROM cc_orders_today
-WHERE subscription_id IS NOT NULL
+WHERE subscription_id IS NOT NULL AND (user_id = $1 OR ($1 IS NULL AND user_id IS NULL))
 GROUP BY offer_name;
 
 -- Upsell Take / Decline Rates
@@ -35,4 +41,5 @@ SELECT
   ROUND(SUM(CASE WHEN accepted THEN 1 ELSE 0 END)::FLOAT / NULLIF(SUM(CASE WHEN offered THEN 1 ELSE 0 END), 0) * 100, 1) AS upsell_take_rate,
   ROUND((1 - (SUM(CASE WHEN accepted THEN 1 ELSE 0 END)::FLOAT / NULLIF(SUM(CASE WHEN offered THEN 1 ELSE 0 END), 0))) * 100, 1) AS upsell_decline_rate
 FROM cc_upsells_today
+WHERE (user_id = $1 OR ($1 IS NULL AND user_id IS NULL))
 GROUP BY offer_name;

@@ -10,8 +10,8 @@ router.post('/facebook', async (req: Request, res: Response) => {
     const result = await syncFacebook(userId);
     res.json(result);
   } catch (err) {
-    console.error('Error triggering FB sync:', err);
-    res.status(500).json({ error: 'Failed to sync Facebook data' });
+    console.error('Error triggering Meta Ads sync:', err);
+    res.status(500).json({ error: 'Failed to sync Meta Ads data' });
   }
 });
 

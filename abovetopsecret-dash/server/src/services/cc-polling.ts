@@ -1,8 +1,20 @@
 import pool from '../db';
 import https from 'https';
-import { getSetting } from './settings';
+import { getSetting, setSetting } from './settings';
 
-const lastPollTimes = new Map<string, Date>();
+async function getLastPollTime(userId?: number): Promise<Date> {
+  const key = 'cc_last_poll_time';
+  const val = await getSetting(key, userId);
+  if (val) {
+    const d = new Date(val);
+    if (!isNaN(d.getTime())) return d;
+  }
+  return new Date(Date.now() - 2 * 60 * 1000); // Default: 2 minutes ago
+}
+
+async function setLastPollTime(now: Date, userId?: number): Promise<void> {
+  await setSetting('cc_last_poll_time', now.toISOString(), 'system', userId);
+}
 
 function fetchJSON(url: string, apiKey: string): Promise<{ data?: CCOrder[]; message?: string }> {
   return new Promise((resolve, reject) => {
@@ -85,9 +97,8 @@ export async function pollCheckoutChamp(userId?: number): Promise<{ polled: numb
     return { polled: 0, inserted: 0 };
   }
 
-  const pollKey = userId ? String(userId) : '_global';
   const now = new Date();
-  const since = lastPollTimes.get(pollKey) || new Date(now.getTime() - 2 * 60 * 1000); // Default: last 2 minutes
+  const since = await getLastPollTime(userId);
 
   const url = `${apiUrl.replace(/\/$/, '')}/orders?startDate=${encodeURIComponent(formatDate(since))}&endDate=${encodeURIComponent(formatDate(now))}`;
 
@@ -160,6 +171,6 @@ export async function pollCheckoutChamp(userId?: number): Promise<{ polled: numb
     }
   }
 
-  lastPollTimes.set(pollKey, now);
+  await setLastPollTime(now, userId);
   return { polled: orders.length, inserted };
 }

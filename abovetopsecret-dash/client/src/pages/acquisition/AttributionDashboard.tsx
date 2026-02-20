@@ -183,7 +183,7 @@ export default function AttributionDashboard() {
           <div className="text-center py-10 text-ats-text-muted">
             <div className="text-base mb-2">No data yet</div>
             <div className="text-sm">
-              Waiting for Facebook ad sync or webhook data. Seed data should appear on first run.
+              Waiting for Meta ad sync or webhook data. Seed data should appear on first run.
             </div>
           </div>
         )}

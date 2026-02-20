@@ -1,6 +1,8 @@
 -- Core metrics query with pre-aggregated CTEs to prevent many-to-many fan-out.
 -- fb_agg: collapses multiple ads per ad_set into one row.
 -- cc_agg: collapses multiple orders per utm_campaign into one row.
+-- In production, user_id filtering is applied via parameterized queries in metrics.ts.
+-- Parameter $1 = user_id. Filter clause: AND user_id = $1 (or AND user_id IS NULL for legacy).
 
 WITH fb_agg AS (
   SELECT

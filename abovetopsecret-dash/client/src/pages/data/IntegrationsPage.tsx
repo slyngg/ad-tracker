@@ -16,8 +16,8 @@ interface Integration {
 const INTEGRATIONS: Integration[] = [
   {
     key: 'facebook',
-    name: 'Facebook Ads',
-    description: 'Import ad campaign data, spend, impressions, clicks, and conversion metrics from Facebook Ads Manager.',
+    name: 'Meta Ads',
+    description: 'Import ad campaign data, spend, impressions, clicks, and conversion metrics from Meta Ads Manager.',
     icon: 'f',
     settingsKeys: ['fb_access_token', 'fb_ad_account_ids'],
     statusLabel: (s) => {
@@ -287,7 +287,7 @@ export default function IntegrationsPage() {
         <h4 className="text-xs font-semibold text-ats-text-muted uppercase tracking-wider mb-2">Integration Guide</h4>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
-            <h5 className="text-xs font-medium text-ats-text mb-1">Facebook Ads</h5>
+            <h5 className="text-xs font-medium text-ats-text mb-1">Meta Ads</h5>
             <p className="text-[11px] text-ats-text-muted leading-relaxed">
               Requires a valid access token and ad account IDs. Data syncs automatically via the scheduled job.
             </p>

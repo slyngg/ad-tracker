@@ -46,7 +46,7 @@ router.delete('/:key', async (req: Request, res: Response) => {
   }
 });
 
-// POST /api/settings/test/facebook — test FB connection
+// POST /api/settings/test/facebook — test Meta Ads connection
 router.post('/test/facebook', async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user?.id as number | undefined;
@@ -54,7 +54,7 @@ router.post('/test/facebook', async (req: Request, res: Response) => {
     const accountIds = await getSetting('fb_ad_account_ids', userId);
 
     if (!token) {
-      res.json({ success: false, error: 'No Facebook access token configured' });
+      res.json({ success: false, error: 'No Meta access token configured' });
       return;
     }
 
@@ -84,7 +84,7 @@ router.post('/test/facebook', async (req: Request, res: Response) => {
       res.json({ success: true, account_name: result.name, account_id: firstAccount });
     }
   } catch (err) {
-    console.error('Error testing FB connection:', err);
+    console.error('Error testing Meta Ads connection:', err);
     res.json({ success: false, error: 'Connection failed' });
   }
 });

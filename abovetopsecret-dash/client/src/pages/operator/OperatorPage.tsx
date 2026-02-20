@@ -381,13 +381,23 @@ export default function OperatorPage() {
                 rows={1}
                 className="flex-1 px-4 py-3 bg-ats-bg border border-ats-border rounded-lg text-sm text-ats-text outline-none focus:border-ats-accent resize-none font-sans"
               />
-              <button
-                type="submit"
-                disabled={streaming || !input.trim()}
-                className="px-5 py-3 bg-ats-accent text-white rounded-lg text-sm font-semibold hover:bg-blue-600 transition-colors disabled:opacity-40"
-              >
-                {streaming ? '...' : 'Send'}
-              </button>
+              {streaming ? (
+                <button
+                  type="button"
+                  onClick={() => abortRef.current?.abort()}
+                  className="px-5 py-3 bg-ats-red text-white rounded-lg text-sm font-semibold hover:bg-red-600 transition-colors"
+                >
+                  Stop
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  disabled={!input.trim()}
+                  className="px-5 py-3 bg-ats-accent text-white rounded-lg text-sm font-semibold hover:bg-blue-600 transition-colors disabled:opacity-40"
+                >
+                  Send
+                </button>
+              )}
             </form>
           </div>
         </div>
