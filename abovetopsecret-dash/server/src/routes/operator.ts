@@ -316,6 +316,31 @@ router.post('/chat', async (req: Request, res: Response) => {
       } catch (err) {
         console.error('Error storing assistant message:', err);
       }
+
+      // Generate follow-up suggestions via Haiku (non-blocking)
+      if (!aborted) {
+        try {
+          const suggestionsResponse = await client.messages.create({
+            model: 'claude-haiku-4-5-20251001',
+            max_tokens: 200,
+            messages: [{
+              role: 'user',
+              content: `Based on this AI assistant response about advertising/campaign data, generate 2-3 short follow-up questions the user might want to ask next. Return ONLY a JSON array of strings, nothing else.\n\nAssistant response:\n${fullResponse.slice(0, 1000)}`,
+            }],
+          });
+          const sugText = suggestionsResponse.content[0]?.type === 'text' ? suggestionsResponse.content[0].text : '';
+          const sugMatch = sugText.match(/\[[\s\S]*\]/);
+          if (sugMatch) {
+            const suggestions: string[] = JSON.parse(sugMatch[0]);
+            if (suggestions.length > 0) {
+              res.write(`data: ${JSON.stringify({ type: 'suggestions', suggestions: suggestions.slice(0, 3) })}\n\n`);
+            }
+          }
+        } catch (err) {
+          // Non-blocking — client falls back to static suggestions
+          console.error('Error generating follow-up suggestions:', err);
+        }
+      }
     }
 
     res.write(`data: ${JSON.stringify({ type: 'done', conversationId: convId })}\n\n`);

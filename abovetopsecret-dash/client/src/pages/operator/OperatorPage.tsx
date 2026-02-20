@@ -74,6 +74,7 @@ export default function OperatorPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [toolStatuses, setToolStatuses] = useState<ToolStatus[]>([]);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
   const [handsFreeAutoSpeak, setHandsFreeAutoSpeak] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -231,6 +232,7 @@ export default function OperatorPage() {
     setStreaming(true);
     setError(null);
     setToolStatuses([]);
+    setSuggestions([]);
 
     const assistantMsg: ChatMessage = {
       id: `temp-assistant-${Date.now()}`,
@@ -292,6 +294,8 @@ export default function OperatorPage() {
                   }
                   return [...prev, updated];
                 });
+              } else if (parsed.type === 'suggestions' && Array.isArray(parsed.suggestions)) {
+                setSuggestions(parsed.suggestions);
               } else if (parsed.type === 'text' && parsed.text) {
                 accumulated += parsed.text;
               } else if (parsed.type === 'error') {
@@ -334,6 +338,12 @@ export default function OperatorPage() {
       setStreaming(false);
       abortRef.current = null;
       loadConversations();
+      // Static fallback suggestions if backend didn't send any
+      setSuggestions((prev) =>
+        prev.length > 0
+          ? prev
+          : ['How can I improve ROAS?', 'Show me underperforming campaigns', 'What should I do next?']
+      );
     }
   };
 
@@ -415,8 +425,8 @@ export default function OperatorPage() {
   );
 
   return (
-    <PageShell title="Operator AI" subtitle="Your AI-powered media buying assistant">
-      <div className="flex h-[calc(100dvh-8rem)] lg:h-[calc(100vh-180px)] bg-ats-card border border-ats-border rounded-xl overflow-hidden relative">
+    <PageShell title="Operator AI" subtitle="Your AI-powered media buying assistant" hideHeaderOnMobile compactMobile>
+      <div className="flex h-[calc(100dvh-3rem)] lg:h-[calc(100vh-180px)] bg-ats-card border-y border-ats-border lg:border lg:rounded-xl rounded-none overflow-hidden relative">
         {/* Mobile sidebar overlay */}
         {sidebarOpen && (
           <div
@@ -441,7 +451,7 @@ export default function OperatorPage() {
         {/* Chat Area */}
         <div className="flex-1 flex flex-col min-w-0">
           {/* Header */}
-          <div className="px-3 py-2.5 lg:px-4 lg:py-3 border-b border-ats-border flex items-center gap-2 lg:gap-3">
+          <div className="px-3 py-1.5 lg:px-4 lg:py-3 border-b border-ats-border flex items-center gap-2 lg:gap-3">
             <button
               onClick={() => setSidebarOpen(!sidebarOpen)}
               className="text-ats-text-muted hover:text-ats-text text-sm p-1"
@@ -455,9 +465,11 @@ export default function OperatorPage() {
                 {activeConvo?.title || 'Operator AI'}
               </h3>
             </div>
-            <div className="flex items-center gap-1.5 text-xs text-ats-text-muted bg-ats-bg/50 px-2 py-1 rounded-full border border-ats-border shrink-0">
+            {/* Green dot only on mobile, full badge on sm+ */}
+            <span className="w-2 h-2 bg-ats-green rounded-full animate-pulse sm:hidden shrink-0" />
+            <div className="hidden sm:flex items-center gap-1.5 text-xs text-ats-text-muted bg-ats-bg/50 px-2 py-1 rounded-full border border-ats-border shrink-0">
               <span className="w-1.5 h-1.5 bg-ats-green rounded-full animate-pulse" />
-              <span className="hidden sm:inline">Operator has access to your live metrics</span>
+              <span>Operator has access to your live metrics</span>
             </div>
           </div>
 
@@ -470,18 +482,18 @@ export default function OperatorPage() {
             )}
 
             {messages.length === 0 && !activeConvo && (
-              <div className="flex flex-col items-center justify-center h-full text-center px-4">
+              <div className="flex flex-col items-start lg:items-center lg:justify-center h-full px-4 pt-6 lg:pt-0 lg:text-center">
                 <div className="text-3xl mb-3">&#x1f916;</div>
                 <h3 className="text-lg font-bold text-ats-text mb-2">OpticData Operator</h3>
                 <p className="text-sm text-ats-text-muted mb-6 max-w-sm">
                   I can analyze your campaigns, suggest optimizations, and take actions on your Meta Ads — all from this chat.
                 </p>
-                <div className="flex gap-2 overflow-x-auto max-w-full pb-2 snap-x snap-mandatory lg:flex-wrap lg:justify-center lg:overflow-visible lg:pb-0">
+                <div className="flex flex-col w-full gap-2 lg:flex-row lg:flex-wrap lg:justify-center lg:w-auto">
                   {QUICK_PROMPTS.map((qp) => (
                     <button
                       key={qp.label}
                       onClick={() => sendMessage(qp.prompt)}
-                      className="px-3 py-2 bg-ats-bg border border-ats-border rounded-lg text-sm text-ats-text hover:bg-ats-hover hover:border-ats-text-muted/30 transition-colors whitespace-nowrap snap-start shrink-0 lg:shrink lg:whitespace-normal"
+                      className="w-full lg:w-auto px-4 py-2.5 bg-ats-bg border border-ats-border rounded-full text-sm text-ats-text hover:bg-ats-hover hover:border-ats-text-muted/30 transition-colors text-center"
                     >
                       {qp.label}
                     </button>
@@ -491,14 +503,14 @@ export default function OperatorPage() {
             )}
 
             {messages.length === 0 && activeConvo && (
-              <div className="flex flex-col items-center justify-center h-full text-center px-4">
+              <div className="flex flex-col items-start lg:items-center lg:justify-center h-full px-4 pt-6 lg:pt-0 lg:text-center">
                 <p className="text-sm text-ats-text-muted mb-4">Start a conversation with Operator.</p>
-                <div className="flex gap-2 overflow-x-auto max-w-full pb-2 snap-x snap-mandatory lg:flex-wrap lg:justify-center lg:overflow-visible lg:pb-0">
+                <div className="flex flex-col w-full gap-2 lg:flex-row lg:flex-wrap lg:justify-center lg:w-auto">
                   {QUICK_PROMPTS.map((qp) => (
                     <button
                       key={qp.label}
                       onClick={() => sendMessage(qp.prompt)}
-                      className="px-3 py-2 bg-ats-bg border border-ats-border rounded-lg text-sm text-ats-text hover:bg-ats-hover transition-colors whitespace-nowrap snap-start shrink-0 lg:shrink lg:whitespace-normal"
+                      className="w-full lg:w-auto px-4 py-2.5 bg-ats-bg border border-ats-border rounded-full text-sm text-ats-text hover:bg-ats-hover transition-colors text-center"
                     >
                       {qp.label}
                     </button>
@@ -573,6 +585,20 @@ export default function OperatorPage() {
                 )}
               </div>
             ))}
+            {/* Follow-up suggestions */}
+            {!streaming && messages.length > 0 && suggestions.length > 0 && (
+              <div className="flex flex-col w-full gap-2 lg:flex-row lg:flex-wrap lg:w-auto px-1">
+                {suggestions.map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => sendMessage(s)}
+                    className="w-full lg:w-auto px-4 py-2.5 bg-ats-bg border border-ats-border rounded-full text-sm text-ats-text hover:bg-ats-hover hover:border-ats-text-muted/30 transition-colors text-center"
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            )}
             <div ref={messagesEndRef} />
           </div>
 
