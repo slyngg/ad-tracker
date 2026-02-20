@@ -141,7 +141,10 @@ router.get('/snippet/:funnelPage', async (req: Request, res: Response) => {
     }
 
     if (config.custom_code) {
-      snippet += `\n${config.custom_code}`;
+      // Wrap custom code in a comment-delimited block so its origin is clear,
+      // and prevent </script> injection that could break out of the snippet
+      const safeCode = config.custom_code.replace(/<\/script/gi, '<\\/script');
+      snippet += `\n<!-- Custom Code -->\n${safeCode}\n<!-- End Custom Code -->`;
     }
 
     res.json({ snippet });

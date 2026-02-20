@@ -36,7 +36,7 @@ function DeltaBadge({ delta, invertColors = false }: { delta: number | null; inv
   }
 
   return (
-    <span className={`text-xs font-medium ${colorClass} ml-1.5`}>
+    <span className={`text-xs font-medium ${colorClass} ml-1.5`} title="vs yesterday">
       {arrow}{absVal}%
     </span>
   );
@@ -63,6 +63,7 @@ function SummaryCard({ label, value, format, color, delta, invertColors }: {
           <AnimatedNumber value={value} format={format} />
         </div>
         <DeltaBadge delta={delta ?? null} invertColors={invertColors} />
+        {delta != null && <span className="text-[9px] text-gray-600 ml-1">vs yday</span>}
       </div>
     </div>
   );

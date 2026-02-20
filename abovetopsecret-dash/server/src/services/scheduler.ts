@@ -1,9 +1,10 @@
 import cron from 'node-cron';
-import { syncFacebook } from './facebook-sync';
+import { syncFacebook, syncFacebookCreatives } from './facebook-sync';
 import { pollCheckoutChamp } from './cc-polling';
 import { getSetting } from './settings';
 import { evaluateRules } from './rules-engine';
 import { checkThresholds } from './notifications';
+import { tagUntaggedCreatives } from './creative-tagger';
 import pool from '../db';
 
 async function getActiveUserIds(): Promise<number[]> {
@@ -132,5 +133,34 @@ export function startScheduler(): void {
     });
   });
 
-  console.log('[Scheduler] Cron jobs registered: Meta Ads sync (*/10 * * * *), CC poll (* * * * *), Daily reset (0 0 * * *)');
+  // Creative sync every 30 minutes (offset from main sync)
+  const LOCK_CREATIVE_SYNC = 100004;
+  cron.schedule('5,35 * * * *', async () => {
+    await withAdvisoryLock(LOCK_CREATIVE_SYNC, 'Creative sync', async () => {
+      console.log('[Scheduler] Running creative sync...');
+      try {
+        const userIds = await getActiveUserIds();
+        for (const userId of userIds) {
+          try {
+            const result = await syncFacebookCreatives(userId);
+            if (!result.skipped && result.synced > 0) {
+              console.log(`[Scheduler] Creative sync for user ${userId}: ${result.synced} creatives, ${result.metrics} metrics`);
+              // Run AI tagging after sync
+              try {
+                await tagUntaggedCreatives(userId);
+              } catch (err) {
+                console.error(`[Scheduler] Creative tagging failed for user ${userId}:`, err);
+              }
+            }
+          } catch (err) {
+            console.error(`[Scheduler] Creative sync failed for user ${userId}:`, err);
+          }
+        }
+      } catch (err) {
+        console.error('[Scheduler] Creative sync failed:', err);
+      }
+    });
+  });
+
+  console.log('[Scheduler] Cron jobs registered: Meta Ads sync (*/10 * * * *), CC poll (* * * * *), Creative sync (5,35 * * * *), Daily reset (0 0 * * *)');
 }

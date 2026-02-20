@@ -12,9 +12,10 @@ interface RawBodyRequest extends Request {
 async function resolveTokenUserId(token: string | undefined): Promise<number | null> {
   if (!token) return null;
   try {
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
     const result = await pool.query(
       'SELECT user_id FROM webhook_tokens WHERE token = $1 AND active = true',
-      [token]
+      [tokenHash]
     );
     if (result.rows.length > 0) {
       return result.rows[0].user_id;

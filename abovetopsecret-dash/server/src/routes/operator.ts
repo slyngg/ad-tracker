@@ -16,6 +16,14 @@ You have access to tools that can:
 - List, create, and toggle automation rules
 - Query historical ad performance data
 - Send notifications to the user
+- Query ad creative performance metrics and analyze creative diversity
+- Recommend next creatives to produce based on winning patterns
+- Score ad concepts before launch against historical data
+- Run weekly creative retrospectives
+- Analyze competitor creative strategies
+- Detect statistically significant winning creative patterns
+
+Creative Analysis: Use get_creative_performance to query ad creative metrics, analyze_creative_diversity to review creative diversity, recommend_next_creatives to suggest new ad concepts, analyze_creative_prelaunched to score ads before launch, weekly_creative_retro for weekly performance retrospectives, analyze_competitor_creatives to study competitors, and detect_winning_patterns to find statistically significant creative patterns.
 
 Always use tools to get fresh data rather than relying on the summary context alone. When asked about metrics, campaigns, or performance, call the appropriate tool first, then analyze the results.
 
@@ -509,6 +517,21 @@ router.get('/memories', async (req: Request, res: Response) => {
   } catch (err) {
     console.error('Error fetching memories:', err);
     res.status(500).json({ error: 'Failed to fetch memories' });
+  }
+});
+
+// DELETE /api/operator/memories - Delete all memories for the authenticated user
+router.delete('/memories', async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    const result = await pool.query(
+      'DELETE FROM operator_long_term_memory WHERE user_id = $1',
+      [userId]
+    );
+    res.json({ success: true, deleted: result.rowCount });
+  } catch (err) {
+    console.error('Error clearing memories:', err);
+    res.status(500).json({ error: 'Failed to clear memories' });
   }
 });
 

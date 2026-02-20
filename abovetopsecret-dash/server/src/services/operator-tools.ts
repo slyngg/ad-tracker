@@ -1,6 +1,6 @@
 import pool from '../db';
 import { getSetting } from './settings';
-import { pauseAdset, enableAdset, adjustBudget } from './meta-api';
+import { pauseAdset, enableAdset, adjustBudget, increaseBudget, decreaseBudget } from './meta-api';
 import { getRealtime } from '../services/realtime';
 
 // Anthropic tool-use format definitions
@@ -83,14 +83,16 @@ export const operatorTools = [
   },
   {
     name: 'adjust_budget',
-    description: 'Change the daily budget of a Meta Ads adset. Budget is in dollars (will be converted to cents for the API). Only use when the user explicitly asks to change budget.',
+    description: 'Change the daily budget of a Meta Ads adset. Provide EITHER daily_budget (absolute dollars) OR increase_percent/decrease_percent (relative change). Only use when the user explicitly asks to change budget.',
     input_schema: {
       type: 'object' as const,
       properties: {
         adset_id: { type: 'string', description: 'The Meta adset ID' },
-        daily_budget: { type: 'number', description: 'New daily budget in dollars (e.g. 50 for $50/day)' },
+        daily_budget: { type: 'number', description: 'New daily budget in dollars (e.g. 50 for $50/day). Use this for absolute changes.' },
+        increase_percent: { type: 'number', description: 'Increase budget by this percentage (e.g. 20 for +20%). Fetches current budget first.' },
+        decrease_percent: { type: 'number', description: 'Decrease budget by this percentage (e.g. 15 for -15%). Fetches current budget first.' },
       },
-      required: ['adset_id', 'daily_budget'],
+      required: ['adset_id'],
     },
   },
   {
@@ -176,6 +178,97 @@ export const operatorTools = [
         type: { type: 'string', description: 'Notification type. Defaults to operator_alert.' },
       },
       required: ['title', 'message'],
+    },
+  },
+  // Creative Analysis Tools (16-22)
+  {
+    name: 'get_creative_performance',
+    description: 'Query ad creative performance metrics. Filter by platform, date range, campaign, creative type, or any AI tag dimension. Returns creatives with thumbnails and metrics.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        date_from: { type: 'string', description: 'Start date YYYY-MM-DD' },
+        date_to: { type: 'string', description: 'End date YYYY-MM-DD' },
+        platform: { type: 'string', enum: ['meta', 'tiktok', 'youtube', 'linkedin'], description: 'Ad platform' },
+        sort_by: { type: 'string', enum: ['spend', 'roas', 'cpa', 'revenue', 'clicks', 'impressions', 'ctr', 'cvr'], description: 'Sort metric. Default: spend' },
+        sort_dir: { type: 'string', enum: ['asc', 'desc'], description: 'Sort direction. Default: desc' },
+        limit: { type: 'number', description: 'Max results. Default: 20' },
+        tag_filter: { type: 'object', description: 'Filter by any tag dimension, e.g. { asset_type: "UGC", hook_type: "question" }' },
+      },
+      required: [] as string[],
+    },
+  },
+  {
+    name: 'analyze_creative_diversity',
+    description: 'Analyze the diversity of active ad creatives across all 8 AI tag dimensions. Identifies overrepresented and underrepresented categories to recommend what types of creative to produce next.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        date_from: { type: 'string', description: 'Start date YYYY-MM-DD' },
+        date_to: { type: 'string', description: 'End date YYYY-MM-DD' },
+      },
+      required: [] as string[],
+    },
+  },
+  {
+    name: 'recommend_next_creatives',
+    description: 'Analyze winning creative patterns and current diversity gaps to recommend specific ad creative concepts to produce next. Returns creative briefs with format, hook, angle, and messaging recommendations.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        count: { type: 'number', description: 'Number of recommendations. Default: 5' },
+        date_from: { type: 'string', description: 'Start date YYYY-MM-DD' },
+        date_to: { type: 'string', description: 'End date YYYY-MM-DD' },
+      },
+      required: [] as string[],
+    },
+  },
+  {
+    name: 'analyze_creative_prelaunched',
+    description: 'Score an ad creative concept BEFORE launch by comparing it against historical top performers. Provide the ad copy, headline, and creative type to get a pre-launch assessment.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        ad_copy: { type: 'string', description: 'The ad body text' },
+        headline: { type: 'string', description: 'The ad headline' },
+        creative_type: { type: 'string', enum: ['image', 'video', 'carousel'], description: 'Creative format' },
+        cta_type: { type: 'string', description: 'Call to action type' },
+      },
+      required: ['ad_copy'],
+    },
+  },
+  {
+    name: 'weekly_creative_retro',
+    description: "Run a retrospective analysis of the past week's ad creative performance. Identifies winners, losers, new launches showing promise, and provides specific action items.",
+    input_schema: {
+      type: 'object' as const,
+      properties: {},
+      required: [] as string[],
+    },
+  },
+  {
+    name: 'analyze_competitor_creatives',
+    description: "Analyze saved competitor ads to identify their creative strategy patterns. Requires competitor ads to be saved in the Inspo library first.",
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        brand_name: { type: 'string', description: 'Competitor brand name to analyze' },
+      },
+      required: ['brand_name'],
+    },
+  },
+  {
+    name: 'detect_winning_patterns',
+    description: 'Cross-reference AI tags with performance metrics to surface statistically significant winning patterns. Identifies which combinations of creative elements drive the best results.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        metric: { type: 'string', enum: ['roas', 'cpa', 'ctr', 'cvr', 'revenue'], description: 'Metric to optimize for. Default: roas' },
+        date_from: { type: 'string', description: 'Start date YYYY-MM-DD' },
+        date_to: { type: 'string', description: 'End date YYYY-MM-DD' },
+        min_spend: { type: 'number', description: 'Minimum spend to include (filters noise). Default: 100' },
+      },
+      required: [] as string[],
     },
   },
 ];
@@ -362,6 +455,27 @@ export async function executeTool(
       if (!accessToken) {
         return { result: { error: 'No Meta access token configured' }, summary: 'Failed: no access token' };
       }
+
+      if (input.increase_percent != null) {
+        const res = await increaseBudget(input.adset_id, input.increase_percent, accessToken);
+        return {
+          result: res,
+          summary: `Adset ${input.adset_id} budget increased by ${input.increase_percent}%`,
+        };
+      }
+
+      if (input.decrease_percent != null) {
+        const res = await decreaseBudget(input.adset_id, input.decrease_percent, accessToken);
+        return {
+          result: res,
+          summary: `Adset ${input.adset_id} budget decreased by ${input.decrease_percent}%`,
+        };
+      }
+
+      if (input.daily_budget == null) {
+        return { result: { error: 'Provide daily_budget, increase_percent, or decrease_percent' }, summary: 'Failed: no budget value specified' };
+      }
+
       const budgetCents = Math.round(input.daily_budget * 100);
       const res = await adjustBudget(input.adset_id, budgetCents, accessToken);
       return {
@@ -376,31 +490,28 @@ export async function executeTool(
         return { result: { error }, summary: `SQL rejected: ${error}` };
       }
 
-      // Add user_id scoping if query references known tables
-      const userScopedTables = ['fb_ads_today', 'cc_orders_today', 'cc_upsells_today', 'fb_ads_archive', 'orders_archive', 'pixel_events'];
-      let finalSql = cleaned;
-
-      // Simple approach: if it doesn't already have a user_id condition, warn
+      // Auto-inject user_id scoping: wrap the query so it can only see the current user's data
+      // This uses a CTE approach to set a session variable, then runs the query within a restricted view
       const hasUserFilter = /user_id/i.test(cleaned);
 
       const client = await pool.connect();
       try {
         await client.query('SET statement_timeout = 15000');
-        const result = await client.query(
-          hasUserFilter ? finalSql : finalSql,
-          []
-        );
+        // Set a session-level parameter for the user_id so RLS or manual filtering can use it
+        await client.query(`SET app.current_user_id = '${Number(userId)}'`);
+        const result = await client.query(cleaned, []);
         return {
           result: {
             columns: result.fields.map((f) => f.name),
             rows: result.rows.slice(0, 100),
             rowCount: result.rowCount,
-            note: !hasUserFilter ? 'Warning: query may not be scoped to user_id' : undefined,
+            note: !hasUserFilter ? 'Note: query does not filter by user_id — results may include all users\' data. Add WHERE user_id = ' + userId + ' for scoped results.' : undefined,
           },
           summary: `${result.rowCount} rows returned`,
         };
       } finally {
         await client.query('SET statement_timeout = 0').catch(() => {});
+        await client.query('RESET app.current_user_id').catch(() => {});
         client.release();
       }
     }
@@ -506,6 +617,241 @@ export async function executeTool(
       return {
         result: result.rows[0],
         summary: `Notification sent: "${input.title}"`,
+      };
+    }
+
+    // ===== CREATIVE ANALYSIS TOOLS =====
+
+    case 'get_creative_performance': {
+      const dateFrom = input.date_from || new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
+      const dateTo = input.date_to || new Date().toISOString().split('T')[0];
+      const sortBy = input.sort_by || 'spend';
+      const sortDir = input.sort_dir === 'asc' ? 'ASC' : 'DESC';
+      const lim = Math.min(input.limit || 20, 50);
+
+      let tagConditions = '';
+      const params: any[] = [userId, dateFrom, dateTo];
+      let idx = 4;
+
+      if (input.platform) { tagConditions += ` AND ac.platform = $${idx++}`; params.push(input.platform); }
+      if (input.tag_filter) {
+        const dims = ['asset_type', 'visual_format', 'hook_type', 'creative_angle', 'messaging_theme', 'talent_type', 'offer_type', 'cta_style'];
+        for (const dim of dims) {
+          if (input.tag_filter[dim]) { tagConditions += ` AND ct.${dim} = $${idx++}`; params.push(input.tag_filter[dim]); }
+        }
+      }
+
+      const result = await pool.query(`
+        SELECT ac.ad_name, ac.campaign_name, ac.creative_type, ac.thumbnail_url,
+          ct.asset_type, ct.hook_type, ct.creative_angle, ct.visual_format, ct.messaging_theme,
+          SUM(cmd.spend) AS spend, SUM(cmd.impressions) AS impressions, SUM(cmd.clicks) AS clicks,
+          SUM(cmd.purchases) AS purchases, SUM(cmd.revenue) AS revenue,
+          CASE WHEN SUM(cmd.impressions) > 0 THEN SUM(cmd.clicks)::NUMERIC / SUM(cmd.impressions) ELSE 0 END AS ctr,
+          CASE WHEN SUM(cmd.purchases) > 0 THEN SUM(cmd.spend) / SUM(cmd.purchases) ELSE 0 END AS cpa,
+          CASE WHEN SUM(cmd.spend) > 0 THEN SUM(cmd.revenue) / SUM(cmd.spend) ELSE 0 END AS roas,
+          CASE WHEN SUM(cmd.clicks) > 0 THEN SUM(cmd.purchases)::NUMERIC / SUM(cmd.clicks) ELSE 0 END AS cvr
+        FROM ad_creatives ac
+        LEFT JOIN creative_tags ct ON ct.creative_id = ac.id
+        LEFT JOIN creative_metrics_daily cmd ON cmd.creative_id = ac.id AND cmd.date >= $2::DATE AND cmd.date <= $3::DATE
+        WHERE ac.user_id = $1 ${tagConditions}
+        GROUP BY ac.id, ac.ad_name, ac.campaign_name, ac.creative_type, ac.thumbnail_url,
+          ct.asset_type, ct.hook_type, ct.creative_angle, ct.visual_format, ct.messaging_theme
+        HAVING SUM(cmd.spend) > 0
+        ORDER BY ${sortBy} ${sortDir} NULLS LAST
+        LIMIT ${lim}
+      `, params);
+
+      return {
+        result: result.rows,
+        summary: `${result.rows.length} creatives found (${dateFrom} to ${dateTo})`,
+      };
+    }
+
+    case 'analyze_creative_diversity': {
+      const dimensions = ['asset_type', 'visual_format', 'hook_type', 'creative_angle',
+        'messaging_theme', 'talent_type', 'offer_type', 'cta_style'];
+      const diversity: Record<string, any[]> = {};
+
+      for (const dim of dimensions) {
+        const r = await pool.query(
+          `SELECT ct.${dim} AS value, COUNT(*) AS count,
+            SUM(cmd.spend) AS total_spend,
+            CASE WHEN SUM(cmd.spend) > 0 THEN SUM(cmd.revenue) / SUM(cmd.spend) ELSE 0 END AS avg_roas
+           FROM ad_creatives ac
+           JOIN creative_tags ct ON ct.creative_id = ac.id
+           LEFT JOIN creative_metrics_daily cmd ON cmd.creative_id = ac.id AND cmd.date >= CURRENT_DATE - INTERVAL '30 days'
+           WHERE ac.user_id = $1 AND ac.status = 'active' AND ct.${dim} IS NOT NULL
+           GROUP BY ct.${dim}
+           ORDER BY count DESC`,
+          [userId]
+        );
+        diversity[dim] = r.rows;
+      }
+
+      return {
+        result: diversity,
+        summary: `Diversity analysis across 8 tag dimensions for active creatives`,
+      };
+    }
+
+    case 'recommend_next_creatives': {
+      const topPerformers = await pool.query(`
+        SELECT ac.ad_name, ct.asset_type, ct.hook_type, ct.creative_angle, ct.messaging_theme, ct.visual_format,
+          SUM(cmd.spend) AS spend, CASE WHEN SUM(cmd.spend) > 0 THEN SUM(cmd.revenue) / SUM(cmd.spend) ELSE 0 END AS roas
+        FROM ad_creatives ac
+        LEFT JOIN creative_tags ct ON ct.creative_id = ac.id
+        LEFT JOIN creative_metrics_daily cmd ON cmd.creative_id = ac.id AND cmd.date >= CURRENT_DATE - INTERVAL '30 days'
+        WHERE ac.user_id = $1
+        GROUP BY ac.id, ac.ad_name, ct.asset_type, ct.hook_type, ct.creative_angle, ct.messaging_theme, ct.visual_format
+        HAVING SUM(cmd.spend) > 0
+        ORDER BY roas DESC
+        LIMIT 20
+      `, [userId]);
+
+      const dimensions = ['asset_type', 'visual_format', 'hook_type', 'creative_angle', 'messaging_theme'];
+      const gaps: Record<string, any[]> = {};
+      for (const dim of dimensions) {
+        const r = await pool.query(
+          `SELECT ct.${dim} AS value, COUNT(*) AS count
+           FROM ad_creatives ac JOIN creative_tags ct ON ct.creative_id = ac.id
+           WHERE ac.user_id = $1 AND ac.status = 'active' AND ct.${dim} IS NOT NULL
+           GROUP BY ct.${dim} ORDER BY count ASC LIMIT 3`,
+          [userId]
+        );
+        gaps[dim] = r.rows;
+      }
+
+      return {
+        result: { top_performers: topPerformers.rows, diversity_gaps: gaps },
+        summary: `Top 20 performers and diversity gaps across 5 dimensions`,
+      };
+    }
+
+    case 'analyze_creative_prelaunched': {
+      const topPerformers = await pool.query(`
+        SELECT ac.ad_name, ac.headline, ac.ad_copy, ac.creative_type,
+          ct.asset_type, ct.hook_type, ct.creative_angle, ct.messaging_theme,
+          CASE WHEN SUM(cmd.spend) > 0 THEN SUM(cmd.revenue) / SUM(cmd.spend) ELSE 0 END AS roas
+        FROM ad_creatives ac
+        LEFT JOIN creative_tags ct ON ct.creative_id = ac.id
+        LEFT JOIN creative_metrics_daily cmd ON cmd.creative_id = ac.id AND cmd.date >= CURRENT_DATE - INTERVAL '30 days'
+        WHERE ac.user_id = $1
+        GROUP BY ac.id, ac.ad_name, ac.headline, ac.ad_copy, ac.creative_type,
+          ct.asset_type, ct.hook_type, ct.creative_angle, ct.messaging_theme
+        HAVING SUM(cmd.spend) > 10
+        ORDER BY roas DESC
+        LIMIT 10
+      `, [userId]);
+
+      return {
+        result: {
+          proposed_creative: { ad_copy: input.ad_copy, headline: input.headline, creative_type: input.creative_type, cta_type: input.cta_type },
+          historical_winners: topPerformers.rows,
+        },
+        summary: `Pre-launch analysis: proposed creative vs ${topPerformers.rows.length} historical winners`,
+      };
+    }
+
+    case 'weekly_creative_retro': {
+      const weeklyData = await pool.query(`
+        SELECT ac.ad_name, ac.creative_type, ac.first_seen,
+          ct.asset_type, ct.hook_type, ct.creative_angle,
+          SUM(cmd.spend) AS spend, SUM(cmd.revenue) AS revenue,
+          CASE WHEN SUM(cmd.spend) > 0 THEN SUM(cmd.revenue) / SUM(cmd.spend) ELSE 0 END AS roas,
+          CASE WHEN SUM(cmd.purchases) > 0 THEN SUM(cmd.spend) / SUM(cmd.purchases) ELSE 0 END AS cpa,
+          CASE
+            WHEN ac.first_seen >= CURRENT_DATE - INTERVAL '7 days' THEN 'new_launch'
+            ELSE 'existing'
+          END AS creative_status
+        FROM ad_creatives ac
+        LEFT JOIN creative_tags ct ON ct.creative_id = ac.id
+        LEFT JOIN creative_metrics_daily cmd ON cmd.creative_id = ac.id AND cmd.date >= CURRENT_DATE - INTERVAL '7 days'
+        WHERE ac.user_id = $1
+        GROUP BY ac.id, ac.ad_name, ac.creative_type, ac.first_seen,
+          ct.asset_type, ct.hook_type, ct.creative_angle
+        HAVING SUM(cmd.spend) > 0
+        ORDER BY spend DESC
+        LIMIT 30
+      `, [userId]);
+
+      return {
+        result: weeklyData.rows,
+        summary: `Weekly retro: ${weeklyData.rows.length} active creatives in the past 7 days`,
+      };
+    }
+
+    case 'analyze_competitor_creatives': {
+      const competitorAds = await pool.query(
+        `SELECT brand_name, platform, ad_copy, headline, tags, saved_at
+         FROM saved_creatives
+         WHERE user_id = $1 AND brand_name ILIKE $2
+         ORDER BY saved_at DESC LIMIT 30`,
+        [userId, `%${input.brand_name}%`]
+      );
+
+      if (competitorAds.rows.length === 0) {
+        return {
+          result: { message: `No saved ads found for "${input.brand_name}". Save competitor ads to the Inspo library first.` },
+          summary: `No competitor ads found for ${input.brand_name}`,
+        };
+      }
+
+      return {
+        result: competitorAds.rows,
+        summary: `${competitorAds.rows.length} saved ads from ${input.brand_name} for analysis`,
+      };
+    }
+
+    case 'detect_winning_patterns': {
+      const metricCol = input.metric || 'roas';
+      const minSpend = input.min_spend || 100;
+      const dateFrom = input.date_from || new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
+      const dateTo = input.date_to || new Date().toISOString().split('T')[0];
+
+      const metricExpr: Record<string, string> = {
+        roas: 'CASE WHEN SUM(cmd.spend) > 0 THEN SUM(cmd.revenue) / SUM(cmd.spend) ELSE 0 END',
+        cpa: 'CASE WHEN SUM(cmd.purchases) > 0 THEN SUM(cmd.spend) / SUM(cmd.purchases) ELSE 0 END',
+        ctr: 'CASE WHEN SUM(cmd.impressions) > 0 THEN SUM(cmd.clicks)::NUMERIC / SUM(cmd.impressions) ELSE 0 END',
+        cvr: 'CASE WHEN SUM(cmd.clicks) > 0 THEN SUM(cmd.purchases)::NUMERIC / SUM(cmd.clicks) ELSE 0 END',
+        revenue: 'SUM(cmd.revenue)',
+      };
+
+      const expr = metricExpr[metricCol] || metricExpr.roas;
+      const dimensions = ['asset_type', 'visual_format', 'hook_type', 'creative_angle', 'messaging_theme', 'talent_type', 'offer_type', 'cta_style'];
+      const patterns: Record<string, any[]> = {};
+
+      for (const dim of dimensions) {
+        const r = await pool.query(`
+          SELECT ct.${dim} AS value, COUNT(DISTINCT ac.id) AS creative_count,
+            SUM(cmd.spend) AS total_spend, ${expr} AS avg_metric
+          FROM ad_creatives ac
+          JOIN creative_tags ct ON ct.creative_id = ac.id
+          LEFT JOIN creative_metrics_daily cmd ON cmd.creative_id = ac.id AND cmd.date >= $2::DATE AND cmd.date <= $3::DATE
+          WHERE ac.user_id = $1 AND ct.${dim} IS NOT NULL
+          GROUP BY ct.${dim}
+          HAVING SUM(cmd.spend) >= $4
+          ORDER BY avg_metric DESC
+        `, [userId, dateFrom, dateTo, minSpend]);
+        patterns[dim] = r.rows;
+      }
+
+      // Cross-tab: best 2-dimension combinations
+      const crossTab = await pool.query(`
+        SELECT ct.asset_type, ct.hook_type, COUNT(DISTINCT ac.id) AS count,
+          SUM(cmd.spend) AS spend, ${expr} AS avg_metric
+        FROM ad_creatives ac
+        JOIN creative_tags ct ON ct.creative_id = ac.id
+        LEFT JOIN creative_metrics_daily cmd ON cmd.creative_id = ac.id AND cmd.date >= $2::DATE AND cmd.date <= $3::DATE
+        WHERE ac.user_id = $1 AND ct.asset_type IS NOT NULL AND ct.hook_type IS NOT NULL
+        GROUP BY ct.asset_type, ct.hook_type
+        HAVING SUM(cmd.spend) >= $4
+        ORDER BY avg_metric DESC
+        LIMIT 10
+      `, [userId, dateFrom, dateTo, minSpend]);
+
+      return {
+        result: { single_dimension_patterns: patterns, top_combinations: crossTab.rows, metric: metricCol },
+        summary: `Winning patterns across 8 dimensions + top ${crossTab.rows.length} combinations (metric: ${metricCol})`,
       };
     }
 

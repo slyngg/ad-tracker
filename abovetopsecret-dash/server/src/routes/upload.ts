@@ -3,6 +3,16 @@ import pool from '../db';
 
 const router = Router();
 
+// Sanitize string values to prevent CSV formula injection when data is later exported
+function sanitizeCsvValue(value: any): any {
+  if (typeof value !== 'string') return value;
+  // Strip leading characters that trigger formula execution in spreadsheets
+  if (/^[=+\-@\t\r]/.test(value)) {
+    return value.replace(/^[=+\-@\t\r]+/, '');
+  }
+  return value;
+}
+
 // CSV column templates for each upload type
 const CSV_TEMPLATES: Record<string, { columns: string[]; description: string }> = {
   orders: {
@@ -67,7 +77,7 @@ router.post('/csv', async (req: Request, res: Response) => {
           }
 
           const data: Record<string, any> = {};
-          headers.forEach((h: string, idx: number) => { data[h] = row[idx]; });
+          headers.forEach((h: string, idx: number) => { data[h] = sanitizeCsvValue(row[idx]); });
 
           if (!data.order_id || !data.revenue) {
             errors.push(`Row ${i + 1}: order_id and revenue are required`);
@@ -115,7 +125,7 @@ router.post('/csv', async (req: Request, res: Response) => {
           }
 
           const data: Record<string, any> = {};
-          headers.forEach((h: string, idx: number) => { data[h] = row[idx]; });
+          headers.forEach((h: string, idx: number) => { data[h] = sanitizeCsvValue(row[idx]); });
 
           if (!data.account_name || !data.spend) {
             errors.push(`Row ${i + 1}: account_name and spend are required`);

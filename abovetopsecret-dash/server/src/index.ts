@@ -19,6 +19,25 @@ import apiKeysRouter from './routes/api-keys';
 import uploadRouter from './routes/upload';
 import webhookTokensRouter from './routes/webhook-tokens';
 import pixelConfigsRouter from './routes/pixel-configs';
+import ga4Router from './routes/ga4';
+import favoritesRouter from './routes/favorites';
+import attributionModelsRouter from './routes/attribution-models';
+import rfmRouter from './routes/rfm';
+import creativeRouter from './routes/creative';
+import repeatPurchasesRouter from './routes/repeat-purchases';
+import teamRouter from './routes/team';
+import scheduledReportsRouter from './routes/scheduled-reports';
+import brandVaultRouter from './routes/brand-vault';
+import globalFiltersRouter from './routes/global-filters';
+import integrationsConfigRouter from './routes/integrations-config';
+import dataDeletionRouter from './routes/data-deletion';
+import dataDictionaryRouter from './routes/data-dictionary';
+import onboardingRouter from './routes/onboarding';
+import workspacesRouter from './routes/workspaces';
+import aiAgentsRouter from './routes/ai-agents';
+import reportBuilderRouter from './routes/report-builder';
+import creativeGenRouter from './routes/creative-gen';
+import creativesRouter from './routes/creatives';
 import { authMiddleware } from './middleware/auth';
 import { startScheduler } from './services/scheduler';
 import { initRealtime } from './services/realtime';
@@ -28,14 +47,14 @@ import pool from './db';
 const app = express();
 const PORT = parseInt(process.env.PORT || '4000', 10);
 
-// CORS: restrict to configured origin, fall back to same-origin in production
+// CORS: restrict to configured origin, fall back to same-origin
 const allowedOrigin = process.env.ALLOWED_ORIGIN || '';
 app.use(cors({
   origin: allowedOrigin
     ? allowedOrigin.split(',').map((o) => o.trim())
     : process.env.NODE_ENV === 'production'
       ? false  // same-origin only in production
-      : true,  // allow all in development
+      : ['http://localhost:5173', 'http://localhost:4000', 'http://127.0.0.1:5173'],
   credentials: true,
 }));
 // Capture raw body buffer for webhook HMAC verification
@@ -82,6 +101,30 @@ app.use('/api/auth', authRouter);
 // Webhooks use their own auth (signature verification), mount before general auth
 app.use('/api/webhooks', webhooksRouter);
 
+// Public snapshot endpoint (no auth required — uses token-based access)
+app.get('/api/creatives/public/snapshot/:token', async (req, res) => {
+  try {
+    const { token } = req.params;
+    const result = await pool.query(
+      'SELECT * FROM report_snapshots WHERE snapshot_token = $1',
+      [token]
+    );
+    if (result.rows.length === 0) { res.status(404).json({ error: 'Snapshot not found' }); return; }
+    const snapshot = result.rows[0];
+    if (snapshot.expires_at && new Date(snapshot.expires_at) < new Date()) {
+      res.status(410).json({ error: 'Snapshot has expired' }); return;
+    }
+    if (snapshot.snapshot_data) {
+      res.json({ title: snapshot.title, report_type: snapshot.report_type, data: snapshot.snapshot_data, created_at: snapshot.created_at });
+    } else {
+      res.json({ title: snapshot.title, report_type: snapshot.report_type, config: snapshot.report_config, is_live: snapshot.is_live, created_at: snapshot.created_at });
+    }
+  } catch (err) {
+    console.error('Error fetching public snapshot:', err);
+    res.status(500).json({ error: 'Failed to fetch snapshot' });
+  }
+});
+
 // Apply auth middleware to all other /api routes
 app.use('/api', authMiddleware);
 
@@ -101,6 +144,25 @@ app.use('/api/keys', apiKeysRouter);
 app.use('/api/upload', uploadRouter);
 app.use('/api/webhook-tokens', webhookTokensRouter);
 app.use('/api/pixel-configs', pixelConfigsRouter);
+app.use('/api/ga4', ga4Router);
+app.use('/api/favorites', favoritesRouter);
+app.use('/api/attribution-models', attributionModelsRouter);
+app.use('/api/rfm', rfmRouter);
+app.use('/api/creative', creativeRouter);
+app.use('/api/repeat-purchases', repeatPurchasesRouter);
+app.use('/api/team', teamRouter);
+app.use('/api/scheduled-reports', scheduledReportsRouter);
+app.use('/api/brand-vault', brandVaultRouter);
+app.use('/api/global-filters', globalFiltersRouter);
+app.use('/api/integrations-config', integrationsConfigRouter);
+app.use('/api/data-deletion', dataDeletionRouter);
+app.use('/api/data-dictionary', dataDictionaryRouter);
+app.use('/api/onboarding', onboardingRouter);
+app.use('/api/workspaces', workspacesRouter);
+app.use('/api/agents', aiAgentsRouter);
+app.use('/api/reports', reportBuilderRouter);
+app.use('/api/creative-gen', creativeGenRouter);
+app.use('/api/creatives', creativesRouter);
 
 const httpServer = createServer(app);
 

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Trash2 } from 'lucide-react';
+import { Trash2, XCircle } from 'lucide-react';
 import { getAuthToken } from '../../stores/authStore';
 import PageShell from '../../components/shared/PageShell';
 
@@ -49,6 +49,7 @@ export default function MemoriesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [clearingAll, setClearingAll] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const loadMemories = useCallback(async () => {
@@ -96,6 +97,26 @@ export default function MemoriesPage() {
     }
   };
 
+  const handleClearAll = async () => {
+    if (!confirm('Clear ALL memories? This cannot be undone.')) return;
+    setClearingAll(true);
+    setMessage(null);
+    const token = getAuthToken();
+    try {
+      const res = await fetch('/api/operator/memories', {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error('Failed to clear memories');
+      setMemories([]);
+      setMessage({ type: 'success', text: 'All memories cleared' });
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.message });
+    } finally {
+      setClearingAll(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[50vh] text-ats-text-muted font-mono text-sm">
@@ -106,6 +127,19 @@ export default function MemoriesPage() {
 
   return (
     <PageShell title="Operator Memories" subtitle="Things your AI operator has learned about your business">
+      {memories.length > 0 && (
+        <div className="flex justify-end mb-4">
+          <button
+            onClick={handleClearAll}
+            disabled={clearingAll}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium text-red-400 bg-red-900/20 border border-red-800/30 hover:bg-red-900/40 transition-colors disabled:opacity-40"
+          >
+            <XCircle size={14} />
+            {clearingAll ? 'Clearing...' : 'Clear All'}
+          </button>
+        </div>
+      )}
+
       {message && (
         <div
           className={`px-3 py-2 mb-4 rounded-md text-sm ${

@@ -1,295 +1,102 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
-import { fetchFunnel, fetchMetrics, FunnelData, MetricRow } from '../../lib/api';
-import { fmt } from '../../lib/formatters';
+import { useState, useEffect, useCallback } from 'react';
 import PageShell from '../../components/shared/PageShell';
-import ConversionFunnel from '../../components/charts/ConversionFunnel';
-import AnimatedNumber from '../../components/shared/AnimatedNumber';
+import { getAuthToken } from '../../stores/authStore';
 
-const FUNNEL_COLORS = ['#3b82f6', '#8b5cf6', '#eab308', '#22c55e', '#ef4444', '#f97316'];
-
-interface FunnelStep {
-  label: string;
-  value: number;
-  color?: string;
+async function apiFetch<T>(path: string): Promise<T> {
+  const token = getAuthToken();
+  const res = await fetch(`/api${path}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  return res.json();
 }
 
-export default function WebsiteFunnelPage() {
-  const [funnelData, setFunnelData] = useState<FunnelData | null>(null);
-  const [metrics, setMetrics] = useState<MetricRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [selectedOffer, setSelectedOffer] = useState('All');
+interface FunnelRow { event_name: string; total_events: number; unique_users: number; }
+interface DeviceRow { event_name: string; device_category: string; total_events: number; }
 
-  const loadData = useCallback(async () => {
+const FUNNEL_ORDER = ['page_view', 'add_to_cart', 'begin_checkout', 'purchase'];
+const FUNNEL_LABELS: Record<string, string> = { page_view: 'Page View', add_to_cart: 'Add to Cart', begin_checkout: 'Begin Checkout', purchase: 'Purchase' };
+const FUNNEL_COLORS: Record<string, string> = { page_view: '#3b82f6', add_to_cart: '#8b5cf6', begin_checkout: '#f59e0b', purchase: '#10b981' };
+
+export default function WebsiteFunnelPage() {
+  const [funnel, setFunnel] = useState<FunnelRow[]>([]);
+  const [byDevice, setByDevice] = useState<DeviceRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [hasData, setHasData] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
     try {
-      setLoading(true);
-      const [funnel, metricsData] = await Promise.all([
-        fetchFunnel(),
-        fetchMetrics(),
-      ]);
-      setFunnelData(funnel);
-      setMetrics(metricsData);
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load data');
-    } finally {
-      setLoading(false);
-    }
+      const data = await apiFetch<{ funnel: FunnelRow[]; byDevice: DeviceRow[] }>('/ga4/funnel?startDate=30');
+      setFunnel(data.funnel);
+      setByDevice(data.byDevice);
+      setHasData(data.funnel.length > 0);
+    } catch { setHasData(false); }
+    finally { setLoading(false); }
   }, []);
 
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
+  useEffect(() => { load(); }, [load]);
 
-  const offers = useMemo(() => {
-    const set = new Set(metrics.map((m) => m.offer_name));
-    return ['All', ...Array.from(set).sort()];
-  }, [metrics]);
+  const ordered = FUNNEL_ORDER.map(name => funnel.find(f => f.event_name === name) || { event_name: name, total_events: 0, unique_users: 0 });
+  const maxEvents = Math.max(...ordered.map(f => f.total_events), 1);
+  const cardCls = 'bg-ats-card rounded-xl p-4 border border-ats-border';
 
-  // Build funnel steps from funnel data
-  const funnelSteps = useMemo((): FunnelStep[] => {
-    if (!funnelData) return [];
-    return [
-      { label: 'Impressions', value: funnelData.impressions, color: FUNNEL_COLORS[0] },
-      { label: 'Clicks', value: funnelData.clicks, color: FUNNEL_COLORS[1] },
-      { label: 'LP Views', value: funnelData.lp_views, color: FUNNEL_COLORS[2] },
-      { label: 'Orders', value: funnelData.orders, color: FUNNEL_COLORS[3] },
-      { label: 'Upsells Offered', value: funnelData.upsells_offered, color: FUNNEL_COLORS[4] },
-      { label: 'Upsells Accepted', value: funnelData.upsells_accepted, color: FUNNEL_COLORS[5] },
-    ];
-  }, [funnelData]);
+  if (loading) return <PageShell title="Website Funnel" subtitle="Conversion funnel analysis"><div className="space-y-3">{[...Array(4)].map((_, i) => <div key={i} className="h-16 bg-ats-card rounded-xl animate-pulse" />)}</div></PageShell>;
 
-  // Conversion rates between steps
-  const conversionRates = useMemo(() => {
-    if (!funnelData) return [];
-    const steps = [
-      funnelData.impressions,
-      funnelData.clicks,
-      funnelData.lp_views,
-      funnelData.orders,
-      funnelData.upsells_offered,
-      funnelData.upsells_accepted,
-    ];
-    const labels = [
-      'Impressions -> Clicks',
-      'Clicks -> LP Views',
-      'LP Views -> Orders',
-      'Orders -> Upsells Offered',
-      'Upsells Offered -> Accepted',
-    ];
-    return labels.map((label, i) => ({
-      label,
-      from: steps[i],
-      to: steps[i + 1],
-      rate: steps[i] > 0 ? (steps[i + 1] / steps[i]) * 100 : 0,
-    }));
-  }, [funnelData]);
-
-  // Per-offer funnel approximation from metrics
-  const offerFunnel = useMemo(() => {
-    if (selectedOffer === 'All' || !metrics.length) return null;
-    const offerRows = metrics.filter((m) => m.offer_name === selectedOffer);
-    if (!offerRows.length) return null;
-
-    // Aggregate across all accounts for this offer
-    let totalSpend = 0;
-    let totalConversions = 0;
-    let totalImpressions = 0;
-    let totalClicks = 0;
-
-    for (const row of offerRows) {
-      totalSpend += row.spend;
-      totalConversions += row.conversions;
-      // Estimate from rates
-      totalImpressions += row.cpm > 0 ? (row.spend / row.cpm) * 1000 : 0;
-      totalClicks += row.cpc > 0 ? row.spend / row.cpc : 0;
-    }
-
-    const avgLpCtr = offerRows.reduce((s, r) => s + r.lp_ctr, 0) / offerRows.length;
-    const lpViews = totalClicks * (avgLpCtr / 100);
-    const avgUpsellRate = offerRows.reduce((s, r) => s + r.upsell_take_rate, 0) / offerRows.length;
-    const upsellsOffered = totalConversions;
-    const upsellsAccepted = totalConversions * (avgUpsellRate / 100);
-
-    return [
-      { label: 'Impressions', value: Math.round(totalImpressions), color: FUNNEL_COLORS[0] },
-      { label: 'Clicks', value: Math.round(totalClicks), color: FUNNEL_COLORS[1] },
-      { label: 'LP Views', value: Math.round(lpViews), color: FUNNEL_COLORS[2] },
-      { label: 'Orders', value: Math.round(totalConversions), color: FUNNEL_COLORS[3] },
-      { label: 'Upsells Offered', value: Math.round(upsellsOffered), color: FUNNEL_COLORS[4] },
-      { label: 'Upsells Accepted', value: Math.round(upsellsAccepted), color: FUNNEL_COLORS[5] },
-    ] as FunnelStep[];
-  }, [metrics, selectedOffer]);
-
-  const activeFunnel = selectedOffer === 'All' ? funnelSteps : (offerFunnel || funnelSteps);
-
-  // Overall metrics
-  const overallRate = funnelData && funnelData.impressions > 0
-    ? (funnelData.orders / funnelData.impressions) * 100
-    : 0;
-  const upsellRate = funnelData && funnelData.upsells_offered > 0
-    ? (funnelData.upsells_accepted / funnelData.upsells_offered) * 100
-    : 0;
+  if (!hasData) return (
+    <PageShell title="Website Funnel" subtitle="Conversion funnel analysis">
+      <div className={`${cardCls} text-center p-8`}>
+        <h3 className="text-lg font-bold text-ats-text mb-2">Connect GA4 for Funnel Data</h3>
+        <p className="text-sm text-ats-text-muted">Real funnel events require GA4 integration.</p>
+        <a href="/settings/connections" className="inline-block mt-4 px-6 py-3 bg-ats-accent text-white rounded-lg text-sm font-semibold">Configure GA4</a>
+      </div>
+    </PageShell>
+  );
 
   return (
-    <PageShell
-      title="Conversion Funnel"
-      subtitle="Visualize the journey from impressions to upsells"
-      actions={
-        <select
-          value={selectedOffer}
-          onChange={(e) => setSelectedOffer(e.target.value)}
-          className="px-3 py-2 bg-ats-bg border border-[#374151] rounded-md text-ats-text text-sm font-mono outline-none focus:border-ats-accent"
-        >
-          {offers.map((o) => (
-            <option key={o} value={o}>{o}</option>
-          ))}
-        </select>
-      }
-    >
-      {/* Loading */}
-      {loading && (
+    <PageShell title="Website Funnel" subtitle="Conversion funnel analysis">
+      <div className={`${cardCls} mb-6`}>
+        <h3 className="text-sm font-semibold text-ats-text mb-4">Conversion Funnel (Last 30 Days)</h3>
         <div className="space-y-3">
-          {[...Array(5)].map((_, i) => (
-            <div key={i} className="h-12 bg-ats-card rounded-xl animate-pulse" style={{ opacity: 1 - i * 0.12 }} />
-          ))}
-        </div>
-      )}
-
-      {/* Error */}
-      {error && (
-        <div className="text-center py-5 text-ats-red text-sm">{error}</div>
-      )}
-
-      {!loading && !error && funnelData && (
-        <>
-          {/* Summary KPIs */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
-            <div className="bg-ats-card rounded-xl p-4 border border-ats-border">
-              <div className="text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Impressions</div>
-              <div className="text-2xl font-bold text-ats-text font-mono">
-                <AnimatedNumber value={funnelData.impressions} format={fmt.num} />
-              </div>
-            </div>
-            <div className="bg-ats-card rounded-xl p-4 border border-ats-border">
-              <div className="text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Orders</div>
-              <div className="text-2xl font-bold text-ats-green font-mono">
-                <AnimatedNumber value={funnelData.orders} format={fmt.num} />
-              </div>
-            </div>
-            <div className="bg-ats-card rounded-xl p-4 border border-ats-border">
-              <div className="text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Overall CVR</div>
-              <div className={`text-2xl font-bold font-mono ${overallRate >= 1 ? 'text-ats-green' : 'text-ats-yellow'}`}>
-                <AnimatedNumber value={overallRate} format={(n) => `${n.toFixed(2)}%`} />
-              </div>
-            </div>
-            <div className="bg-ats-card rounded-xl p-4 border border-ats-border">
-              <div className="text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Upsell Rate</div>
-              <div className={`text-2xl font-bold font-mono ${upsellRate >= 30 ? 'text-ats-green' : upsellRate >= 15 ? 'text-ats-yellow' : 'text-ats-red'}`}>
-                <AnimatedNumber value={upsellRate} format={(n) => `${n.toFixed(1)}%`} />
-              </div>
-            </div>
-          </div>
-
-          {/* Main Funnel Visualization */}
-          <div className="bg-ats-card rounded-xl border border-ats-border p-6 mb-6">
-            <h3 className="text-sm font-semibold text-ats-text mb-4">
-              {selectedOffer === 'All' ? 'Overall Funnel' : `Funnel: ${selectedOffer}`}
-            </h3>
-            <ConversionFunnel data={activeFunnel} />
-          </div>
-
-          {/* Step-by-step conversion rates */}
-          <div className="bg-ats-card rounded-xl border border-ats-border p-4 mb-6">
-            <h3 className="text-sm font-semibold text-ats-text mb-4">Step-by-Step Conversion Rates</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-              {conversionRates.map((step, i) => {
-                const rateColor = step.rate >= 30 ? 'text-ats-green' : step.rate >= 10 ? 'text-ats-yellow' : 'text-ats-red';
-                return (
-                  <div key={i} className="bg-ats-bg rounded-lg p-3 border border-ats-border">
-                    <div className="text-[10px] text-ats-text-muted uppercase tracking-wide mb-2 leading-tight">
-                      {step.label}
-                    </div>
-                    <div className={`text-xl font-bold font-mono ${rateColor}`}>
-                      {step.rate.toFixed(1)}%
-                    </div>
-                    <div className="text-[10px] text-ats-text-muted mt-1 font-mono">
-                      {fmt.num(step.from)} -&gt; {fmt.num(step.to)}
-                    </div>
-                    {/* Progress bar */}
-                    <div className="mt-2 h-1 bg-ats-border rounded-full overflow-hidden">
-                      <div
-                        className="h-full rounded-full transition-all duration-500"
-                        style={{
-                          width: `${Math.min(step.rate, 100)}%`,
-                          backgroundColor: step.rate >= 30 ? '#22c55e' : step.rate >= 10 ? '#eab308' : '#ef4444',
-                        }}
-                      />
+          {ordered.map((step, i) => {
+            const pct = maxEvents > 0 ? (step.total_events / maxEvents) * 100 : 0;
+            const prev = i > 0 ? ordered[i - 1] : null;
+            const dropoff = prev && prev.total_events > 0 ? ((prev.total_events - step.total_events) / prev.total_events * 100).toFixed(1) : null;
+            return (
+              <div key={step.event_name}>
+                {dropoff && <div className="text-right text-xs text-ats-text-muted mb-1">{dropoff}% drop-off</div>}
+                <div className="flex items-center gap-4">
+                  <div className="w-32 text-sm text-ats-text font-semibold">{FUNNEL_LABELS[step.event_name]}</div>
+                  <div className="flex-1 bg-ats-bg rounded-full h-8 overflow-hidden">
+                    <div className="h-full rounded-full flex items-center px-3 transition-all duration-500" style={{ width: `${Math.max(pct, 5)}%`, backgroundColor: FUNNEL_COLORS[step.event_name] }}>
+                      <span className="text-xs font-mono text-white font-bold">{step.total_events.toLocaleString()}</span>
                     </div>
                   </div>
-                );
-              })}
-            </div>
-          </div>
+                  <div className="w-20 text-right text-xs font-mono text-ats-text-muted">{step.unique_users.toLocaleString()} users</div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
 
-          {/* Funnel Analysis Table */}
-          <div className="bg-ats-card rounded-xl border border-ats-border overflow-hidden">
-            <div className="px-4 py-3 border-b border-ats-border">
-              <h3 className="text-sm font-semibold text-ats-text">Funnel Detail</h3>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-ats-border bg-ats-bg/50">
-                    <th className="px-3 py-2.5 text-left text-[11px] uppercase tracking-wider font-semibold text-ats-text-muted">Stage</th>
-                    <th className="px-3 py-2.5 text-right text-[11px] uppercase tracking-wider font-semibold text-ats-text-muted">Volume</th>
-                    <th className="px-3 py-2.5 text-right text-[11px] uppercase tracking-wider font-semibold text-ats-text-muted">% of Top</th>
-                    <th className="px-3 py-2.5 text-right text-[11px] uppercase tracking-wider font-semibold text-ats-text-muted">Step CVR</th>
-                    <th className="px-3 py-2.5 text-right text-[11px] uppercase tracking-wider font-semibold text-ats-text-muted">Drop-off</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {activeFunnel.map((step, i) => {
-                    const topVal = activeFunnel[0]?.value || 1;
-                    const pctOfTop = (step.value / topVal) * 100;
-                    const prevVal = i > 0 ? activeFunnel[i - 1].value : step.value;
-                    const stepCvr = prevVal > 0 ? (step.value / prevVal) * 100 : 100;
-                    const dropOff = i > 0 && prevVal > 0 ? prevVal - step.value : 0;
-
-                    return (
-                      <tr key={i} className="border-b border-ats-border last:border-0 hover:bg-ats-hover/50 transition-colors">
-                        <td className="px-3 py-2.5">
-                          <div className="flex items-center gap-2">
-                            <span
-                              className="w-2.5 h-2.5 rounded-full shrink-0"
-                              style={{ backgroundColor: step.color || FUNNEL_COLORS[i] }}
-                            />
-                            <span className="text-sm font-semibold text-ats-text">{step.label}</span>
-                          </div>
-                        </td>
-                        <td className="px-3 py-2.5 text-right text-sm font-mono text-ats-text">
-                          {fmt.num(step.value)}
-                        </td>
-                        <td className="px-3 py-2.5 text-right text-sm font-mono text-ats-text-muted">
-                          {pctOfTop.toFixed(1)}%
-                        </td>
-                        <td className={`px-3 py-2.5 text-right text-sm font-mono ${
-                          i === 0 ? 'text-ats-text-muted' : stepCvr >= 30 ? 'text-ats-green' : stepCvr >= 10 ? 'text-ats-yellow' : 'text-ats-red'
-                        }`}>
-                          {i === 0 ? '-' : `${stepCvr.toFixed(1)}%`}
-                        </td>
-                        <td className="px-3 py-2.5 text-right text-sm font-mono text-ats-red">
-                          {i === 0 ? '-' : `-${fmt.num(dropOff)}`}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </>
-      )}
+      <div className={`${cardCls} overflow-hidden`}>
+        <h3 className="text-sm font-semibold text-ats-text mb-3">Funnel by Device</h3>
+        <div className="overflow-x-auto">
+          <table className="w-full"><thead><tr className="border-b border-ats-border">
+            {['Step', 'Desktop', 'Mobile', 'Tablet'].map(h => <th key={h} className="px-3 py-2 text-left text-[11px] uppercase tracking-wider font-semibold text-ats-text-muted">{h}</th>)}
+          </tr></thead><tbody>
+            {FUNNEL_ORDER.map(event => {
+              const dd = byDevice.filter(d => d.event_name === event);
+              const get = (cat: string) => dd.find(d => d.device_category === cat)?.total_events || 0;
+              return <tr key={event} className="border-b border-ats-border last:border-0">
+                <td className="px-3 py-2 text-sm text-ats-text font-semibold">{FUNNEL_LABELS[event]}</td>
+                <td className="px-3 py-2 text-sm font-mono text-ats-text">{get('desktop').toLocaleString()}</td>
+                <td className="px-3 py-2 text-sm font-mono text-ats-text">{get('mobile').toLocaleString()}</td>
+                <td className="px-3 py-2 text-sm font-mono text-ats-text">{get('tablet').toLocaleString()}</td>
+              </tr>;
+            })}
+          </tbody></table>
+        </div>
+      </div>
     </PageShell>
   );
 }

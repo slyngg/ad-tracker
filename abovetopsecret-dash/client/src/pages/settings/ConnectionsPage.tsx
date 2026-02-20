@@ -195,6 +195,12 @@ export default function ConnectionsPage() {
               placeholder="act_123456789,act_987654321" className={inputCls} />
             <div className="text-[11px] text-[#4b5563] mt-1">Comma-separated account IDs (include act_ prefix)</div>
           </div>
+          <div className="bg-amber-900/15 border border-amber-800/30 rounded px-3 py-2">
+            <p className="text-[11px] text-amber-300/80">
+              <strong>Tip:</strong> For attribution to work, your Ad Set Names must exactly match the utm_campaign in your checkout URLs.
+              See <span className="underline">Settings &gt; Tracking</span> for details.
+            </p>
+          </div>
           <div className="flex gap-2 items-center">
             <button onClick={handleTestFB} className="px-4 py-2 bg-ats-border border border-[#374151] rounded-md text-ats-text-muted text-sm hover:bg-ats-hover transition-colors">
               {fbTestStatus === 'testing' ? 'Testing...' : 'Test Connection'}

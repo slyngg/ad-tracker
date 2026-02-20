@@ -1,406 +1,120 @@
-import { useState, useEffect, useMemo } from 'react';
-import {
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  Cell,
-} from 'recharts';
-import { fetchMetrics, MetricRow } from '../../lib/api';
-import { fmt } from '../../lib/formatters';
+import { useState, useEffect, useCallback } from 'react';
+import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from 'recharts';
 import PageShell from '../../components/shared/PageShell';
+import { getAuthToken } from '../../stores/authStore';
 
-interface SegmentData {
-  name: string;
-  revenue: number;
-  conversions: number;
-  avgAOV: number;
-  avgCVR: number;
-  count: number;
+async function apiFetch<T>(path: string): Promise<T> {
+  const token = getAuthToken();
+  const res = await fetch(`/api${path}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  return res.json();
 }
 
-const COLORS = ['#3b82f6', '#22c55e', '#eab308', '#8b5cf6', '#ef4444', '#6b7280'];
-
-const tooltipStyle = {
-  backgroundColor: '#1f2937',
-  border: '1px solid #374151',
-  borderRadius: '8px',
-  color: '#f9fafb',
-  fontSize: 12,
-};
+interface Segment { id: number; segment_name: string; segment_label: string; customer_count: number; total_revenue: number; avg_order_value: number; color: string; is_preset: boolean; recency_min: number; recency_max: number; frequency_min: number; frequency_max: number; monetary_min: number; monetary_max: number; }
+interface Customer { customer_email: string; customer_name: string; recency_days: number; frequency: number; monetary: number; rfm_score: string; }
 
 export default function CustomerSegmentsPage() {
-  const [metrics, setMetrics] = useState<MetricRow[]>([]);
+  const [segments, setSegments] = useState<Segment[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [segmentView, setSegmentView] = useState<'acquisition' | 'subscription'>('acquisition');
+  const [computing, setComputing] = useState(false);
+  const [selected, setSelected] = useState<number | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
+  const [form, setForm] = useState({ segment_name: '', segment_label: '', color: '#3b82f6', recency_min: '', recency_max: '', frequency_min: '', frequency_max: '', monetary_min: '', monetary_max: '' });
 
-  useEffect(() => {
-    let cancelled = false;
+  const load = useCallback(async () => {
     setLoading(true);
-    fetchMetrics()
-      .then((data) => {
-        if (!cancelled) {
-          setMetrics(data);
-          setError(null);
-        }
-      })
-      .catch((err) => {
-        if (!cancelled) setError(err.message || 'Failed to load metrics');
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => { cancelled = true; };
+    try { setSegments(await apiFetch<Segment[]>('/rfm/segments')); } catch {}
+    finally { setLoading(false); }
   }, []);
 
-  // Acquisition segments: New vs Returning
-  const acquisitionSegments = useMemo<SegmentData[]>(() => {
-    if (!metrics.length) return [];
+  useEffect(() => { load(); }, [load]);
 
-    let totalNewRevenue = 0;
-    let totalRetRevenue = 0;
-    let totalNewConv = 0;
-    let totalRetConv = 0;
-    let sumNewAOV = 0;
-    let sumRetAOV = 0;
-    let sumNewCVR = 0;
-    let sumRetCVR = 0;
-    let countNew = 0;
-    let countRet = 0;
+  const loadCustomers = useCallback(async (segId: number) => {
+    setSelected(segId);
+    try { const data = await apiFetch<{ customers: Customer[] }>(`/rfm/customers?segment=${segId}&limit=50`); setCustomers(data.customers); } catch {}
+  }, []);
 
-    metrics.forEach((row) => {
-      const newPct = row.new_customer_pct || 0;
-      const retPct = 1 - newPct;
+  const compute = async () => {
+    setComputing(true);
+    try { await apiFetch<any>('/rfm/compute'); await load(); } catch {}
+    finally { setComputing(false); }
+  };
 
-      const newRev = row.revenue * newPct;
-      const retRev = row.revenue * retPct;
-      const newConv = row.conversions * newPct;
-      const retConv = row.conversions * retPct;
+  const createSegment = async () => {
+    try {
+      await fetch('/api/rfm/segments', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getAuthToken()}` }, body: JSON.stringify(form) });
+      setShowCreate(false); await load();
+    } catch {}
+  };
 
-      totalNewRevenue += newRev;
-      totalRetRevenue += retRev;
-      totalNewConv += newConv;
-      totalRetConv += retConv;
+  const pieData = segments.filter(s => s.customer_count > 0).map(s => ({ name: s.segment_name, value: s.customer_count, color: s.color }));
+  const cardCls = 'bg-ats-card rounded-xl p-4 border border-ats-border';
 
-      if (newPct > 0) {
-        sumNewAOV += row.aov;
-        sumNewCVR += row.cvr;
-        countNew++;
-      }
-      if (retPct > 0) {
-        sumRetAOV += row.aov;
-        sumRetCVR += row.cvr;
-        countRet++;
-      }
-    });
-
-    return [
-      {
-        name: 'New Customers',
-        revenue: totalNewRevenue,
-        conversions: Math.round(totalNewConv),
-        avgAOV: countNew > 0 ? sumNewAOV / countNew : 0,
-        avgCVR: countNew > 0 ? sumNewCVR / countNew : 0,
-        count: countNew,
-      },
-      {
-        name: 'Returning Customers',
-        revenue: totalRetRevenue,
-        conversions: Math.round(totalRetConv),
-        avgAOV: countRet > 0 ? sumRetAOV / countRet : 0,
-        avgCVR: countRet > 0 ? sumRetCVR / countRet : 0,
-        count: countRet,
-      },
-    ];
-  }, [metrics]);
-
-  // Subscription segments: Subscription vs One-time
-  const subscriptionSegments = useMemo<SegmentData[]>(() => {
-    if (!metrics.length) return [];
-
-    let totalSubRevenue = 0;
-    let totalOnetimeRevenue = 0;
-    let totalSubConv = 0;
-    let totalOnetimeConv = 0;
-    let sumSubAOV = 0;
-    let sumOnetimeAOV = 0;
-    let sumSubCVR = 0;
-    let sumOnetimeCVR = 0;
-    let countSub = 0;
-    let countOnetime = 0;
-
-    metrics.forEach((row) => {
-      const subPct = row.subscription_pct || 0;
-      const onetimePct = 1 - subPct;
-
-      totalSubRevenue += row.revenue * subPct;
-      totalOnetimeRevenue += row.revenue * onetimePct;
-      totalSubConv += row.conversions * subPct;
-      totalOnetimeConv += row.conversions * onetimePct;
-
-      if (subPct > 0) {
-        sumSubAOV += row.aov;
-        sumSubCVR += row.cvr;
-        countSub++;
-      }
-      if (onetimePct > 0) {
-        sumOnetimeAOV += row.aov;
-        sumOnetimeCVR += row.cvr;
-        countOnetime++;
-      }
-    });
-
-    return [
-      {
-        name: 'Subscribers',
-        revenue: totalSubRevenue,
-        conversions: Math.round(totalSubConv),
-        avgAOV: countSub > 0 ? sumSubAOV / countSub : 0,
-        avgCVR: countSub > 0 ? sumSubCVR / countSub : 0,
-        count: countSub,
-      },
-      {
-        name: 'One-time Buyers',
-        revenue: totalOnetimeRevenue,
-        conversions: Math.round(totalOnetimeConv),
-        avgAOV: countOnetime > 0 ? sumOnetimeAOV / countOnetime : 0,
-        avgCVR: countOnetime > 0 ? sumOnetimeCVR / countOnetime : 0,
-        count: countOnetime,
-      },
-    ];
-  }, [metrics]);
-
-  // Per-offer segment breakdown for the table
-  const offerSegments = useMemo(() => {
-    return metrics.map((row) => ({
-      offer: row.offer_name,
-      account: row.account_name,
-      newPct: row.new_customer_pct || 0,
-      subPct: row.subscription_pct || 0,
-      aov: row.aov,
-      cvr: row.cvr,
-      revenue: row.revenue,
-      conversions: row.conversions,
-      cpa: row.cpa,
-    }));
-  }, [metrics]);
-
-  const activeSegments = segmentView === 'acquisition' ? acquisitionSegments : subscriptionSegments;
-
-  // Revenue bar chart data
-  const chartData = activeSegments.map((seg) => ({
-    name: seg.name,
-    revenue: seg.revenue,
-    conversions: seg.conversions,
-  }));
-
-  if (loading) {
-    return (
-      <PageShell title="Customer Segments" subtitle="New vs Returning, Subscription vs One-time">
-        <div className="space-y-3">
-          {[...Array(4)].map((_, i) => (
-            <div key={i} className="h-20 bg-ats-card rounded-xl animate-pulse" style={{ opacity: 1 - i * 0.15 }} />
-          ))}
-        </div>
-      </PageShell>
-    );
-  }
-
-  if (error) {
-    return (
-      <PageShell title="Customer Segments" subtitle="New vs Returning, Subscription vs One-time">
-        <div className="text-center py-10 text-ats-red text-sm">{error}</div>
-      </PageShell>
-    );
-  }
+  if (loading) return <PageShell title="Customer Segments" subtitle="RFM segmentation"><div className="h-20 bg-ats-card rounded-xl animate-pulse" /></PageShell>;
 
   return (
-    <PageShell
-      title="Customer Segments"
-      subtitle="New vs Returning, Subscription vs One-time"
-      actions={
-        <div className="flex items-center bg-ats-border rounded-lg overflow-hidden">
-          <button
-            onClick={() => setSegmentView('acquisition')}
-            className={`px-4 py-2 text-xs font-medium transition-colors ${
-              segmentView === 'acquisition'
-                ? 'bg-ats-accent text-white'
-                : 'text-ats-text-muted hover:bg-ats-hover'
-            }`}
-          >
-            Acquisition
-          </button>
-          <button
-            onClick={() => setSegmentView('subscription')}
-            className={`px-4 py-2 text-xs font-medium transition-colors ${
-              segmentView === 'subscription'
-                ? 'bg-ats-accent text-white'
-                : 'text-ats-text-muted hover:bg-ats-hover'
-            }`}
-          >
-            Subscription
-          </button>
+    <PageShell title="Customer Segments" subtitle="RFM segmentation" actions={
+      <div className="flex gap-2">
+        <button onClick={compute} disabled={computing} className="px-4 py-1.5 bg-ats-accent text-white rounded-lg text-xs font-semibold disabled:opacity-50">{computing ? 'Computing...' : 'Recompute RFM'}</button>
+        <button onClick={() => setShowCreate(!showCreate)} className="px-4 py-1.5 bg-ats-surface border border-ats-border text-ats-text rounded-lg text-xs font-semibold">Create Segment</button>
+      </div>
+    }>
+      {/* Create Segment Modal */}
+      {showCreate && (
+        <div className={`${cardCls} mb-6`}>
+          <h3 className="text-sm font-semibold text-ats-text mb-3">Create Custom Segment</h3>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-3">
+            <input placeholder="Name" value={form.segment_name} onChange={e => setForm({ ...form, segment_name: e.target.value })} className="bg-ats-bg border border-ats-border rounded-md px-3 py-2 text-sm text-ats-text" />
+            <input placeholder="Label" value={form.segment_label} onChange={e => setForm({ ...form, segment_label: e.target.value })} className="bg-ats-bg border border-ats-border rounded-md px-3 py-2 text-sm text-ats-text" />
+            <input placeholder="Recency min (days)" value={form.recency_min} onChange={e => setForm({ ...form, recency_min: e.target.value })} className="bg-ats-bg border border-ats-border rounded-md px-3 py-2 text-sm text-ats-text" />
+            <input placeholder="Recency max" value={form.recency_max} onChange={e => setForm({ ...form, recency_max: e.target.value })} className="bg-ats-bg border border-ats-border rounded-md px-3 py-2 text-sm text-ats-text" />
+            <input placeholder="Frequency min" value={form.frequency_min} onChange={e => setForm({ ...form, frequency_min: e.target.value })} className="bg-ats-bg border border-ats-border rounded-md px-3 py-2 text-sm text-ats-text" />
+            <input placeholder="Frequency max" value={form.frequency_max} onChange={e => setForm({ ...form, frequency_max: e.target.value })} className="bg-ats-bg border border-ats-border rounded-md px-3 py-2 text-sm text-ats-text" />
+            <input placeholder="Monetary min ($)" value={form.monetary_min} onChange={e => setForm({ ...form, monetary_min: e.target.value })} className="bg-ats-bg border border-ats-border rounded-md px-3 py-2 text-sm text-ats-text" />
+            <input placeholder="Monetary max ($)" value={form.monetary_max} onChange={e => setForm({ ...form, monetary_max: e.target.value })} className="bg-ats-bg border border-ats-border rounded-md px-3 py-2 text-sm text-ats-text" />
+          </div>
+          <button onClick={createSegment} className="px-4 py-2 bg-ats-accent text-white rounded-lg text-sm font-semibold">Save Segment</button>
         </div>
-      }
-    >
-      {/* KPI Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
-        {activeSegments.map((seg, i) => (
-          <div key={seg.name} className="bg-ats-card rounded-xl p-4 border border-ats-border">
-            <div className="flex items-center gap-2 mb-1">
-              <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: COLORS[i] }} />
-              <span className="text-[11px] text-ats-text-muted uppercase tracking-widest font-mono">{seg.name}</span>
+      )}
+
+      {/* Segment Donut + Cards */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+        <div className={`${cardCls} flex items-center justify-center`}>
+          {pieData.length > 0 ? (
+            <PieChart width={180} height={180}><Pie data={pieData} cx={85} cy={85} innerRadius={40} outerRadius={80} dataKey="value" stroke="none">{pieData.map((d, i) => <Cell key={i} fill={d.color} />)}</Pie><Tooltip /></PieChart>
+          ) : <div className="text-sm text-ats-text-muted">No segment data. Click "Recompute RFM".</div>}
+        </div>
+        <div className="lg:col-span-2 grid grid-cols-2 lg:grid-cols-3 gap-3">
+          {segments.map(seg => (
+            <div key={seg.id} onClick={() => loadCustomers(seg.id)} className={`rounded-xl p-3 border-2 cursor-pointer transition-colors ${selected === seg.id ? 'border-white' : 'border-transparent'}`} style={{ backgroundColor: seg.color + '20', borderColor: selected === seg.id ? seg.color : 'transparent' }}>
+              <div className="flex items-center gap-2 mb-1"><div className="w-3 h-3 rounded-full" style={{ backgroundColor: seg.color }} /><span className="text-sm font-bold text-ats-text">{seg.segment_name}</span></div>
+              <div className="text-xs text-ats-text-muted mb-2">{seg.segment_label}</div>
+              <div className="grid grid-cols-2 gap-1 text-xs font-mono">
+                <div><span className="text-ats-text-muted">Customers: </span><span className="text-ats-text">{seg.customer_count}</span></div>
+                <div><span className="text-ats-text-muted">Revenue: </span><span className="text-ats-text">${parseFloat(String(seg.total_revenue)).toFixed(0)}</span></div>
+              </div>
             </div>
-            <div className="text-xl font-bold text-ats-text font-mono">{fmt.currency(seg.revenue)}</div>
-            <div className="text-xs text-ats-text-muted mt-0.5">{fmt.num(seg.conversions)} conversions</div>
-          </div>
-        ))}
-        <div className="bg-ats-card rounded-xl p-4 border border-ats-border">
-          <div className="text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Avg AOV</div>
-          <div className="text-xl font-bold text-ats-text font-mono">
-            {activeSegments.length > 0
-              ? fmt.currency((activeSegments[0].avgAOV + activeSegments[1].avgAOV) / 2)
-              : '$0.00'}
-          </div>
-        </div>
-        <div className="bg-ats-card rounded-xl p-4 border border-ats-border">
-          <div className="text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Avg CVR</div>
-          <div className="text-xl font-bold text-ats-text font-mono">
-            {activeSegments.length > 0
-              ? fmt.pctRaw((activeSegments[0].avgCVR + activeSegments[1].avgCVR) / 2)
-              : '0.0%'}
-          </div>
+          ))}
         </div>
       </div>
 
-      {/* Revenue by Segment Chart */}
-      <div className="bg-ats-card rounded-xl border border-ats-border p-4 mb-6">
-        <h3 className="text-sm font-semibold text-ats-text mb-4">Revenue by Segment</h3>
-        {chartData.length > 0 ? (
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
-              <XAxis
-                dataKey="name"
-                tick={{ fill: '#6b7280', fontSize: 11 }}
-                tickLine={false}
-                axisLine={{ stroke: '#374151' }}
-              />
-              <YAxis
-                tickFormatter={(v: number) =>
-                  v >= 1000 ? `$${(v / 1000).toFixed(1)}K` : `$${v.toFixed(0)}`
-                }
-                tick={{ fill: '#6b7280', fontSize: 11 }}
-                tickLine={false}
-                axisLine={false}
-                width={60}
-              />
-              <Tooltip
-                contentStyle={tooltipStyle}
-                formatter={(value: number | undefined, name: string | undefined) => {
-                  const v = value ?? 0;
-                  return [
-                    name === 'revenue'
-                      ? `$${v.toLocaleString('en-US', { minimumFractionDigits: 2 })}`
-                      : v.toLocaleString(),
-                    name === 'revenue' ? 'Revenue' : 'Conversions',
-                  ];
-                }}
-                labelStyle={{ color: '#9ca3af', marginBottom: 4 }}
-              />
-              <Legend
-                verticalAlign="top"
-                height={36}
-                iconType="circle"
-                iconSize={8}
-                formatter={(value: string) => (
-                  <span className="text-xs text-ats-text-muted">
-                    {value === 'revenue' ? 'Revenue' : 'Conversions'}
-                  </span>
-                )}
-              />
-              <Bar dataKey="revenue" radius={[4, 4, 0, 0]}>
-                {chartData.map((_, i) => (
-                  <Cell key={i} fill={COLORS[i % COLORS.length]} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        ) : (
-          <div className="flex items-center justify-center h-48 text-ats-text-muted text-sm">
-            No data available
-          </div>
-        )}
-      </div>
-
-      {/* Offer Segment Breakdown Table */}
-      <div className="bg-ats-card rounded-xl border border-ats-border overflow-hidden">
-        <div className="px-4 py-3 border-b border-ats-border">
-          <h3 className="text-sm font-semibold text-ats-text">Offer Segment Breakdown</h3>
+      {/* Customer List */}
+      {selected && customers.length > 0 && (
+        <div className={`${cardCls} overflow-hidden`}>
+          <h3 className="text-sm font-semibold text-ats-text mb-3">Customers in Segment</h3>
+          <table className="w-full"><thead><tr className="border-b border-ats-border">{['Email', 'Name', 'Recency', 'Frequency', 'Monetary', 'RFM Score'].map(h => <th key={h} className="px-3 py-2 text-left text-[11px] uppercase tracking-wider font-semibold text-ats-text-muted">{h}</th>)}</tr></thead><tbody>
+            {customers.map((c, i) => <tr key={i} className="border-b border-ats-border last:border-0">
+              <td className="px-3 py-2 text-sm text-ats-text">{c.customer_email}</td>
+              <td className="px-3 py-2 text-sm text-ats-text-muted">{c.customer_name || '-'}</td>
+              <td className="px-3 py-2 text-sm font-mono text-ats-text">{c.recency_days}d ago</td>
+              <td className="px-3 py-2 text-sm font-mono text-ats-text">{c.frequency} orders</td>
+              <td className="px-3 py-2 text-sm font-mono text-ats-text">${parseFloat(String(c.monetary)).toFixed(2)}</td>
+              <td className="px-3 py-2 text-sm font-mono text-ats-accent">{c.rfm_score}</td>
+            </tr>)}
+          </tbody></table>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-ats-border">
-                <th className="text-left px-4 py-2.5 text-[11px] text-ats-text-muted uppercase tracking-wider font-mono font-medium">Offer</th>
-                <th className="text-left px-4 py-2.5 text-[11px] text-ats-text-muted uppercase tracking-wider font-mono font-medium">Account</th>
-                <th className="text-right px-4 py-2.5 text-[11px] text-ats-text-muted uppercase tracking-wider font-mono font-medium">New %</th>
-                <th className="text-right px-4 py-2.5 text-[11px] text-ats-text-muted uppercase tracking-wider font-mono font-medium">Sub %</th>
-                <th className="text-right px-4 py-2.5 text-[11px] text-ats-text-muted uppercase tracking-wider font-mono font-medium">AOV</th>
-                <th className="text-right px-4 py-2.5 text-[11px] text-ats-text-muted uppercase tracking-wider font-mono font-medium">CVR</th>
-                <th className="text-right px-4 py-2.5 text-[11px] text-ats-text-muted uppercase tracking-wider font-mono font-medium">Revenue</th>
-                <th className="text-right px-4 py-2.5 text-[11px] text-ats-text-muted uppercase tracking-wider font-mono font-medium">CPA</th>
-              </tr>
-            </thead>
-            <tbody>
-              {offerSegments.map((row, i) => (
-                <tr
-                  key={`${row.offer}-${row.account}-${i}`}
-                  className={`border-b border-ats-border/50 hover:bg-ats-hover transition-colors ${
-                    i % 2 === 0 ? 'bg-ats-card' : 'bg-ats-row-alt'
-                  }`}
-                >
-                  <td className="px-4 py-2.5 text-ats-text font-medium truncate max-w-[200px]">{row.offer}</td>
-                  <td className="px-4 py-2.5 text-ats-text-muted truncate max-w-[150px]">{row.account}</td>
-                  <td className="px-4 py-2.5 text-right font-mono">
-                    <span className={row.newPct >= 0.5 ? 'text-ats-green' : 'text-ats-yellow'}>
-                      {fmt.pct(row.newPct)}
-                    </span>
-                  </td>
-                  <td className="px-4 py-2.5 text-right font-mono">
-                    <span className={row.subPct >= 0.3 ? 'text-ats-accent' : 'text-ats-text-muted'}>
-                      {fmt.pct(row.subPct)}
-                    </span>
-                  </td>
-                  <td className="px-4 py-2.5 text-right font-mono text-ats-text">{fmt.currency(row.aov)}</td>
-                  <td className="px-4 py-2.5 text-right font-mono text-ats-text">{fmt.pctRaw(row.cvr)}</td>
-                  <td className="px-4 py-2.5 text-right font-mono text-ats-green">{fmt.currency(row.revenue)}</td>
-                  <td className="px-4 py-2.5 text-right font-mono text-ats-text">{fmt.currency(row.cpa)}</td>
-                </tr>
-              ))}
-              {offerSegments.length === 0 && (
-                <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-ats-text-muted">
-                    No metric data available
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Footer */}
-      <div className="text-center pt-4 pb-2">
-        <div className="text-[10px] text-[#374151] font-mono">
-          {metrics.length} offers loaded · segments derived from new_customer_pct and subscription_pct
-        </div>
-      </div>
+      )}
     </PageShell>
   );
 }

@@ -557,3 +557,200 @@ export function fetchSourceMedium(dateRange?: string): Promise<SourceMediumRow[]
 export function fetchPnL(): Promise<PnLData> {
   return request<PnLData>('/analytics/pnl');
 }
+
+// --- Creative Analytics API ---
+export interface CreativeItem {
+  id: number;
+  ad_id: string;
+  ad_name: string;
+  platform: string;
+  creative_type: string;
+  thumbnail_url: string;
+  image_url: string;
+  headline: string;
+  ad_copy: string;
+  campaign_name: string;
+  adset_name: string;
+  status: string;
+  first_seen: string;
+  last_seen: string;
+  // Tags
+  asset_type: string;
+  visual_format: string;
+  hook_type: string;
+  creative_angle: string;
+  messaging_theme: string;
+  talent_type: string;
+  offer_type: string;
+  cta_style: string;
+  // Metrics
+  spend: number;
+  impressions: number;
+  clicks: number;
+  purchases: number;
+  revenue: number;
+  ctr: number;
+  cpc: number;
+  cpm: number;
+  cpa: number;
+  roas: number;
+  cvr: number;
+  // Launch analysis
+  momentum?: string;
+}
+
+export interface ComparativeRow {
+  dimension_value: string;
+  creative_count: number;
+  total_spend: number;
+  total_revenue: number;
+  avg_roas: number;
+  avg_cpa: number;
+  avg_ctr: number;
+  avg_cvr: number;
+}
+
+export interface SavedCreative {
+  id: number;
+  platform: string;
+  brand_name: string;
+  ad_id: string;
+  thumbnail_url: string;
+  video_url: string;
+  ad_copy: string;
+  headline: string;
+  notes: string;
+  tags: string[];
+  saved_at: string;
+}
+
+export interface Board {
+  id: number;
+  name: string;
+  description: string;
+  item_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FollowedBrand {
+  id: number;
+  brand_name: string;
+  platform: string;
+  platform_page_id: string;
+  followed_at: string;
+}
+
+export interface Snapshot {
+  id: number;
+  snapshot_token: string;
+  title: string;
+  report_type: string;
+  is_live: boolean;
+  expires_at: string;
+  created_at: string;
+  url?: string;
+}
+
+export function fetchCreatives(params: Record<string, string> = {}): Promise<{ data: CreativeItem[]; page: number; limit: number }> {
+  const qs = new URLSearchParams(params).toString();
+  return request(`/creatives${qs ? `?${qs}` : ''}`);
+}
+
+export function fetchCreativeDetail(id: number): Promise<CreativeItem & { daily_metrics: any[] }> {
+  return request(`/creatives/${id}`);
+}
+
+export function fetchTopPerforming(params: Record<string, string> = {}): Promise<CreativeItem[]> {
+  const qs = new URLSearchParams(params).toString();
+  return request(`/creatives/top-performing${qs ? `?${qs}` : ''}`);
+}
+
+export function fetchComparative(params: Record<string, string> = {}): Promise<ComparativeRow[]> {
+  const qs = new URLSearchParams(params).toString();
+  return request(`/creatives/comparative${qs ? `?${qs}` : ''}`);
+}
+
+export function fetchLaunchAnalysis(): Promise<CreativeItem[]> {
+  return request('/creatives/launch-analysis');
+}
+
+export function fetchCreativeDiversity(): Promise<Record<string, Record<string, number>>> {
+  return request('/creatives/diversity');
+}
+
+export function fetchTagDistribution(): Promise<Record<string, any[]>> {
+  return request('/creatives/tags/distribution');
+}
+
+export function triggerCreativeTagging(): Promise<{ tagged: number; skipped: number }> {
+  return request('/creatives/tag', { method: 'POST' });
+}
+
+// Inspo
+export function fetchInspoFeed(page = 1): Promise<{ data: SavedCreative[] }> {
+  return request(`/creatives/inspo/feed?page=${page}`);
+}
+
+export function saveInspoCreative(data: Partial<SavedCreative>): Promise<SavedCreative> {
+  return request('/creatives/inspo/save', { method: 'POST', body: JSON.stringify(data) });
+}
+
+export function fetchSavedCreatives(params: Record<string, string> = {}): Promise<{ data: SavedCreative[] }> {
+  const qs = new URLSearchParams(params).toString();
+  return request(`/creatives/inspo/saved${qs ? `?${qs}` : ''}`);
+}
+
+export function deleteSavedCreative(id: number): Promise<{ success: boolean }> {
+  return request(`/creatives/inspo/saved/${id}`, { method: 'DELETE' });
+}
+
+export function fetchFollowedBrands(): Promise<FollowedBrand[]> {
+  return request('/creatives/inspo/brands');
+}
+
+export function followBrand(data: { brand_name: string; platform?: string; platform_page_id?: string }): Promise<FollowedBrand> {
+  return request('/creatives/inspo/brands', { method: 'POST', body: JSON.stringify(data) });
+}
+
+export function unfollowBrand(id: number): Promise<{ success: boolean }> {
+  return request(`/creatives/inspo/brands/${id}`, { method: 'DELETE' });
+}
+
+// Boards
+export function fetchBoards(): Promise<Board[]> {
+  return request('/creatives/boards');
+}
+
+export function createBoard(data: { name: string; description?: string }): Promise<Board> {
+  return request('/creatives/boards', { method: 'POST', body: JSON.stringify(data) });
+}
+
+export function updateBoard(id: number, data: { name?: string; description?: string }): Promise<Board> {
+  return request(`/creatives/boards/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+}
+
+export function deleteBoard(id: number): Promise<{ success: boolean }> {
+  return request(`/creatives/boards/${id}`, { method: 'DELETE' });
+}
+
+export function addBoardItem(boardId: number, savedCreativeId: number): Promise<any> {
+  return request(`/creatives/boards/${boardId}/items`, { method: 'POST', body: JSON.stringify({ saved_creative_id: savedCreativeId }) });
+}
+
+export function removeBoardItem(boardId: number, itemId: number): Promise<{ success: boolean }> {
+  return request(`/creatives/boards/${boardId}/items/${itemId}`, { method: 'DELETE' });
+}
+
+// Snapshots
+export function createSnapshot(data: { title: string; report_type: string; report_config: any; is_live?: boolean; expires_in_hours?: number }): Promise<Snapshot> {
+  return request('/creatives/snapshots', { method: 'POST', body: JSON.stringify(data) });
+}
+
+export function fetchSnapshots(): Promise<Snapshot[]> {
+  return request('/creatives/snapshots');
+}
+
+export function deleteSnapshot(id: number): Promise<{ success: boolean }> {
+  return request(`/creatives/snapshots/${id}`, { method: 'DELETE' });
+}

@@ -34,6 +34,44 @@ const PnLPage = lazy(() => import('./pages/finance/PnLPage'));
 const MemoriesPage = lazy(() => import('./pages/settings/MemoriesPage'));
 const WidgetConfigPage = lazy(() => import('./pages/settings/WidgetConfigPage'));
 
+// New pages — Website Conversion Depth
+const BundleAnalysisPage = lazy(() => import('./pages/website/BundleAnalysisPage'));
+const ProductJourneyPage = lazy(() => import('./pages/website/ProductJourneyPage'));
+const ProductAnalysisPage = lazy(() => import('./pages/website/ProductAnalysisPage'));
+
+// Creative Analysis
+const CreativeAnalysisPage = lazy(() => import('./pages/creative/CreativeAnalysisPage'));
+const CreativeAnalyticsPage = lazy(() => import('./pages/creative/CreativeAnalyticsPage'));
+const CreativeDiversityPage = lazy(() => import('./pages/creative/CreativeDiversityPage'));
+const CreativeInspoPage = lazy(() => import('./pages/creative/CreativeInspoPage'));
+const CreativeBoardsPage = lazy(() => import('./pages/creative/CreativeBoardsPage'));
+const CompetitorResearchPage = lazy(() => import('./pages/creative/CompetitorResearchPage'));
+
+// Customer Retention additions
+const RepeatPurchaseRatePage = lazy(() => import('./pages/customers/RepeatPurchaseRatePage'));
+
+// Settings additions
+const TeamPage = lazy(() => import('./pages/settings/TeamPage'));
+const BrandVaultPage = lazy(() => import('./pages/settings/BrandVaultPage'));
+const ScheduledReportsPage = lazy(() => import('./pages/settings/ScheduledReportsPage'));
+const GDPRPage = lazy(() => import('./pages/settings/GDPRPage'));
+
+// Data additions
+const DataDictionaryPage = lazy(() => import('./pages/data/DataDictionaryPage'));
+
+// Onboarding
+const OnboardingWizard = lazy(() => import('./pages/onboarding/OnboardingWizard'));
+
+// Workspaces
+const WorkspacesListPage = lazy(() => import('./pages/workspaces/WorkspacesListPage'));
+const WorkspaceDetailPage = lazy(() => import('./pages/workspaces/WorkspaceDetailPage'));
+
+// AI / Exceed
+const AgentBuilderPage = lazy(() => import('./pages/ai/AgentBuilderPage'));
+const AgentChatPage = lazy(() => import('./pages/ai/AgentChatPage'));
+const ReportBuilderPage = lazy(() => import('./pages/ai/ReportBuilderPage'));
+const CreativeGeneratorPage = lazy(() => import('./pages/ai/CreativeGeneratorPage'));
+
 // Error boundary
 interface ErrorBoundaryState {
   hasError: boolean;
@@ -138,11 +176,49 @@ export default function App() {
               <Route path="/settings/memories" element={<MemoriesPage />} />
               <Route path="/settings/widget" element={<WidgetConfigPage />} />
 
+              {/* Website Conversion — new sub-pages */}
+              <Route path="/website/bundles" element={<BundleAnalysisPage />} />
+              <Route path="/website/product-journey" element={<ProductJourneyPage />} />
+              <Route path="/website/products" element={<ProductAnalysisPage />} />
+
+              {/* Creative Analysis */}
+              <Route path="/creative/analysis" element={<CreativeAnalysisPage />} />
+              <Route path="/creative/analytics" element={<CreativeAnalyticsPage />} />
+              <Route path="/creative/diversity" element={<CreativeDiversityPage />} />
+              <Route path="/creative/inspo" element={<CreativeInspoPage />} />
+              <Route path="/creative/boards" element={<CreativeBoardsPage />} />
+              <Route path="/creative/research" element={<CompetitorResearchPage />} />
+
+              {/* Customer Retention — new */}
+              <Route path="/customers/repeat-purchases" element={<RepeatPurchaseRatePage />} />
+
               {/* Finance */}
               <Route path="/finance/pnl" element={<PnLPage />} />
 
               {/* Rules */}
               <Route path="/rules" element={<RulesEnginePage />} />
+
+              {/* Settings — new */}
+              <Route path="/settings/team" element={<TeamPage />} />
+              <Route path="/settings/brand-vault" element={<BrandVaultPage />} />
+              <Route path="/settings/scheduled-reports" element={<ScheduledReportsPage />} />
+              <Route path="/settings/gdpr" element={<GDPRPage />} />
+
+              {/* Data — new */}
+              <Route path="/data/dictionary" element={<DataDictionaryPage />} />
+
+              {/* Onboarding */}
+              <Route path="/onboarding" element={<OnboardingWizard />} />
+
+              {/* Workspaces */}
+              <Route path="/workspaces" element={<WorkspacesListPage />} />
+              <Route path="/workspaces/:id" element={<WorkspaceDetailPage />} />
+
+              {/* AI / Exceed */}
+              <Route path="/ai/agents" element={<AgentBuilderPage />} />
+              <Route path="/ai/agents/:agentId/chat" element={<AgentChatPage />} />
+              <Route path="/ai/reports" element={<ReportBuilderPage />} />
+              <Route path="/ai/creative" element={<CreativeGeneratorPage />} />
 
               {/* 404 */}
               <Route path="*" element={<NotFoundPage />} />

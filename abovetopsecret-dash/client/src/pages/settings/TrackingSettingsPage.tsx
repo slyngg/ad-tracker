@@ -267,6 +267,17 @@ export default function TrackingSettingsPage() {
 
       {!loading && !error && (
         <>
+          {/* Attribution Naming Requirement */}
+          <div className="bg-amber-900/20 border border-amber-700/40 rounded-lg px-4 py-3 mb-4">
+            <h3 className="text-sm font-bold text-amber-300 mb-1">Important: Ad Set Naming &amp; Attribution</h3>
+            <p className="text-xs text-amber-200/80 leading-relaxed">
+              For attribution to work, your Facebook <strong>Ad Set Name</strong> must exactly match the <strong>utm_campaign</strong> value sent with orders.
+              For example, if your ad set is named <code className="bg-amber-900/50 px-1 rounded">Summer_Promo_2024</code>, orders must arrive with
+              <code className="bg-amber-900/50 px-1 rounded">utm_campaign=Summer_Promo_2024</code>. Mismatched names will show as &ldquo;Unattributed&rdquo; in your dashboard.
+              Use consistent naming conventions (no extra spaces, same capitalization) across your ad platform and checkout URLs.
+            </p>
+          </div>
+
           {/* UTM Parameter Mapping */}
           <div className={sectionCls}>
             <h3 className="text-sm font-bold text-ats-text mb-1">UTM Parameter Mapping</h3>

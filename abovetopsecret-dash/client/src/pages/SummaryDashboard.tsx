@@ -1,7 +1,7 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMetrics } from '../hooks/useMetrics';
-import { useAuthStore } from '../stores/authStore';
+import { useAuthStore, getAuthToken } from '../stores/authStore';
 import { fetchTimeseries, TimeseriesPoint } from '../lib/api';
 import { ROUTES } from '../lib/routes';
 import { fmt } from '../lib/formatters';
@@ -11,23 +11,25 @@ import MetricSparkline from '../components/charts/MetricSparkline';
 import AnimatedNumber from '../components/shared/AnimatedNumber';
 import LiveOrderFeed from '../components/dashboard/LiveOrderFeed';
 
-const WORKSPACES = [
-  { label: 'Attribution', desc: 'Campaign performance & ROI tracking', icon: 'target', path: ROUTES.ATTRIBUTION, metric: 'roas' as const },
-  { label: 'Source / Medium', desc: 'Traffic source breakdown', icon: 'link', path: ROUTES.SOURCE_MEDIUM, metric: 'spend' as const },
-  { label: 'Website Performance', desc: 'CTR, CPC & landing page metrics', icon: 'zap', path: ROUTES.WEBSITE_PERFORMANCE, metric: 'ctr' as const },
-  { label: 'Conversion Funnel', desc: 'Impressions to order flow', icon: 'funnel', path: ROUTES.WEBSITE_FUNNEL, metric: 'conversions' as const },
-  { label: 'Cost Settings', desc: 'COGS, shipping & handling costs', icon: 'dollar', path: ROUTES.COST_SETTINGS, metric: 'spend' as const },
-  { label: 'Connections', desc: 'Manage data sources', icon: 'plug', path: ROUTES.CONNECTIONS, metric: null },
-];
+async function apiFetch<T>(path: string): Promise<T> {
+  const token = getAuthToken();
+  const res = await fetch(`/api${path}`, { headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) } });
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  return res.json();
+}
 
-const ICON_MAP: Record<string, string> = {
-  target: 'M12 2a10 10 0 100 20 10 10 0 000-20zm0 4a6 6 0 100 12 6 6 0 000-12zm0 4a2 2 0 100 4 2 2 0 000-4z',
-  link: 'M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71',
-  zap: 'M13 2L3 14h9l-1 10 10-12h-9l1-10z',
-  funnel: 'M22 3H2l8 9.46V19l4 2v-8.54L22 3z',
-  dollar: 'M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6',
-  plug: 'M12 22v-5M9 8V2M15 8V2M6 8h12a2 2 0 012 2v1a6 6 0 01-6 6h-4a6 6 0 01-6-6v-1a2 2 0 012-2z',
-};
+interface Favorite { id: number; metric_key: string; label: string; format: string; position: number; }
+interface GA4Overview { sessions: number; pageviews: number; bounce_rate: number; avg_duration: number; }
+interface AttrRow { channel: string; spend: number; revenue: number; conversions: number; roas: number; nc_revenue: number; nc_conversions: number; }
+
+const WORKSPACES = [
+  { label: 'Attribution', desc: 'Campaign performance & ROI', icon: '🎯', path: ROUTES.ATTRIBUTION },
+  { label: 'Website', desc: 'GA4 traffic & conversions', icon: '🌐', path: ROUTES.WEBSITE_PERFORMANCE },
+  { label: 'Customers', desc: 'Segments, cohorts & LTV', icon: '👥', path: ROUTES.CUSTOMER_SEGMENTS },
+  { label: 'Creative', desc: 'Ad creative analysis', icon: '🎨', path: ROUTES.CREATIVE_ANALYSIS },
+  { label: 'P&L', desc: 'Profit & loss breakdown', icon: '💰', path: '/finance/pnl' },
+  { label: 'AI Studio', desc: 'Agents & report builder', icon: '🤖', path: ROUTES.AI_AGENTS },
+];
 
 export default function SummaryDashboard() {
   const handleUnauthorized = useAuthStore((s) => s.handleUnauthorized);
@@ -36,20 +38,38 @@ export default function SummaryDashboard() {
 
   const [timeseries, setTimeseries] = useState<TimeseriesPoint[]>([]);
   const [tsLoading, setTsLoading] = useState(true);
+  const [favorites, setFavorites] = useState<Favorite[]>([]);
+  const [ga4, setGa4] = useState<GA4Overview | null>(null);
+  const [attrData, setAttrData] = useState<AttrRow[]>([]);
 
   useEffect(() => {
     let cancelled = false;
     setTsLoading(true);
     fetchTimeseries('7d')
-      .then((ts) => {
-        if (!cancelled) setTimeseries(ts);
-      })
+      .then((ts) => { if (!cancelled) setTimeseries(ts); })
       .catch(() => {})
-      .finally(() => {
-        if (!cancelled) setTsLoading(false);
-      });
+      .finally(() => { if (!cancelled) setTsLoading(false); });
     return () => { cancelled = true; };
   }, []);
+
+  // Load pinned metrics, GA4 overview, attribution summary
+  useEffect(() => {
+    apiFetch<Favorite[]>('/favorites').then(setFavorites).catch(() => {});
+    apiFetch<GA4Overview>('/ga4/overview').then(setGa4).catch(() => {});
+    apiFetch<AttrRow[]>('/attribution-models/data').then(setAttrData).catch(() => {});
+  }, []);
+
+  const togglePin = useCallback(async (metricKey: string, label: string) => {
+    const token = getAuthToken();
+    const existing = favorites.find(f => f.metric_key === metricKey);
+    if (existing) {
+      await fetch(`/api/favorites/${existing.id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+      setFavorites(prev => prev.filter(f => f.id !== existing.id));
+    } else {
+      const res = await fetch('/api/favorites', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ metric_key: metricKey, label, format: 'currency' }) });
+      if (res.ok) { const f = await res.json(); setFavorites(prev => [...prev, f]); }
+    }
+  }, [favorites]);
 
   const roiColor = summary
     ? summary.total_roi >= 2 ? 'text-ats-green' : summary.total_roi >= 1 ? 'text-ats-yellow' : 'text-ats-red'
@@ -63,28 +83,10 @@ export default function SummaryDashboard() {
     [timeseries],
   );
 
-  // Compute workspace live stats from metrics data
-  const workspaceStats = useMemo(() => {
-    if (!data.length) return null;
-    const totalSpend = data.reduce((s, r) => s + r.spend, 0);
-    const totalRevenue = data.reduce((s, r) => s + r.revenue, 0);
-    const totalConversions = data.reduce((s, r) => s + r.conversions, 0);
-    const avgCtr = data.reduce((s, r) => s + r.ctr, 0) / data.length;
-    const avgRoas = totalSpend > 0 ? totalRevenue / totalSpend : 0;
-    return {
-      roas: fmt.ratio(avgRoas),
-      spend: fmt.currency(totalSpend),
-      ctr: fmt.pctRaw(avgCtr),
-      conversions: fmt.num(totalConversions),
-    };
-  }, [data]);
-
-  // Sparkline data from timeseries
   const spendSpark = useMemo(() => timeseries.map((t) => t.spend), [timeseries]);
   const revenueSpark = useMemo(() => timeseries.map((t) => t.revenue), [timeseries]);
   const conversionSpark = useMemo(() => timeseries.map((t) => t.conversions), [timeseries]);
 
-  // Recent activity: derive from timeseries changes
   const recentActivity = useMemo(() => {
     const items: { text: string; time: string; type: 'info' | 'success' | 'warning' }[] = [];
     if (timeseries.length >= 2) {
@@ -92,148 +94,165 @@ export default function SummaryDashboard() {
       const prev = timeseries[timeseries.length - 2];
       const revChange = prev.revenue > 0 ? ((latest.revenue - prev.revenue) / prev.revenue) * 100 : 0;
       const spendChange = prev.spend > 0 ? ((latest.spend - prev.spend) / prev.spend) * 100 : 0;
-
-      items.push({
-        text: `Revenue ${revChange >= 0 ? 'increased' : 'decreased'} ${Math.abs(revChange).toFixed(1)}% day-over-day`,
-        time: latest.date,
-        type: revChange >= 0 ? 'success' : 'warning',
-      });
-      items.push({
-        text: `Ad spend ${spendChange >= 0 ? 'increased' : 'decreased'} ${Math.abs(spendChange).toFixed(1)}% day-over-day`,
-        time: latest.date,
-        type: spendChange <= 0 ? 'success' : 'info',
-      });
-      if (latest.roas < 1) {
-        items.push({
-          text: `ROAS dropped below break-even (${latest.roas.toFixed(2)}x)`,
-          time: latest.date,
-          type: 'warning',
-        });
-      }
+      items.push({ text: `Revenue ${revChange >= 0 ? 'up' : 'down'} ${Math.abs(revChange).toFixed(1)}% day-over-day`, time: latest.date, type: revChange >= 0 ? 'success' : 'warning' });
+      items.push({ text: `Ad spend ${spendChange >= 0 ? 'up' : 'down'} ${Math.abs(spendChange).toFixed(1)}% day-over-day`, time: latest.date, type: spendChange <= 0 ? 'success' : 'info' });
+      if (latest.roas < 1) items.push({ text: `ROAS below break-even (${latest.roas.toFixed(2)}x)`, time: latest.date, type: 'warning' });
     }
     if (data.length > 0) {
       const topOffer = [...data].sort((a, b) => b.revenue - a.revenue)[0];
-      items.push({
-        text: `Top performer: ${topOffer.offer_name} (${fmt.currency(topOffer.revenue)} revenue)`,
-        time: 'Current',
-        type: 'info',
-      });
+      items.push({ text: `Top: ${topOffer.offer_name} (${fmt.currency(topOffer.revenue)})`, time: 'Current', type: 'info' });
       const lowRoas = data.filter((r) => r.spend > 0 && r.revenue / r.spend < 1);
-      if (lowRoas.length > 0) {
-        items.push({
-          text: `${lowRoas.length} campaign${lowRoas.length > 1 ? 's' : ''} below break-even ROAS`,
-          time: 'Current',
-          type: 'warning',
-        });
-      }
+      if (lowRoas.length > 0) items.push({ text: `${lowRoas.length} campaign${lowRoas.length > 1 ? 's' : ''} below break-even`, time: 'Current', type: 'warning' });
     }
     return items;
   }, [timeseries, data]);
 
-  const activityDotColor = (type: 'info' | 'success' | 'warning') => {
-    if (type === 'success') return 'bg-ats-green';
-    if (type === 'warning') return 'bg-ats-yellow';
-    return 'bg-ats-accent';
-  };
+  const activityDotColor = (type: 'info' | 'success' | 'warning') => type === 'success' ? 'bg-ats-green' : type === 'warning' ? 'bg-ats-yellow' : 'bg-ats-accent';
+
+  const pinnedMetrics = useMemo(() => {
+    if (!summary || favorites.length === 0) return [];
+    const metricMap: Record<string, { value: number; format: (n: number) => string }> = {
+      spend: { value: summary.total_spend, format: fmt.currency },
+      revenue: { value: summary.total_revenue, format: fmt.currency },
+      roas: { value: summary.total_roi, format: fmt.ratio },
+      conversions: { value: summary.total_conversions, format: fmt.num },
+      profit: { value: profit, format: fmt.currency },
+    };
+    return favorites.map(f => ({ ...f, ...(metricMap[f.metric_key] || { value: 0, format: fmt.num }) }));
+  }, [summary, favorites, profit]);
+
+  const cardCls = 'bg-ats-card rounded-xl p-4 border border-ats-border';
 
   return (
     <PageShell
       title="Command Center"
       subtitle={new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
       actions={
-        <button
-          onClick={() => refresh()}
-          disabled={refreshing}
-          className="bg-ats-accent text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-blue-600 transition-colors disabled:opacity-60"
-        >
+        <button onClick={() => refresh()} disabled={refreshing} className="bg-ats-accent text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-blue-600 transition-colors disabled:opacity-60">
           {refreshing ? 'Syncing...' : 'Refresh'}
         </button>
       }
     >
+      {/* Pinned Metrics Row */}
+      {pinnedMetrics.length > 0 && (
+        <div className="flex gap-2 overflow-x-auto mb-4 pb-1">
+          {pinnedMetrics.map(pm => (
+            <div key={pm.id} className="bg-ats-accent/10 border border-ats-accent/30 rounded-lg px-4 py-2 min-w-[120px] flex-shrink-0 relative group">
+              <button onClick={() => togglePin(pm.metric_key, pm.label)} className="absolute top-1 right-1 text-[10px] text-ats-accent opacity-0 group-hover:opacity-100">unpin</button>
+              <div className="text-[10px] text-ats-accent uppercase tracking-wider font-mono">{pm.label}</div>
+              <div className="text-lg font-bold text-ats-text font-mono">{pm.format(pm.value)}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* KPI Cards */}
       {summary && (
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-6">
-          <div className="bg-ats-card rounded-xl p-4 border border-ats-border">
-            <div className="text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Spend</div>
-            <div className="text-2xl font-bold text-ats-text font-mono">
-              <AnimatedNumber value={summary.total_spend} format={fmt.currency} />
+          <div className={cardCls}>
+            <div className="flex items-center justify-between">
+              <div className="text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Spend</div>
+              <button onClick={() => togglePin('spend', 'Spend')} className={`text-[10px] ${favorites.some(f => f.metric_key === 'spend') ? 'text-ats-accent' : 'text-ats-text-muted hover:text-ats-accent'}`}>📌</button>
             </div>
-            {spendSpark.length > 0 && (
-              <div className="mt-2">
-                <MetricSparkline data={spendSpark} color="#ef4444" height={28} />
-              </div>
-            )}
+            <div className="text-2xl font-bold text-ats-text font-mono"><AnimatedNumber value={summary.total_spend} format={fmt.currency} /></div>
+            {spendSpark.length > 0 && <div className="mt-2"><MetricSparkline data={spendSpark} color="#ef4444" height={28} /></div>}
           </div>
-          <div className="bg-ats-card rounded-xl p-4 border border-ats-border">
-            <div className="text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Revenue</div>
-            <div className="text-2xl font-bold text-ats-green font-mono">
-              <AnimatedNumber value={summary.total_revenue} format={fmt.currency} />
+          <div className={cardCls}>
+            <div className="flex items-center justify-between">
+              <div className="text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Revenue</div>
+              <button onClick={() => togglePin('revenue', 'Revenue')} className={`text-[10px] ${favorites.some(f => f.metric_key === 'revenue') ? 'text-ats-accent' : 'text-ats-text-muted hover:text-ats-accent'}`}>📌</button>
             </div>
-            {revenueSpark.length > 0 && (
-              <div className="mt-2">
-                <MetricSparkline data={revenueSpark} color="#22c55e" height={28} />
-              </div>
-            )}
+            <div className="text-2xl font-bold text-ats-green font-mono"><AnimatedNumber value={summary.total_revenue} format={fmt.currency} /></div>
+            {revenueSpark.length > 0 && <div className="mt-2"><MetricSparkline data={revenueSpark} color="#22c55e" height={28} /></div>}
           </div>
-          <div className="bg-ats-card rounded-xl p-4 border border-ats-border">
+          <div className={cardCls}>
             <div className="text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">ROAS</div>
-            <div className={`text-2xl font-bold font-mono ${roiColor}`}>
-              <AnimatedNumber value={summary.total_roi} format={fmt.ratio} />
-            </div>
+            <div className={`text-2xl font-bold font-mono ${roiColor}`}><AnimatedNumber value={summary.total_roi} format={fmt.ratio} /></div>
           </div>
-          <div className="bg-ats-card rounded-xl p-4 border border-ats-border">
+          <div className={cardCls}>
             <div className="text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Conversions</div>
-            <div className="text-2xl font-bold text-ats-text font-mono">
-              <AnimatedNumber value={summary.total_conversions} format={fmt.num} />
-            </div>
-            {conversionSpark.length > 0 && (
-              <div className="mt-2">
-                <MetricSparkline data={conversionSpark} color="#3b82f6" height={28} />
-              </div>
-            )}
+            <div className="text-2xl font-bold text-ats-text font-mono"><AnimatedNumber value={summary.total_conversions} format={fmt.num} /></div>
+            {conversionSpark.length > 0 && <div className="mt-2"><MetricSparkline data={conversionSpark} color="#3b82f6" height={28} /></div>}
           </div>
-          <div className="bg-ats-card rounded-xl p-4 border border-ats-border">
+          <div className={cardCls}>
             <div className="text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Net Profit</div>
-            <div className={`text-2xl font-bold font-mono ${profitColor}`}>
-              <AnimatedNumber value={profit} format={fmt.currency} />
-            </div>
+            <div className={`text-2xl font-bold font-mono ${profitColor}`}><AnimatedNumber value={profit} format={fmt.currency} /></div>
           </div>
         </div>
       )}
 
       {/* Spend vs Revenue Chart */}
-      <div className="bg-ats-card rounded-xl border border-ats-border p-4 mb-8">
+      <div className={`${cardCls} mb-6`}>
         <h2 className="text-sm font-semibold text-ats-text mb-3">Spend vs Revenue (7-day)</h2>
         {tsLoading ? (
-          <div className="h-[300px] flex items-center justify-center">
-            <div className="animate-pulse text-ats-text-muted text-sm">Loading chart...</div>
-          </div>
+          <div className="h-[280px] flex items-center justify-center"><div className="animate-pulse text-ats-text-muted text-sm">Loading chart...</div></div>
         ) : (
           <SpendRevenueChart data={chartData} />
         )}
       </div>
 
+      {/* Web Analytics + Attribution Summary */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+        {/* Web Analytics Summary */}
+        <div className={cardCls}>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-ats-text">Web Analytics</h3>
+            <button onClick={() => navigate(ROUTES.WEBSITE_PERFORMANCE)} className="text-xs text-ats-accent hover:underline">View Details →</button>
+          </div>
+          {ga4 ? (
+            <div className="grid grid-cols-2 gap-3">
+              <div><div className="text-[10px] text-ats-text-muted uppercase font-mono">Sessions</div><div className="text-lg font-bold text-ats-text font-mono">{fmt.num(ga4.sessions)}</div></div>
+              <div><div className="text-[10px] text-ats-text-muted uppercase font-mono">Pageviews</div><div className="text-lg font-bold text-ats-text font-mono">{fmt.num(ga4.pageviews)}</div></div>
+              <div><div className="text-[10px] text-ats-text-muted uppercase font-mono">Bounce Rate</div><div className="text-lg font-bold text-ats-text font-mono">{fmt.pctRaw(ga4.bounce_rate)}</div></div>
+              <div><div className="text-[10px] text-ats-text-muted uppercase font-mono">Avg Duration</div><div className="text-lg font-bold text-ats-text font-mono">{Math.round(ga4.avg_duration)}s</div></div>
+            </div>
+          ) : (
+            <div className="text-center py-6">
+              <p className="text-sm text-ats-text-muted mb-2">Connect GA4 for web analytics</p>
+              <button onClick={() => navigate(ROUTES.CONNECTIONS)} className="text-xs text-ats-accent hover:underline">Setup GA4 →</button>
+            </div>
+          )}
+        </div>
+
+        {/* Attribution Summary */}
+        <div className={cardCls}>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-ats-text">Attribution Summary</h3>
+            <button onClick={() => navigate(ROUTES.ATTRIBUTION)} className="text-xs text-ats-accent hover:underline">Full Report →</button>
+          </div>
+          {attrData.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead><tr className="text-ats-text-muted uppercase">
+                  <th className="text-left pb-2 font-mono">Channel</th>
+                  <th className="text-right pb-2 font-mono">Spend</th>
+                  <th className="text-right pb-2 font-mono">Revenue</th>
+                  <th className="text-right pb-2 font-mono">ROAS</th>
+                </tr></thead>
+                <tbody>{attrData.slice(0, 5).map((r, i) => (
+                  <tr key={i} className="border-t border-ats-border">
+                    <td className="py-1.5 text-ats-text">{r.channel}</td>
+                    <td className="py-1.5 text-right text-ats-text font-mono">{fmt.currency(r.spend)}</td>
+                    <td className="py-1.5 text-right text-ats-green font-mono">{fmt.currency(r.revenue)}</td>
+                    <td className="py-1.5 text-right font-mono" style={{ color: r.roas >= 2 ? '#22c55e' : r.roas >= 1 ? '#f59e0b' : '#ef4444' }}>{fmt.ratio(r.roas)}</td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="text-sm text-ats-text-muted text-center py-6">Attribution data will appear after sync.</p>
+          )}
+        </div>
+      </div>
+
       {/* Workspace Quick Links */}
       <h2 className="text-sm font-semibold text-ats-text-muted uppercase tracking-wider mb-3">Workspaces</h2>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-8">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
         {WORKSPACES.map((ws) => (
-          <button
-            key={ws.path}
-            onClick={() => navigate(ws.path)}
-            className="bg-ats-card border border-ats-border rounded-xl p-4 text-left hover:bg-ats-hover hover:border-ats-text-muted/30 transition-colors group"
-          >
-            <div className="flex items-start justify-between mb-2">
-              <svg className="w-5 h-5 text-ats-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                <path d={ICON_MAP[ws.icon] || ICON_MAP.target} />
-              </svg>
-              {ws.metric && workspaceStats && (
-                <span className="text-xs font-mono text-ats-text-muted bg-ats-bg px-2 py-0.5 rounded">
-                  {workspaceStats[ws.metric as keyof typeof workspaceStats]}
-                </span>
-              )}
-            </div>
+          <button key={ws.path} onClick={() => navigate(ws.path)} className={`${cardCls} text-left hover:border-ats-accent transition-colors group`}>
+            <div className="text-2xl mb-2">{ws.icon}</div>
             <div className="text-sm font-semibold text-ats-text group-hover:text-ats-accent transition-colors">{ws.label}</div>
-            <div className="text-xs text-ats-text-muted mt-0.5">{ws.desc}</div>
+            <div className="text-[11px] text-ats-text-muted mt-0.5">{ws.desc}</div>
           </button>
         ))}
       </div>
@@ -244,9 +263,7 @@ export default function SummaryDashboard() {
           <h2 className="text-sm font-semibold text-ats-text-muted uppercase tracking-wider mb-3">Recent Activity</h2>
           <div className="bg-ats-card rounded-xl border border-ats-border divide-y divide-ats-border">
             {recentActivity.length === 0 ? (
-              <div className="p-6 text-center text-sm text-ats-text-muted">
-                No recent activity. Data will appear after sync.
-              </div>
+              <div className="p-6 text-center text-sm text-ats-text-muted">No recent activity. Data will appear after sync.</div>
             ) : (
               recentActivity.map((item, i) => (
                 <div key={i} className="flex items-start gap-3 px-4 py-3">
