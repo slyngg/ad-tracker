@@ -227,7 +227,7 @@ export interface UploadResult {
   success: boolean;
   inserted: number;
   skipped: number;
-  errors: string[];
+  errors?: string[];
 }
 
 // --- Webhook Token types ---

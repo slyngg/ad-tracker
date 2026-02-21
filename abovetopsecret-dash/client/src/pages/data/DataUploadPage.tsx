@@ -271,19 +271,19 @@ export default function DataUploadPage() {
                 </div>
                 <div>
                   <span className="block text-[11px] opacity-70 uppercase">Errors</span>
-                  <span className="text-lg font-bold font-mono">{result.errors.length}</span>
+                  <span className="text-lg font-bold font-mono">{(result.errors ?? []).length}</span>
                 </div>
               </div>
-              {result.errors.length > 0 && (
+              {(result.errors ?? []).length > 0 && (
                 <div className="mt-2 space-y-1">
-                  {result.errors.slice(0, 5).map((err, i) => (
+                  {(result.errors ?? []).slice(0, 5).map((err, i) => (
                     <div key={i} className="text-xs font-mono opacity-80">
                       {err}
                     </div>
                   ))}
-                  {result.errors.length > 5 && (
+                  {(result.errors ?? []).length > 5 && (
                     <div className="text-xs opacity-60">
-                      ...and {result.errors.length - 5} more errors
+                      ...and {(result.errors ?? []).length - 5} more errors
                     </div>
                   )}
                 </div>
