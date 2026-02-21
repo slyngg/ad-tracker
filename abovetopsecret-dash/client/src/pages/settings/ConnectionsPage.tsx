@@ -17,12 +17,23 @@ import OAuthConnectButton from '../../components/shared/OAuthConnectButton';
 
 type StatusType = 'idle' | 'testing' | 'success' | 'error';
 
-const OAUTH_PLATFORMS = [
-  { key: 'meta', label: 'Meta Ads', icon: '🔷', description: 'Facebook & Instagram ad performance, spend, ROAS' },
-  { key: 'google', label: 'Google Analytics', icon: '🔴', description: 'GA4 traffic, conversions, site analytics' },
-  { key: 'shopify', label: 'Shopify', icon: '🟢', description: 'Orders, products, webhook data' },
-  { key: 'tiktok', label: 'TikTok Ads', icon: '🎵', description: 'Campaign performance, spend, conversions' },
-  { key: 'klaviyo', label: 'Klaviyo', icon: '💜', description: 'Email lists, profiles, campaign metrics' },
+interface PlatformDef {
+  key: string;
+  label: string;
+  icon: string;
+  iconBg: string;
+  description: string;
+  oauthPlatform?: string;
+  manualFields?: 'meta' | 'google' | 'shopify' | 'checkoutchamp';
+}
+
+const PLATFORMS: PlatformDef[] = [
+  { key: 'meta', label: 'Meta Ads', icon: 'f', iconBg: 'bg-blue-600', description: 'Facebook & Instagram ad campaigns, spend, ROAS, creative performance', oauthPlatform: 'meta', manualFields: 'meta' },
+  { key: 'google', label: 'Google Analytics', icon: 'G', iconBg: 'bg-red-600', description: 'GA4 traffic, conversions, funnel analysis, site search', oauthPlatform: 'google', manualFields: 'google' },
+  { key: 'shopify', label: 'Shopify', icon: 'S', iconBg: 'bg-green-600', description: 'Real-time orders, products, refund webhooks, revenue tracking', oauthPlatform: 'shopify', manualFields: 'shopify' },
+  { key: 'tiktok', label: 'TikTok Ads', icon: 'T', iconBg: 'bg-pink-600', description: 'Campaign performance, spend, and conversion metrics', oauthPlatform: 'tiktok' },
+  { key: 'klaviyo', label: 'Klaviyo', icon: 'K', iconBg: 'bg-purple-600', description: 'Email lists, profiles, campaign metrics, customer insights', oauthPlatform: 'klaviyo' },
+  { key: 'checkoutchamp', label: 'CheckoutChamp', icon: 'C', iconBg: 'bg-indigo-600', description: 'Order data, subscriptions, take rates, upsell performance', manualFields: 'checkoutchamp' },
 ];
 
 export default function ConnectionsPage() {
@@ -33,6 +44,8 @@ export default function ConnectionsPage() {
   // Manual fields
   const [fbToken, setFbToken] = useState('');
   const [fbAccountIds, setFbAccountIds] = useState('');
+  const [ga4PropertyId, setGa4PropertyId] = useState('');
+  const [ga4CredentialsJson, setGa4CredentialsJson] = useState('');
   const [ccApiKey, setCcApiKey] = useState('');
   const [ccApiUrl, setCcApiUrl] = useState('');
   const [ccWebhookSecret, setCcWebhookSecret] = useState('');
@@ -45,23 +58,20 @@ export default function ConnectionsPage() {
   const [ccTestStatus, setCcTestStatus] = useState<StatusType>('idle');
   const [ccTestMessage, setCcTestMessage] = useState('');
 
-  // OAuth status
+  // OAuth + UI state
   const [oauthStatuses, setOauthStatuses] = useState<OAuthStatus[]>([]);
-  const [expandedManual, setExpandedManual] = useState<Record<string, boolean>>({});
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
   // Webhook tokens
   const [tokens, setTokens] = useState<WebhookToken[]>([]);
   const [newTokenSource, setNewTokenSource] = useState('checkout_champ');
   const [newTokenLabel, setNewTokenLabel] = useState('');
   const [creatingToken, setCreatingToken] = useState(false);
+  const [showTokenSection, setShowTokenSection] = useState(false);
 
   const loadOAuthStatus = useCallback(async () => {
-    try {
-      const statuses = await getOAuthStatus();
-      setOauthStatuses(statuses);
-    } catch {}
+    try { setOauthStatuses(await getOAuthStatus()); } catch {}
   }, []);
-
   const loadSettings = useCallback(async () => {
     try {
       const s = await fetchSettings();
@@ -70,416 +80,419 @@ export default function ConnectionsPage() {
       setCcApiUrl(s.cc_api_url || '');
       setCcPollEnabled(s.cc_poll_enabled !== 'false');
       setShopifyStoreUrl(s.shopify_store_url || '');
+      setGa4PropertyId(s.ga4_property_id || '');
     } catch {}
   }, []);
-
   const loadTokens = useCallback(async () => {
-    try {
-      const t = await fetchWebhookTokens();
-      setTokens(t);
-    } catch {}
+    try { setTokens(await fetchWebhookTokens()); } catch {}
   }, []);
 
-  useEffect(() => {
-    loadSettings();
-    loadOAuthStatus();
-    loadTokens();
-  }, [loadSettings, loadOAuthStatus, loadTokens]);
+  useEffect(() => { loadSettings(); loadOAuthStatus(); loadTokens(); }, [loadSettings, loadOAuthStatus, loadTokens]);
 
-  const getOAuthStatusForPlatform = (platform: string): OAuthStatus | undefined =>
-    oauthStatuses.find(s => s.platform === platform);
+  // Helpers
+  const oauthFor = (platform: string) => oauthStatuses.find(s => s.platform === platform);
+  const isOAuthConnected = (platform: string) => {
+    const s = oauthFor(platform);
+    return s?.status === 'connected' && s.connectionMethod === 'oauth';
+  };
+  const isAnyConnected = (platform: string) => {
+    if (oauthFor(platform)?.status === 'connected') return true;
+    if (platform === 'meta') return !!(settings.fb_access_token && settings.fb_ad_account_ids);
+    if (platform === 'google') return !!settings.ga4_property_id;
+    if (platform === 'shopify') return !!settings.shopify_webhook_secret;
+    if (platform === 'checkoutchamp') return !!(settings.cc_api_key && settings.cc_api_url);
+    return false;
+  };
+  const toggle = (key: string) => setExpanded(p => ({ ...p, [key]: !p[key] }));
+  const webhookBaseUrl = typeof window !== 'undefined' ? window.location.origin : '';
+  const copy = (text: string) => { navigator.clipboard.writeText(text); flash('Copied!', 'success'); };
+  const flash = (text: string, type: 'success' | 'error') => { setMessage({ type, text }); setTimeout(() => setMessage(null), 3000); };
 
+  const connectedCount = PLATFORMS.filter(p => isAnyConnected(p.oauthPlatform || p.key)).length;
+
+  // Actions
   const handleSave = async () => {
     setSaving(true);
-    setMessage(null);
     try {
       const data: Record<string, string> = {};
       if (fbToken) data.fb_access_token = fbToken;
       if (fbAccountIds) data.fb_ad_account_ids = fbAccountIds;
+      if (ga4PropertyId) data.ga4_property_id = ga4PropertyId;
+      if (ga4CredentialsJson) data.ga4_credentials_json = ga4CredentialsJson;
       if (ccApiKey) data.cc_api_key = ccApiKey;
       if (ccApiUrl) data.cc_api_url = ccApiUrl;
       if (ccWebhookSecret) data.cc_webhook_secret = ccWebhookSecret;
       data.cc_poll_enabled = ccPollEnabled ? 'true' : 'false';
       if (shopifySecret) data.shopify_webhook_secret = shopifySecret;
       if (shopifyStoreUrl) data.shopify_store_url = shopifyStoreUrl;
-
       const updated = await updateSettings(data);
       setSettings(updated);
-      setFbToken('');
-      setCcApiKey('');
-      setCcWebhookSecret('');
-      setShopifySecret('');
-      setMessage({ type: 'success', text: 'Settings saved' });
-    } catch {
-      setMessage({ type: 'error', text: 'Failed to save settings' });
-    } finally {
-      setSaving(false);
-    }
+      setFbToken(''); setCcApiKey(''); setCcWebhookSecret(''); setShopifySecret('');
+      flash('Settings saved', 'success');
+    } catch { flash('Failed to save', 'error'); }
+    finally { setSaving(false); }
+  };
+
+  const handleDisconnect = async (platform: string) => {
+    if (!confirm(`Disconnect ${platform}? You can reconnect anytime.`)) return;
+    try { await disconnectOAuth(platform); await loadOAuthStatus(); flash('Disconnected', 'success'); }
+    catch { flash('Failed to disconnect', 'error'); }
   };
 
   const handleTestFB = async () => {
     setFbTestStatus('testing');
     try {
-      const result = await testFacebookConnection();
-      if (result.success) {
-        setFbTestStatus('success');
-        setFbTestMessage(result.account_name || 'Connected');
-      } else {
-        setFbTestStatus('error');
-        setFbTestMessage(result.error || 'Connection failed');
-      }
-    } catch {
-      setFbTestStatus('error');
-      setFbTestMessage('Connection failed');
-    }
+      const r = await testFacebookConnection();
+      setFbTestStatus(r.success ? 'success' : 'error');
+      setFbTestMessage(r.success ? (r.account_name || 'Connected') : (r.error || 'Failed'));
+    } catch { setFbTestStatus('error'); setFbTestMessage('Connection failed'); }
   };
-
   const handleTestCC = async () => {
     setCcTestStatus('testing');
     try {
-      const result = await testCCConnection();
-      if (result.success) {
-        setCcTestStatus('success');
-        setCcTestMessage(result.message || 'Connected');
-      } else {
-        setCcTestStatus('error');
-        setCcTestMessage(result.error || 'Connection failed');
-      }
-    } catch {
-      setCcTestStatus('error');
-      setCcTestMessage('Connection failed');
-    }
-  };
-
-  const handleDisconnect = async (platform: string) => {
-    if (!confirm(`Disconnect ${platform}? You can reconnect anytime.`)) return;
-    try {
-      await disconnectOAuth(platform);
-      await loadOAuthStatus();
-      setMessage({ type: 'success', text: `${platform} disconnected` });
-    } catch {
-      setMessage({ type: 'error', text: 'Failed to disconnect' });
-    }
-  };
-
-  const handleOAuthSuccess = () => {
-    loadOAuthStatus();
-    setMessage({ type: 'success', text: 'Connected successfully!' });
-  };
-
-  const handleOAuthError = (msg: string) => {
-    setMessage({ type: 'error', text: msg });
+      const r = await testCCConnection();
+      setCcTestStatus(r.success ? 'success' : 'error');
+      setCcTestMessage(r.success ? (r.message || 'Connected') : (r.error || 'Failed'));
+    } catch { setCcTestStatus('error'); setCcTestMessage('Connection failed'); }
   };
 
   const handleCreateToken = async () => {
     setCreatingToken(true);
-    try {
-      await createWebhookToken(newTokenSource, newTokenLabel || undefined);
-      setNewTokenLabel('');
-      loadTokens();
-      setMessage({ type: 'success', text: 'Webhook token created' });
-    } catch {
-      setMessage({ type: 'error', text: 'Failed to create token' });
-    } finally {
-      setCreatingToken(false);
-    }
+    try { await createWebhookToken(newTokenSource, newTokenLabel || undefined); setNewTokenLabel(''); loadTokens(); flash('Token created', 'success'); }
+    catch { flash('Failed to create token', 'error'); }
+    finally { setCreatingToken(false); }
   };
-
   const handleRevokeToken = async (id: number) => {
-    if (!confirm('Revoke this webhook token? Webhooks using this token will stop working.')) return;
-    try {
-      await revokeWebhookToken(id);
-      loadTokens();
-      setMessage({ type: 'success', text: 'Token revoked' });
-    } catch {
-      setMessage({ type: 'error', text: 'Failed to revoke token' });
-    }
+    if (!confirm('Revoke this token? Webhooks using it will stop.')) return;
+    try { await revokeWebhookToken(id); loadTokens(); flash('Revoked', 'success'); }
+    catch { flash('Failed to revoke', 'error'); }
   };
 
-  const webhookBaseUrl = typeof window !== 'undefined' ? window.location.origin : 'https://yourdomain.com';
+  // Styles
+  const inputCls = 'w-full px-3 py-2.5 bg-ats-bg border border-ats-border rounded-lg text-ats-text text-sm font-mono outline-none focus:border-ats-accent focus:ring-1 focus:ring-ats-accent/30 transition-all';
+  const labelCls = 'text-[10px] text-ats-text-muted block mb-1.5 uppercase tracking-widest font-mono';
+  const btnSecondary = 'px-4 py-2 bg-ats-surface border border-ats-border rounded-lg text-xs text-ats-text font-medium hover:bg-ats-hover active:scale-[0.98] transition-all';
 
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text).then(() => {
-      setMessage({ type: 'success', text: 'Copied to clipboard' });
-      setTimeout(() => setMessage(null), 2000);
-    }).catch(() => {});
-  };
-
-  const inputCls = "w-full px-4 py-3 bg-ats-bg border border-[#374151] rounded-md text-ats-text text-sm font-mono outline-none focus:border-ats-accent";
-  const labelCls = "text-[11px] text-ats-text-muted block mb-1 uppercase tracking-wide";
-
-  const statusBadge = (oauthStatus?: OAuthStatus) => {
-    if (!oauthStatus || oauthStatus.status === 'disconnected') {
-      return <span className="text-[10px] px-2 py-0.5 rounded-full bg-gray-800 text-gray-400 font-mono">Disconnected</span>;
-    }
-    if (oauthStatus.status === 'connected') {
-      // Check if expiring soon
-      if (oauthStatus.tokenExpiresAt) {
-        const daysLeft = Math.ceil((new Date(oauthStatus.tokenExpiresAt).getTime() - Date.now()) / 86400000);
-        if (daysLeft <= 7) {
-          return <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-900/50 text-amber-300 font-mono">Expiring in {daysLeft}d</span>;
-        }
+  const statusBadge = (platform: string) => {
+    const connected = isAnyConnected(platform);
+    const oauth = oauthFor(platform);
+    if (connected) {
+      if (oauth?.tokenExpiresAt) {
+        const days = Math.ceil((new Date(oauth.tokenExpiresAt).getTime() - Date.now()) / 86400000);
+        if (days <= 7) return <span className="text-[10px] px-2.5 py-1 rounded-full bg-amber-500/15 text-amber-400 font-medium">Expiring {days}d</span>;
       }
-      return <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-900/50 text-emerald-300 font-mono">Connected</span>;
+      return <span className="text-[10px] px-2.5 py-1 rounded-full bg-emerald-500/15 text-emerald-400 font-medium">Connected</span>;
     }
-    return <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-900/50 text-red-300 font-mono">{oauthStatus.status}</span>;
+    return <span className="text-[10px] px-2.5 py-1 rounded-full bg-white/5 text-ats-text-muted font-medium">Not connected</span>;
   };
 
   return (
-    <PageShell title="Connections" subtitle="Manage data source integrations">
+    <PageShell title="Connections" subtitle="Manage integrations and data sources">
+      {/* Toast */}
       {message && (
-        <div className={`px-3 py-2 mb-4 rounded-md text-sm ${
-          message.type === 'success' ? 'bg-emerald-900/50 text-emerald-300' : 'bg-red-900/50 text-red-300'
+        <div className={`fixed top-4 right-4 z-50 px-4 py-3 rounded-xl text-sm font-medium shadow-2xl backdrop-blur-sm animate-in slide-in-from-right ${
+          message.type === 'success' ? 'bg-emerald-500/90 text-white' : 'bg-red-500/90 text-white'
         }`}>
           {message.text}
         </div>
       )}
 
-      {/* OAuth Platform Cards */}
-      {OAUTH_PLATFORMS.map(({ key, label, icon, description }) => {
-        const oauthStatus = getOAuthStatusForPlatform(key);
-        const isConnected = oauthStatus?.status === 'connected';
-        const isOAuthConnected = isConnected && oauthStatus?.connectionMethod === 'oauth';
-        const showManual = expandedManual[key] || false;
-
-        return (
-          <div key={key} className="bg-ats-surface border border-ats-border rounded-lg p-4 mb-4">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <span className="text-lg">{icon}</span>
-                <h3 className="text-sm font-bold text-ats-text">{label}</h3>
+      {/* Summary */}
+      <div className="bg-gradient-to-r from-ats-card to-ats-surface rounded-2xl border border-ats-border p-4 sm:p-5 mb-6">
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <div className="text-lg font-bold text-ats-text">{connectedCount} of {PLATFORMS.length}</div>
+            <div className="text-xs text-ats-text-muted">integrations active</div>
+          </div>
+          <div className="flex -space-x-1">
+            {PLATFORMS.map(p => (
+              <div key={p.key} className={`w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold text-white border-2 border-ats-card ${
+                isAnyConnected(p.oauthPlatform || p.key) ? p.iconBg : 'bg-gray-700'
+              }`}>
+                {p.icon}
               </div>
-              {statusBadge(oauthStatus)}
-            </div>
-            <p className="text-xs text-ats-text-muted mb-3">{description}</p>
+            ))}
+          </div>
+        </div>
+        <div className="h-1.5 bg-ats-border rounded-full overflow-hidden">
+          <div className="h-full bg-gradient-to-r from-ats-accent to-emerald-500 rounded-full transition-all duration-700" style={{ width: `${(connectedCount / PLATFORMS.length) * 100}%` }} />
+        </div>
+      </div>
 
-            {isOAuthConnected ? (
-              <div className="space-y-2">
-                {oauthStatus?.scopes && oauthStatus.scopes.length > 0 && (
-                  <div className="flex flex-wrap gap-1">
-                    {oauthStatus.scopes.map(s => (
-                      <span key={s} className="text-[10px] px-1.5 py-0.5 bg-ats-bg rounded border border-[#374151] text-ats-text-muted font-mono">{s}</span>
+      {/* Platform Cards */}
+      <div className="space-y-3">
+        {PLATFORMS.map((platform) => {
+          const platformKey = platform.oauthPlatform || platform.key;
+          const connected = isAnyConnected(platformKey);
+          const oauthConnected = platform.oauthPlatform ? isOAuthConnected(platform.oauthPlatform) : false;
+          const oauth = platform.oauthPlatform ? oauthFor(platform.oauthPlatform) : undefined;
+          const isExpanded = expanded[platform.key] || false;
+          const hasManual = !!platform.manualFields;
+
+          return (
+            <div key={platform.key} className={`rounded-2xl border transition-all ${
+              connected ? 'bg-ats-card border-emerald-800/30' : 'bg-ats-card border-ats-border'
+            }`}>
+              {/* Card Header — always visible */}
+              <div className="p-4 sm:p-5">
+                <div className="flex items-center gap-3">
+                  <div className={`w-10 h-10 sm:w-11 sm:h-11 rounded-xl flex items-center justify-center text-base font-bold text-white shrink-0 ${platform.iconBg}`}>
+                    {platform.icon}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="text-sm font-bold text-ats-text">{platform.label}</h3>
+                      {statusBadge(platformKey)}
+                    </div>
+                    <p className="text-xs text-ats-text-muted mt-0.5 line-clamp-1">{platform.description}</p>
+                  </div>
+                </div>
+
+                {/* Actions row */}
+                <div className="mt-4 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                  {connected ? (
+                    <>
+                      <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+                        <span className="text-xs text-emerald-400 font-medium truncate">
+                          {oauthConnected ? 'Connected via OAuth' : 'Connected manually'}
+                        </span>
+                        {oauth?.tokenExpiresAt && (
+                          <span className="text-[10px] text-ats-text-muted font-mono hidden sm:inline">
+                            · expires {new Date(oauth.tokenExpiresAt).toLocaleDateString()}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex gap-2">
+                        {hasManual && (
+                          <button onClick={() => toggle(platform.key)} className={btnSecondary}>
+                            {isExpanded ? 'Hide' : 'Settings'}
+                          </button>
+                        )}
+                        {oauthConnected && platform.oauthPlatform && (
+                          <button onClick={() => handleDisconnect(platform.oauthPlatform!)}
+                            className="px-4 py-2 rounded-lg text-xs font-medium text-red-400 border border-red-900/40 hover:bg-red-900/20 active:scale-[0.98] transition-all">
+                            Disconnect
+                          </button>
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      {platform.oauthPlatform && (
+                        <OAuthConnectButton
+                          platform={platform.oauthPlatform}
+                          onSuccess={() => { loadOAuthStatus(); flash('Connected!', 'success'); }}
+                          onError={(msg) => flash(msg, 'error')}
+                          storeUrl={platform.key === 'shopify' ? shopifyStoreUrl : undefined}
+                          className="flex-1 sm:flex-none px-5 py-2.5 bg-ats-accent text-white rounded-xl text-sm font-semibold hover:bg-blue-600 active:scale-[0.98] transition-all disabled:opacity-60"
+                        />
+                      )}
+                      {hasManual && (
+                        <button onClick={() => toggle(platform.key)} className={`${btnSecondary} ${!platform.oauthPlatform ? 'flex-1 sm:flex-none bg-ats-accent text-white border-ats-accent hover:bg-blue-600' : ''}`}>
+                          {platform.oauthPlatform ? (isExpanded ? 'Hide manual' : 'Manual setup') : (isExpanded ? 'Hide' : 'Configure')}
+                        </button>
+                      )}
+                    </>
+                  )}
+                </div>
+
+                {/* Scopes (when OAuth connected) */}
+                {oauthConnected && oauth?.scopes && oauth.scopes.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-3">
+                    {oauth.scopes.map(s => (
+                      <span key={s} className="text-[9px] px-1.5 py-0.5 bg-white/5 rounded text-ats-text-muted font-mono">{s}</span>
                     ))}
                   </div>
                 )}
-                {oauthStatus?.tokenExpiresAt && (
-                  <p className="text-[11px] text-ats-text-muted">
-                    Token expires: {new Date(oauthStatus.tokenExpiresAt).toLocaleDateString()}
-                  </p>
-                )}
-                <button
-                  onClick={() => handleDisconnect(key)}
-                  className="px-3 py-1.5 text-xs text-ats-red border border-red-900/50 rounded hover:bg-red-900/20 transition-colors"
-                >
-                  Disconnect
-                </button>
               </div>
-            ) : (
-              <div className="space-y-3">
-                {/* Primary: OAuth button */}
-                <OAuthConnectButton
-                  platform={key}
-                  onSuccess={handleOAuthSuccess}
-                  onError={handleOAuthError}
-                  storeUrl={key === 'shopify' ? shopifyStoreUrl : undefined}
-                />
 
-                {/* Shopify needs store URL before OAuth */}
-                {key === 'shopify' && (
-                  <div>
-                    <label className={labelCls}>Store URL (required for OAuth)</label>
-                    <input type="text" value={shopifyStoreUrl} onChange={(e) => setShopifyStoreUrl(e.target.value)}
-                      placeholder="mystore.myshopify.com" className={inputCls} />
-                  </div>
-                )}
+              {/* Expanded Manual Config */}
+              {isExpanded && (
+                <div className="border-t border-ats-border px-4 sm:px-5 py-4 space-y-3 bg-ats-bg/50 rounded-b-2xl">
+                  {/* Shopify store URL (needed before OAuth) */}
+                  {platform.manualFields === 'shopify' && (
+                    <>
+                      <div>
+                        <label className={labelCls}>Store URL</label>
+                        <input type="text" value={shopifyStoreUrl} onChange={e => setShopifyStoreUrl(e.target.value)}
+                          placeholder="mystore.myshopify.com" className={inputCls} />
+                        <div className="text-[10px] text-ats-text-muted mt-1">Required for OAuth connect</div>
+                      </div>
+                      <div>
+                        <label className={labelCls}>Webhook Secret</label>
+                        <input type="password" value={shopifySecret} onChange={e => setShopifySecret(e.target.value)}
+                          placeholder={settings.shopify_webhook_secret || 'shpss_...'} className={inputCls} />
+                      </div>
+                      <div>
+                        <label className={labelCls}>Webhook URL</label>
+                        <div className="flex gap-2">
+                          <input readOnly value={`${webhookBaseUrl}/api/webhooks/shopify`} className={`${inputCls} text-ats-text-muted flex-1`} />
+                          <button onClick={() => copy(`${webhookBaseUrl}/api/webhooks/shopify`)} className={btnSecondary}>Copy</button>
+                        </div>
+                      </div>
+                    </>
+                  )}
 
-                {/* Manual fallback toggle */}
-                {(key === 'meta' || key === 'google' || key === 'shopify') && (
-                  <button
-                    onClick={() => setExpandedManual(prev => ({ ...prev, [key]: !prev[key] }))}
-                    className="text-[11px] text-ats-text-muted hover:text-ats-text transition-colors"
-                  >
-                    {showManual ? 'Hide manual setup' : 'Or connect manually'}
-                  </button>
-                )}
+                  {/* Meta manual */}
+                  {platform.manualFields === 'meta' && (
+                    <>
+                      <div>
+                        <label className={labelCls}>Access Token</label>
+                        <input type="password" value={fbToken} onChange={e => setFbToken(e.target.value)}
+                          placeholder={settings.fb_access_token || 'EAAxxxxxxxx...'} className={inputCls} />
+                      </div>
+                      <div>
+                        <label className={labelCls}>Ad Account IDs</label>
+                        <input type="text" value={fbAccountIds} onChange={e => setFbAccountIds(e.target.value)}
+                          placeholder="act_123456789, act_987654321" className={inputCls} />
+                        <div className="text-[10px] text-ats-text-muted mt-1">Comma-separated, include act_ prefix</div>
+                      </div>
+                      <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+                        <button onClick={handleTestFB} className={btnSecondary}>
+                          {fbTestStatus === 'testing' ? 'Testing...' : 'Test Connection'}
+                        </button>
+                        {fbTestMessage && <span className={`text-xs ${fbTestStatus === 'success' ? 'text-emerald-400' : 'text-red-400'}`}>{fbTestMessage}</span>}
+                      </div>
+                    </>
+                  )}
 
-                {/* Manual fields (collapsed by default) */}
-                {showManual && key === 'meta' && (
-                  <div className="space-y-3 pt-2 border-t border-[#374151]">
-                    <div>
-                      <label className={labelCls}>Access Token</label>
-                      <input type="password" value={fbToken} onChange={(e) => setFbToken(e.target.value)}
-                        placeholder={settings.fb_access_token || 'Enter Meta access token'} className={inputCls} />
-                    </div>
-                    <div>
-                      <label className={labelCls}>Ad Account IDs</label>
-                      <input type="text" value={fbAccountIds} onChange={(e) => setFbAccountIds(e.target.value)}
-                        placeholder="act_123456789,act_987654321" className={inputCls} />
-                      <div className="text-[11px] text-[#4b5563] mt-1">Comma-separated (include act_ prefix)</div>
-                    </div>
-                    <div className="flex gap-2 items-center">
-                      <button onClick={handleTestFB} className="px-4 py-2 bg-ats-border border border-[#374151] rounded-md text-ats-text-muted text-sm hover:bg-ats-hover transition-colors">
-                        {fbTestStatus === 'testing' ? 'Testing...' : 'Test Connection'}
-                      </button>
-                      {fbTestMessage && (
-                        <span className={`text-xs ${fbTestStatus === 'success' ? 'text-ats-green' : 'text-ats-red'}`}>{fbTestMessage}</span>
-                      )}
-                    </div>
-                  </div>
-                )}
-                {showManual && key === 'shopify' && (
-                  <div className="space-y-3 pt-2 border-t border-[#374151]">
-                    <div>
-                      <label className={labelCls}>Webhook Secret</label>
-                      <input type="password" value={shopifySecret} onChange={(e) => setShopifySecret(e.target.value)}
-                        placeholder={settings.shopify_webhook_secret || 'Enter Shopify webhook secret'} className={inputCls} />
-                    </div>
-                    <div>
-                      <label className={labelCls}>Webhook URL</label>
-                      <div className="flex gap-2">
-                        <input type="text" readOnly value={`${webhookBaseUrl}/api/webhooks/shopify`}
-                          className={`${inputCls} text-ats-text-muted flex-1`} />
-                        <button onClick={() => copyToClipboard(`${webhookBaseUrl}/api/webhooks/shopify`)}
-                          className="px-4 py-2 bg-ats-border border border-[#374151] rounded-md text-ats-text-muted text-sm whitespace-nowrap hover:bg-ats-hover transition-colors">
-                          Copy
+                  {/* Google manual */}
+                  {platform.manualFields === 'google' && (
+                    <>
+                      <div>
+                        <label className={labelCls}>GA4 Property ID</label>
+                        <input type="text" value={ga4PropertyId} onChange={e => setGa4PropertyId(e.target.value)}
+                          placeholder="properties/123456789" className={inputCls} />
+                      </div>
+                      <div>
+                        <label className={labelCls}>Service Account JSON</label>
+                        <textarea rows={3} value={ga4CredentialsJson} onChange={e => setGa4CredentialsJson(e.target.value)}
+                          placeholder='{"type":"service_account","project_id":"..."}' className={`${inputCls} resize-none`} />
+                      </div>
+                    </>
+                  )}
+
+                  {/* CheckoutChamp manual */}
+                  {platform.manualFields === 'checkoutchamp' && (
+                    <>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className={labelCls}>API Key</label>
+                          <input type="password" value={ccApiKey} onChange={e => setCcApiKey(e.target.value)}
+                            placeholder={settings.cc_api_key || 'Enter API key'} className={inputCls} />
+                        </div>
+                        <div>
+                          <label className={labelCls}>API Base URL</label>
+                          <input type="text" value={ccApiUrl} onChange={e => setCcApiUrl(e.target.value)}
+                            placeholder={settings.cc_api_url || 'https://api.checkoutchamp.com/v1'} className={inputCls} />
+                        </div>
+                      </div>
+                      <div>
+                        <label className={labelCls}>Webhook Secret</label>
+                        <input type="password" value={ccWebhookSecret} onChange={e => setCcWebhookSecret(e.target.value)}
+                          placeholder={settings.cc_webhook_secret || 'whsec_...'} className={inputCls} />
+                      </div>
+                      <div>
+                        <label className={labelCls}>Webhook URL</label>
+                        <div className="flex gap-2">
+                          <input readOnly value={`${webhookBaseUrl}/api/webhooks/checkout-champ`} className={`${inputCls} text-ats-text-muted flex-1`} />
+                          <button onClick={() => copy(`${webhookBaseUrl}/api/webhooks/checkout-champ`)} className={btnSecondary}>Copy</button>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <label className={`${labelCls} mb-0`}>API Polling</label>
+                        <button onClick={() => setCcPollEnabled(!ccPollEnabled)}
+                          className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${ccPollEnabled ? 'bg-emerald-500/15 text-emerald-400' : 'bg-white/5 text-ats-text-muted'}`}>
+                          {ccPollEnabled ? 'Enabled' : 'Disabled'}
                         </button>
                       </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        );
-      })}
+                      <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+                        <button onClick={handleTestCC} className={btnSecondary}>
+                          {ccTestStatus === 'testing' ? 'Testing...' : 'Test Connection'}
+                        </button>
+                        {ccTestMessage && <span className={`text-xs ${ccTestStatus === 'success' ? 'text-emerald-400' : 'text-red-400'}`}>{ccTestMessage}</span>}
+                      </div>
+                    </>
+                  )}
 
-      {/* CheckoutChamp (manual only) */}
-      <div className="bg-ats-surface border border-ats-border rounded-lg p-4 mb-4">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <span className="text-lg">🔵</span>
-            <h3 className="text-sm font-bold text-ats-text">CheckoutChamp</h3>
-          </div>
-          <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono ${
-            ccTestStatus === 'success' ? 'bg-emerald-900/50 text-emerald-300' : 'bg-gray-800 text-gray-400'
-          }`}>
-            {ccTestStatus === 'success' ? 'Connected' : 'Manual'}
-          </span>
-        </div>
-        <div className="space-y-3">
-          <div>
-            <label className={labelCls}>API Key</label>
-            <input type="password" value={ccApiKey} onChange={(e) => setCcApiKey(e.target.value)}
-              placeholder={settings.cc_api_key || 'Enter CC API key'} className={inputCls} />
-          </div>
-          <div>
-            <label className={labelCls}>API Base URL</label>
-            <input type="text" value={ccApiUrl} onChange={(e) => setCcApiUrl(e.target.value)}
-              placeholder={settings.cc_api_url || 'https://api.checkoutchamp.com/v1'} className={inputCls} />
-          </div>
-          <div>
-            <label className={labelCls}>Webhook Secret</label>
-            <input type="password" value={ccWebhookSecret} onChange={(e) => setCcWebhookSecret(e.target.value)}
-              placeholder={settings.cc_webhook_secret || 'Enter webhook secret'} className={inputCls} />
-          </div>
-          <div>
-            <label className={labelCls}>Webhook URL</label>
-            <div className="flex gap-2">
-              <input type="text" readOnly value={`${webhookBaseUrl}/api/webhooks/checkout-champ`}
-                className={`${inputCls} text-ats-text-muted flex-1`} />
-              <button onClick={() => copyToClipboard(`${webhookBaseUrl}/api/webhooks/checkout-champ`)}
-                className="px-4 py-2 bg-ats-border border border-[#374151] rounded-md text-ats-text-muted text-sm whitespace-nowrap hover:bg-ats-hover transition-colors">
-                Copy
-              </button>
+                  {/* Per-section save */}
+                  <button onClick={handleSave} disabled={saving}
+                    className="w-full py-2.5 bg-ats-accent text-white rounded-xl text-sm font-semibold hover:bg-blue-600 active:scale-[0.98] transition-all disabled:opacity-60">
+                    {saving ? 'Saving...' : 'Save Changes'}
+                  </button>
+                </div>
+              )}
             </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <label className={`${labelCls} mb-0`}>API Polling</label>
-            <button onClick={() => setCcPollEnabled(!ccPollEnabled)}
-              className={`px-3 py-1 rounded-full text-xs ${ccPollEnabled ? 'bg-emerald-900/50 text-emerald-300' : 'bg-[#374151] text-ats-text-muted'}`}>
-              {ccPollEnabled ? 'Enabled' : 'Disabled'}
-            </button>
-          </div>
-          <div className="flex gap-2 items-center">
-            <button onClick={handleTestCC} className="px-4 py-2 bg-ats-border border border-[#374151] rounded-md text-ats-text-muted text-sm hover:bg-ats-hover transition-colors">
-              {ccTestStatus === 'testing' ? 'Testing...' : 'Test Connection'}
-            </button>
-            {ccTestMessage && (
-              <span className={`text-xs ${ccTestStatus === 'success' ? 'text-ats-green' : 'text-ats-red'}`}>{ccTestMessage}</span>
-            )}
-          </div>
-        </div>
+          );
+        })}
       </div>
 
-      {/* Webhook Tokens */}
-      <div className="bg-ats-surface border border-ats-border rounded-lg p-4 mb-6">
-        <h3 className="text-sm font-bold text-ats-text mb-1">Webhook Tokens</h3>
-        <p className="text-xs text-ats-text-muted mb-4">
-          Generate user-scoped webhook tokens. Orders received via token-based URLs are automatically associated with your account.
-        </p>
+      {/* Webhook Tokens — collapsible */}
+      <div className="mt-6">
+        <button onClick={() => setShowTokenSection(!showTokenSection)}
+          className="flex items-center gap-2 text-sm font-semibold text-ats-text mb-3 hover:text-ats-accent transition-colors">
+          <span className={`transition-transform ${showTokenSection ? 'rotate-90' : ''}`}>&#9654;</span>
+          Webhook Tokens
+          {tokens.length > 0 && <span className="text-[10px] px-2 py-0.5 bg-white/5 rounded-full text-ats-text-muted font-mono">{tokens.length}</span>}
+        </button>
 
-        <div className="flex gap-2 mb-4 flex-wrap">
-          <select value={newTokenSource} onChange={(e) => setNewTokenSource(e.target.value)}
-            className={`${inputCls} w-auto`}>
-            <option value="checkout_champ">CheckoutChamp</option>
-            <option value="shopify">Shopify</option>
-          </select>
-          <input type="text" value={newTokenLabel} onChange={(e) => setNewTokenLabel(e.target.value)}
-            placeholder="Label (optional)" className={`${inputCls} flex-1 min-w-[150px]`} />
-          <button onClick={handleCreateToken} disabled={creatingToken}
-            className="px-4 py-2 bg-ats-accent text-white rounded-md text-sm font-semibold hover:bg-blue-600 transition-colors disabled:opacity-60 whitespace-nowrap">
-            {creatingToken ? 'Creating...' : 'Generate Token'}
-          </button>
-        </div>
+        {showTokenSection && (
+          <div className="bg-ats-card rounded-2xl border border-ats-border p-4 sm:p-5">
+            <p className="text-xs text-ats-text-muted mb-4">
+              Generate user-scoped webhook tokens. Orders received via token-based URLs are automatically associated with your account.
+            </p>
 
-        {tokens.length === 0 ? (
-          <div className="text-xs text-ats-text-muted text-center py-4">No webhook tokens yet</div>
-        ) : (
-          <div className="space-y-2">
-            {tokens.map((t) => {
-              const sourceRoute = t.source === 'shopify' ? 'shopify' : 'checkout-champ';
-              const webhookUrl = `${webhookBaseUrl}/api/webhooks/${sourceRoute}/${t.token}`;
-              return (
-                <div key={t.id}
-                  className={`p-3 rounded-lg border ${t.active ? 'border-ats-border bg-ats-bg' : 'border-[#374151] bg-ats-bg/50 opacity-60'}`}>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <div className="flex items-center gap-2">
-                      <span className={`inline-block w-2 h-2 rounded-full ${t.active ? 'bg-ats-green' : 'bg-ats-red'}`} />
-                      <span className="text-xs font-semibold text-ats-text uppercase">{t.source}</span>
-                      {t.label && <span className="text-xs text-ats-text-muted">- {t.label}</span>}
+            <div className="flex flex-col sm:flex-row gap-2 mb-4">
+              <select value={newTokenSource} onChange={e => setNewTokenSource(e.target.value)}
+                className={`${inputCls} sm:w-auto`}>
+                <option value="checkout_champ">CheckoutChamp</option>
+                <option value="shopify">Shopify</option>
+              </select>
+              <input type="text" value={newTokenLabel} onChange={e => setNewTokenLabel(e.target.value)}
+                placeholder="Label (optional)" className={`${inputCls} flex-1`} />
+              <button onClick={handleCreateToken} disabled={creatingToken}
+                className="px-5 py-2.5 bg-ats-accent text-white rounded-xl text-sm font-semibold hover:bg-blue-600 active:scale-[0.98] transition-all disabled:opacity-60 whitespace-nowrap">
+                {creatingToken ? 'Creating...' : 'Generate'}
+              </button>
+            </div>
+
+            {tokens.length === 0 ? (
+              <div className="text-xs text-ats-text-muted text-center py-6 bg-ats-bg/50 rounded-xl">No tokens yet</div>
+            ) : (
+              <div className="space-y-2">
+                {tokens.map(t => {
+                  const route = t.source === 'shopify' ? 'shopify' : 'checkout-champ';
+                  const url = `${webhookBaseUrl}/api/webhooks/${route}/${t.token}`;
+                  return (
+                    <div key={t.id} className={`p-3 rounded-xl border ${t.active ? 'border-ats-border bg-ats-bg/50' : 'border-ats-border/50 opacity-50'}`}>
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <span className={`w-2 h-2 rounded-full ${t.active ? 'bg-emerald-500' : 'bg-red-500'}`} />
+                          <span className="text-xs font-semibold text-ats-text uppercase">{t.source.replace('_', ' ')}</span>
+                          {t.label && <span className="text-xs text-ats-text-muted">· {t.label}</span>}
+                        </div>
+                        {t.active && (
+                          <button onClick={() => handleRevokeToken(t.id)} className="text-[10px] text-red-400 hover:text-red-300 transition-colors">Revoke</button>
+                        )}
+                      </div>
+                      {t.active && (
+                        <div className="flex gap-2">
+                          <input readOnly value={url} className="flex-1 px-2.5 py-1.5 bg-ats-bg border border-ats-border rounded-lg text-[11px] font-mono text-ats-text-muted outline-none" />
+                          <button onClick={() => copy(url)} className="px-3 py-1.5 bg-ats-surface border border-ats-border rounded-lg text-[11px] text-ats-text-muted hover:bg-ats-hover transition-colors">Copy</button>
+                        </div>
+                      )}
+                      <div className="text-[9px] text-ats-text-muted mt-1.5 font-mono">
+                        {t.last_used_at ? `Used ${new Date(t.last_used_at).toLocaleString()}` : 'Never used'} · Created {new Date(t.created_at).toLocaleDateString()}
+                      </div>
                     </div>
-                    {t.active && (
-                      <button onClick={() => handleRevokeToken(t.id)}
-                        className="text-xs text-ats-red hover:text-red-400 transition-colors">
-                        Revoke
-                      </button>
-                    )}
-                  </div>
-                  {t.active && (
-                    <div className="flex gap-2">
-                      <input type="text" readOnly value={webhookUrl}
-                        className="flex-1 px-2 py-1.5 bg-ats-bg border border-[#374151] rounded text-xs font-mono text-ats-text-muted outline-none" />
-                      <button onClick={() => copyToClipboard(webhookUrl)}
-                        className="px-3 py-1.5 bg-ats-border border border-[#374151] rounded text-xs text-ats-text-muted hover:bg-ats-hover transition-colors">
-                        Copy
-                      </button>
-                    </div>
-                  )}
-                  <div className="text-[10px] text-ats-text-muted mt-1">
-                    {t.last_used_at ? `Last used: ${new Date(t.last_used_at).toLocaleString()}` : 'Never used'}
-                    {' | '}Created: {new Date(t.created_at).toLocaleDateString()}
-                  </div>
-                </div>
-              );
-            })}
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
       </div>
-
-      <button onClick={handleSave} disabled={saving}
-        className="w-full py-3 bg-ats-accent text-white rounded-lg text-sm font-semibold hover:bg-blue-600 transition-colors disabled:opacity-60">
-        {saving ? 'Saving...' : 'Save Manual Settings'}
-      </button>
     </PageShell>
   );
 }
