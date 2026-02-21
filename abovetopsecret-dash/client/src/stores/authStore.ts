@@ -8,6 +8,7 @@ interface User {
   email: string;
   displayName: string;
   onboardingCompleted: boolean;
+  hasConnectedProvider: boolean;
 }
 
 interface AuthState {
@@ -99,7 +100,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       });
       if (res.ok) {
         const data = await res.json();
-        const user = { id: data.id, email: data.email, displayName: data.displayName, onboardingCompleted: data.onboardingCompleted ?? false };
+        const user = { id: data.id, email: data.email, displayName: data.displayName, onboardingCompleted: data.onboardingCompleted ?? false, hasConnectedProvider: data.hasConnectedProvider ?? false };
         localStorage.setItem(USER_KEY, JSON.stringify(user));
         set({ user });
       }
@@ -123,7 +124,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         return false;
       }
       const existing = get().user;
-      const user = { id: result.id, email: result.email, displayName: result.displayName, onboardingCompleted: existing?.onboardingCompleted ?? false };
+      const user = { id: result.id, email: result.email, displayName: result.displayName, onboardingCompleted: existing?.onboardingCompleted ?? false, hasConnectedProvider: existing?.hasConnectedProvider ?? false };
       localStorage.setItem(USER_KEY, JSON.stringify(user));
       set({ user, error: null });
       return true;
@@ -143,7 +144,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         });
         if (res.ok) {
           const data = await res.json();
-          const user = { id: data.id, email: data.email, displayName: data.displayName, onboardingCompleted: data.onboardingCompleted ?? false };
+          const user = { id: data.id, email: data.email, displayName: data.displayName, onboardingCompleted: data.onboardingCompleted ?? false, hasConnectedProvider: data.hasConnectedProvider ?? false };
           localStorage.setItem(USER_KEY, JSON.stringify(user));
           set({ user, isAuthenticated: true, checking: false });
           return;
@@ -193,7 +194,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   markOnboardingComplete: () => {
     const user = get().user;
     if (user) {
-      const updated = { ...user, onboardingCompleted: true };
+      const updated = { ...user, onboardingCompleted: true, hasConnectedProvider: true };
       localStorage.setItem(USER_KEY, JSON.stringify(updated));
       set({ user: updated });
     }

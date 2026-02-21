@@ -20,6 +20,14 @@ function signToken(payload: JWTPayload): string {
   return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
 }
 
+async function hasConnectedProvider(userId: number): Promise<boolean> {
+  const result = await pool.query(
+    `SELECT 1 FROM integration_configs WHERE user_id = $1 AND status = 'connected' LIMIT 1`,
+    [userId]
+  );
+  return result.rows.length > 0;
+}
+
 // POST /api/auth/register
 router.post('/register', async (req: Request, res: Response) => {
   try {
@@ -67,6 +75,7 @@ router.post('/register', async (req: Request, res: Response) => {
         email: user.email,
         displayName: user.display_name,
         onboardingCompleted: user.onboarding_completed ?? false,
+        hasConnectedProvider: false,
       },
     });
   } catch (err) {
@@ -107,6 +116,7 @@ router.post('/login', async (req: Request, res: Response) => {
     await pool.query('UPDATE users SET last_login_at = NOW() WHERE id = $1', [user.id]);
 
     const token = signToken({ userId: user.id, email: user.email });
+    const connected = await hasConnectedProvider(user.id);
 
     res.json({
       token,
@@ -115,6 +125,7 @@ router.post('/login', async (req: Request, res: Response) => {
         email: user.email,
         displayName: user.display_name,
         onboardingCompleted: user.onboarding_completed ?? false,
+        hasConnectedProvider: connected,
       },
     });
   } catch (err) {
@@ -152,11 +163,13 @@ router.get('/me', async (req: Request, res: Response) => {
     }
 
     const user = result.rows[0];
+    const connected = await hasConnectedProvider(user.id);
     res.json({
       id: user.id,
       email: user.email,
       displayName: user.display_name,
       onboardingCompleted: user.onboarding_completed ?? false,
+      hasConnectedProvider: connected,
       createdAt: user.created_at,
       lastLoginAt: user.last_login_at,
     });

@@ -9,7 +9,7 @@ router.get('/', async (req: Request, res: Response) => {
     const userId = req.user?.id;
     const result = await pool.query(
       `SELECT id, name, description, trigger_type, trigger_config, action_type, action_config,
-              enabled, last_triggered_at, created_at, updated_at
+              enabled, last_fired_at, created_at, updated_at
        FROM automation_rules
        WHERE user_id = $1
        ORDER BY created_at DESC`,
@@ -144,10 +144,10 @@ router.get('/:id/logs', async (req: Request, res: Response) => {
     }
 
     const result = await pool.query(
-      `SELECT id, status, trigger_data, action_result, error_message, executed_at
+      `SELECT id, status, trigger_data, action_result, error_message, triggered_at
        FROM rule_execution_log
        WHERE rule_id = $1
-       ORDER BY executed_at DESC
+       ORDER BY triggered_at DESC
        LIMIT 100`,
       [id]
     );

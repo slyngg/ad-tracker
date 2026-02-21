@@ -37,10 +37,10 @@ export default function OnboardingWizard() {
   const navigate = useNavigate();
   const user = useAuthStore(s => s.user);
 
-  // Already completed onboarding — redirect to dashboard
+  // Already completed onboarding with a provider connected — redirect to dashboard
   useEffect(() => {
-    if (user?.onboardingCompleted) navigate('/summary', { replace: true });
-  }, [user?.onboardingCompleted, navigate]);
+    if (user?.onboardingCompleted && user?.hasConnectedProvider) navigate('/summary', { replace: true });
+  }, [user?.onboardingCompleted, user?.hasConnectedProvider, navigate]);
 
   /* ── Phase: 'connect' | 'connected' | 'tour' ──── */
   const [phase, setPhase] = useState<'connect' | 'connected' | 'tour'>('connect');
@@ -67,7 +67,6 @@ export default function OnboardingWizard() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [hasAnyData, setHasAnyData] = useState(false);
-  const [demoLoading, setDemoLoading] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const webhookBase = typeof window !== 'undefined' ? `${window.location.origin}/api/webhooks` : 'https://your-domain.com/api/webhooks';
@@ -212,14 +211,6 @@ export default function OnboardingWizard() {
   };
 
   const startTour = () => { setTourIdx(0); setPhase('tour'); };
-
-  const enableDemo = async () => {
-    setDemoLoading(true);
-    try { await apiFetch('/onboarding/demo-mode', { method: 'POST', body: JSON.stringify({ enabled: true }) }); } catch {}
-    await apiFetch('/onboarding/complete', { method: 'POST' }).catch(() => {});
-    markComplete();
-    navigate('/summary');
-  };
 
   const copyUrl = (text: string) => { navigator.clipboard.writeText(text); setMessage({ type: 'success', text: 'Copied!' }); setTimeout(() => setMessage(null), 1500); };
 
@@ -416,11 +407,6 @@ export default function OnboardingWizard() {
           <button onClick={goLive} disabled={connectedCount === 0} className={`w-full py-4 rounded-xl text-sm font-bold transition-colors active:scale-[0.98] ${connectedCount > 0 ? 'bg-ats-accent text-white hover:bg-blue-600 shadow-lg shadow-ats-accent/20' : 'bg-ats-border text-ats-text-muted cursor-not-allowed'}`}>
             {connectedCount > 0 ? `Save & Go Live (${connectedCount} connected)` : 'Connect at least one platform to continue'}
           </button>
-          <div className="flex justify-center">
-            <button onClick={enableDemo} disabled={demoLoading} className="text-sm text-ats-text-muted hover:text-ats-accent transition-colors py-1">
-              {demoLoading ? 'Loading demo...' : 'Explore with demo data instead'}
-            </button>
-          </div>
         </div>
       </div>
     </div>

@@ -132,7 +132,8 @@ function NotFoundPage() {
 
 function OnboardingGate({ children }: { children: ReactNode }) {
   const user = useAuthStore(s => s.user);
-  if (user && !user.onboardingCompleted) {
+  // Force onboarding if no data provider is connected — even for existing users
+  if (user && (!user.onboardingCompleted || !user.hasConnectedProvider)) {
     return <Navigate to="/onboarding" replace />;
   }
   return <>{children}</>;

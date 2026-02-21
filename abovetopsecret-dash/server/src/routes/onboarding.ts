@@ -66,6 +66,17 @@ router.get('/status', async (req: Request, res: Response) => {
 router.post('/complete', async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
+
+    // Require at least one connected data provider
+    const providerCheck = await pool.query(
+      `SELECT 1 FROM integration_configs WHERE user_id = $1 AND status = 'connected' LIMIT 1`,
+      [userId]
+    );
+    if (providerCheck.rows.length === 0) {
+      res.status(400).json({ error: 'Connect at least one data provider before continuing' });
+      return;
+    }
+
     await pool.query(`INSERT INTO onboarding_progress (user_id, step, completed, completed_at, updated_at) VALUES ($1, 'complete', true, NOW(), NOW()) ON CONFLICT (user_id, step) DO UPDATE SET completed = true, completed_at = NOW(), updated_at = NOW()`, [userId]);
     await pool.query('UPDATE users SET onboarding_completed = true WHERE id = $1', [userId]);
     res.json({ success: true });
