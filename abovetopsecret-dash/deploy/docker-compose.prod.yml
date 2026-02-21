@@ -26,7 +26,8 @@ services:
       FB_AD_ACCOUNT_IDS: ${FB_AD_ACCOUNT_IDS:-}
       CC_WEBHOOK_SECRET: ${CC_WEBHOOK_SECRET:-}
       SHOPIFY_WEBHOOK_SECRET: ${SHOPIFY_WEBHOOK_SECRET:-}
-      ALLOWED_ORIGIN: ${ALLOWED_ORIGIN:-https://app.optic-data.com}
+      ALLOWED_ORIGIN: ${ALLOWED_ORIGIN:-https://optic-data.com}
+      DASHBOARD_URL: ${DASHBOARD_URL:-https://optic-data.com}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       CC_API_KEY: ${CC_API_KEY:-}
       CC_API_URL: ${CC_API_URL:-}
