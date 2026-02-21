@@ -112,12 +112,12 @@ export default function TourOverlay() {
       e.stopPropagation();
     };
 
-    // Capture both mouse and touch events
-    document.addEventListener('click', handler, true);
-    document.addEventListener('touchstart', handler, true);
+    // Capture both mouse and touch events (passive: false needed for preventDefault on mobile)
+    document.addEventListener('click', handler, { capture: true });
+    document.addEventListener('touchstart', handler, { capture: true, passive: false });
     return () => {
-      document.removeEventListener('click', handler, true);
-      document.removeEventListener('touchstart', handler, true);
+      document.removeEventListener('click', handler, { capture: true } as EventListenerOptions);
+      document.removeEventListener('touchstart', handler, { capture: true } as EventListenerOptions);
     };
   }, [active, step, next]);
 
@@ -159,21 +159,8 @@ export default function TourOverlay() {
               }
         }
       />
-      {/* Click-blocking layer — only when we have a real target */}
-      {targetRect && (
-        <div className="fixed inset-0 z-[10001]" style={{ pointerEvents: 'auto' }}>
-          <div
-            style={{
-              position: 'fixed',
-              top: targetRect.top - padding,
-              left: targetRect.left - padding,
-              width: targetRect.width + padding * 2,
-              height: targetRect.height + padding * 2,
-              pointerEvents: 'none',
-            }}
-          />
-        </div>
-      )}
+      {/* Click-blocking is handled by the JS capture handler above —
+         no CSS blocking div needed (it was intercepting taps on the target) */}
       {/* Tooltip — always shown so user can navigate/skip */}
       <div data-tour-tooltip>
         <TourTooltip targetRect={displayRect} />
