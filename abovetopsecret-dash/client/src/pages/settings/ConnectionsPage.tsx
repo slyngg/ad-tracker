@@ -29,12 +29,12 @@ interface PlatformDef {
 }
 
 const PLATFORMS: PlatformDef[] = [
-  { key: 'meta', label: 'Meta Ads', icon: 'f', iconBg: 'bg-blue-600', description: 'Facebook & Instagram ad campaigns, spend, ROAS, creative performance', oauthPlatform: 'meta', manualFields: 'meta' },
-  { key: 'google', label: 'Google Analytics', icon: 'G', iconBg: 'bg-red-600', description: 'GA4 traffic, conversions, funnel analysis, site search', oauthPlatform: 'google', manualFields: 'google' },
-  { key: 'shopify', label: 'Shopify', icon: 'S', iconBg: 'bg-green-600', description: 'Real-time orders, products, refund webhooks, revenue tracking', oauthPlatform: 'shopify', manualFields: 'shopify' },
-  { key: 'tiktok', label: 'TikTok Ads', icon: 'T', iconBg: 'bg-pink-600', description: 'Campaign performance, spend, and conversion metrics', oauthPlatform: 'tiktok' },
-  { key: 'klaviyo', label: 'Klaviyo', icon: 'K', iconBg: 'bg-purple-600', description: 'Email lists, profiles, campaign metrics, customer insights', oauthPlatform: 'klaviyo' },
-  { key: 'checkoutchamp', label: 'CheckoutChamp', icon: 'C', iconBg: 'bg-indigo-600', description: 'Order data, subscriptions, take rates, upsell performance', manualFields: 'checkoutchamp' },
+  { key: 'meta', label: 'Meta / Facebook Ads', icon: 'f', iconBg: 'bg-blue-600', description: 'Pull ad spend, ROAS, creative performance, and attribution data.', oauthPlatform: 'meta', manualFields: 'meta' },
+  { key: 'google', label: 'Google Analytics 4', icon: 'G', iconBg: 'bg-red-600', description: 'Connect for traffic analytics, funnel analysis, and conversion data.', oauthPlatform: 'google', manualFields: 'google' },
+  { key: 'shopify', label: 'Shopify', icon: 'S', iconBg: 'bg-green-600', description: 'Connect for order data, product insights, and webhook-based real-time updates.', oauthPlatform: 'shopify', manualFields: 'shopify' },
+  { key: 'tiktok', label: 'TikTok Ads', icon: 'T', iconBg: 'bg-pink-600', description: 'Connect for campaign performance and spend data.', oauthPlatform: 'tiktok' },
+  { key: 'klaviyo', label: 'Klaviyo', icon: 'K', iconBg: 'bg-purple-600', description: 'Connect for email list metrics, campaign performance, and customer profiles.', oauthPlatform: 'klaviyo' },
+  { key: 'checkoutchamp', label: 'CheckoutChamp', icon: 'C', iconBg: 'bg-indigo-600', description: 'Add the webhook URL as a postback in your CC campaign settings, or enter API credentials for polling.', manualFields: 'checkoutchamp' },
 ];
 
 export default function ConnectionsPage() {
@@ -172,58 +172,53 @@ export default function ConnectionsPage() {
   };
 
   // Styles
-  const inputCls = 'w-full px-3 py-2.5 bg-ats-bg border border-ats-border rounded-lg text-ats-text text-sm font-mono outline-none focus:border-ats-accent focus:ring-1 focus:ring-ats-accent/30 transition-all';
-  const labelCls = 'text-[10px] text-ats-text-muted block mb-1.5 uppercase tracking-widest font-mono';
-  const btnSecondary = 'px-4 py-2 bg-ats-surface border border-ats-border rounded-lg text-xs text-ats-text font-medium hover:bg-ats-hover active:scale-[0.98] transition-all';
+  const inputCls = 'w-full px-3 py-2 bg-ats-bg border border-ats-border rounded-lg text-ats-text text-xs font-mono outline-none focus:border-ats-accent focus:ring-1 focus:ring-ats-accent/30 transition-all';
+  const labelCls = 'text-[10px] text-ats-text-muted block mb-1 uppercase tracking-widest font-mono';
+  const btnSecondary = 'px-3 py-1.5 bg-ats-surface border border-ats-border rounded-lg text-xs text-ats-text font-medium hover:bg-ats-hover active:scale-[0.98] transition-all';
 
-  const statusBadge = (platform: string) => {
+  const statusDot = (platform: string) => {
     const connected = isAnyConnected(platform);
     const oauth = oauthFor(platform);
-    if (connected) {
-      if (oauth?.tokenExpiresAt) {
-        const days = Math.ceil((new Date(oauth.tokenExpiresAt).getTime() - Date.now()) / 86400000);
-        if (days <= 7) return <span className="text-[10px] px-2.5 py-1 rounded-full bg-amber-500/15 text-amber-400 font-medium">Expiring {days}d</span>;
-      }
-      return <span className="text-[10px] px-2.5 py-1 rounded-full bg-emerald-500/15 text-emerald-400 font-medium">Connected</span>;
+    if (connected && oauth?.tokenExpiresAt) {
+      const days = Math.ceil((new Date(oauth.tokenExpiresAt).getTime() - Date.now()) / 86400000);
+      if (days <= 7) return <span className="text-[10px] text-amber-400 whitespace-nowrap">Expiring {days}d</span>;
     }
-    return <span className="text-[10px] px-2.5 py-1 rounded-full bg-white/5 text-ats-text-muted font-medium">Not connected</span>;
+    return (
+      <span className="flex items-center gap-1">
+        <span className={`w-1.5 h-1.5 rounded-full ${connected ? 'bg-emerald-500' : 'bg-gray-600'}`} />
+        <span className={`text-[10px] ${connected ? 'text-emerald-400' : 'text-ats-text-muted'}`}>
+          {connected ? 'Connected' : 'Not connected'}
+        </span>
+      </span>
+    );
   };
 
   return (
-    <PageShell title="Connections" subtitle="Manage integrations and data sources">
+    <PageShell title="Connections" subtitle="Connect your platforms to start syncing data.">
       {/* Toast */}
       {message && (
-        <div className={`fixed top-4 right-4 z-50 px-4 py-3 rounded-xl text-sm font-medium shadow-2xl backdrop-blur-sm animate-in slide-in-from-right ${
+        <div className={`fixed top-4 right-4 z-50 px-4 py-2.5 rounded-xl text-xs font-medium shadow-2xl backdrop-blur-sm ${
           message.type === 'success' ? 'bg-emerald-500/90 text-white' : 'bg-red-500/90 text-white'
         }`}>
           {message.text}
         </div>
       )}
 
-      {/* Summary */}
-      <div data-tour="connection-summary" className="bg-gradient-to-r from-ats-card to-ats-surface rounded-2xl border border-ats-border p-4 sm:p-5 mb-6">
-        <div className="flex items-center justify-between mb-3">
-          <div>
-            <div className="text-lg font-bold text-ats-text">{connectedCount} of {PLATFORMS.length}</div>
-            <div className="text-xs text-ats-text-muted">integrations active</div>
-          </div>
-          <div className="flex -space-x-1">
-            {PLATFORMS.map(p => (
-              <div key={p.key} className={`w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold text-white border-2 border-ats-card ${
-                isAnyConnected(p.oauthPlatform || p.key) ? p.iconBg : 'bg-gray-700'
-              }`}>
-                {p.icon}
-              </div>
-            ))}
-          </div>
+      {/* Summary strip */}
+      <div data-tour="connection-summary" className="bg-ats-card rounded-xl border border-ats-border px-3 py-3 mb-4">
+        <div className="flex items-center gap-3 flex-wrap text-xs text-ats-text-muted">
+          {PLATFORMS.map(p => (
+            <span key={p.key} className="flex items-center gap-1">
+              <span className={`w-1.5 h-1.5 rounded-full ${isAnyConnected(p.oauthPlatform || p.key) ? 'bg-emerald-500' : 'bg-gray-600'}`} />
+              {p.key === 'checkoutchamp' ? 'CC' : p.key.charAt(0).toUpperCase() + p.key.slice(1)}
+            </span>
+          ))}
         </div>
-        <div className="h-1.5 bg-ats-border rounded-full overflow-hidden">
-          <div className="h-full bg-gradient-to-r from-ats-accent to-emerald-500 rounded-full transition-all duration-700" style={{ width: `${(connectedCount / PLATFORMS.length) * 100}%` }} />
-        </div>
+        <div className="text-[11px] text-ats-text-muted mt-1.5">{connectedCount}/{PLATFORMS.length} connected</div>
       </div>
 
       {/* Platform Cards */}
-      <div className="space-y-3">
+      <div className="space-y-2">
         {PLATFORMS.map((platform, platformIdx) => {
           const platformKey = platform.oauthPlatform || platform.key;
           const connected = isAnyConnected(platformKey);
@@ -233,52 +228,54 @@ export default function ConnectionsPage() {
           const hasManual = !!platform.manualFields;
 
           return (
-            <div key={platform.key} data-tour={platformIdx === 0 ? 'platform-card-first' : undefined} className={`rounded-2xl border transition-all ${
+            <div key={platform.key} data-tour={platformIdx === 0 ? 'platform-card-first' : undefined} className={`rounded-xl border transition-all ${
               connected ? 'bg-ats-card border-emerald-800/30' : 'bg-ats-card border-ats-border'
             }`}>
-              {/* Card Header — always visible */}
-              <div className="p-4 sm:p-5">
-                <div className="flex items-center gap-3">
-                  <div className={`w-10 h-10 sm:w-11 sm:h-11 rounded-xl flex items-center justify-center text-base font-bold text-white shrink-0 ${platform.iconBg}`}>
-                    {platform.icon}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <h3 className="text-sm font-bold text-ats-text">{platform.label}</h3>
-                      {statusBadge(platformKey)}
+              {/* Header */}
+              <div className="px-3 py-3 sm:px-4 sm:py-4">
+                {/* Title row */}
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold text-white shrink-0 ${platform.iconBg}`}>
+                      {platform.icon}
                     </div>
-                    <p className="text-xs text-ats-text-muted mt-0.5 line-clamp-1">{platform.description}</p>
+                    <h3 className="text-sm font-bold text-ats-text truncate">{platform.label}</h3>
                   </div>
+                  {statusDot(platformKey)}
                 </div>
 
-                {/* Actions row */}
-                <div className="mt-4 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                {/* Description */}
+                <p className="text-[11px] text-ats-text-muted mt-1.5 leading-relaxed">{platform.description}</p>
+
+                {/* Shopify store URL — inline when not connected (needed before OAuth) */}
+                {platform.key === 'shopify' && !connected && (
+                  <div className="mt-2.5">
+                    <label className={labelCls}>Store URL (required)</label>
+                    <input type="text" value={shopifyStoreUrl} onChange={e => setShopifyStoreUrl(e.target.value)}
+                      placeholder="mystore.myshopify.com" className={inputCls} />
+                  </div>
+                )}
+
+                {/* Action buttons */}
+                <div className="mt-3 flex items-center gap-2 flex-wrap">
                   {connected ? (
                     <>
-                      <div className="flex items-center gap-1.5 flex-1 min-w-0">
-                        <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
-                        <span className="text-xs text-emerald-400 font-medium truncate">
-                          {oauthConnected ? 'Connected via OAuth' : 'Connected manually'}
+                      {hasManual && (
+                        <button onClick={() => toggle(platform.key)} className={btnSecondary}>
+                          {isExpanded ? 'Hide' : 'Settings'}
+                        </button>
+                      )}
+                      {oauthConnected && platform.oauthPlatform && (
+                        <button onClick={() => handleDisconnect(platform.oauthPlatform!)}
+                          className="px-3 py-1.5 rounded-lg text-xs font-medium text-red-400 border border-red-900/40 hover:bg-red-900/20 active:scale-[0.98] transition-all">
+                          Disconnect
+                        </button>
+                      )}
+                      {oauth?.tokenExpiresAt && (
+                        <span className="text-[10px] text-ats-text-muted font-mono ml-auto">
+                          expires {new Date(oauth.tokenExpiresAt).toLocaleDateString()}
                         </span>
-                        {oauth?.tokenExpiresAt && (
-                          <span className="text-[10px] text-ats-text-muted font-mono hidden sm:inline">
-                            · expires {new Date(oauth.tokenExpiresAt).toLocaleDateString()}
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex gap-2">
-                        {hasManual && (
-                          <button onClick={() => toggle(platform.key)} className={btnSecondary}>
-                            {isExpanded ? 'Hide' : 'Settings'}
-                          </button>
-                        )}
-                        {oauthConnected && platform.oauthPlatform && (
-                          <button onClick={() => handleDisconnect(platform.oauthPlatform!)}
-                            className="px-4 py-2 rounded-lg text-xs font-medium text-red-400 border border-red-900/40 hover:bg-red-900/20 active:scale-[0.98] transition-all">
-                            Disconnect
-                          </button>
-                        )}
-                      </div>
+                      )}
                     </>
                   ) : (
                     <>
@@ -288,21 +285,21 @@ export default function ConnectionsPage() {
                           onSuccess={() => { loadOAuthStatus(); flash('Connected!', 'success'); useTourStore.getState().advanceEvent(); }}
                           onError={(msg) => flash(msg, 'error')}
                           storeUrl={platform.key === 'shopify' ? shopifyStoreUrl : undefined}
-                          className="flex-1 sm:flex-none px-5 py-2.5 bg-ats-accent text-white rounded-xl text-sm font-semibold hover:bg-blue-600 active:scale-[0.98] transition-all disabled:opacity-60"
+                          className="px-4 py-2 bg-ats-accent text-white rounded-lg text-xs font-semibold hover:bg-blue-600 active:scale-[0.98] transition-all disabled:opacity-60"
                         />
                       )}
                       {hasManual && (
-                        <button onClick={() => toggle(platform.key)} className={`${btnSecondary} ${!platform.oauthPlatform ? 'flex-1 sm:flex-none bg-ats-accent text-white border-ats-accent hover:bg-blue-600' : ''}`}>
-                          {platform.oauthPlatform ? (isExpanded ? 'Hide manual' : 'Manual setup') : (isExpanded ? 'Hide' : 'Configure')}
+                        <button onClick={() => toggle(platform.key)} className={`text-xs text-ats-text-muted hover:text-ats-text transition-colors ${!platform.oauthPlatform ? 'px-4 py-2 bg-ats-accent text-white rounded-lg font-semibold hover:bg-blue-600 hover:text-white' : ''}`}>
+                          {platform.oauthPlatform ? (isExpanded ? 'Hide' : 'Or enter manually') : (isExpanded ? 'Hide' : 'Configure')}
                         </button>
                       )}
                     </>
                   )}
                 </div>
 
-                {/* Scopes (when OAuth connected) */}
+                {/* Scopes */}
                 {oauthConnected && oauth?.scopes && oauth.scopes.length > 0 && (
-                  <div className="flex flex-wrap gap-1 mt-3">
+                  <div className="flex flex-wrap gap-1 mt-2">
                     {oauth.scopes.map(s => (
                       <span key={s} className="text-[9px] px-1.5 py-0.5 bg-white/5 rounded text-ats-text-muted font-mono">{s}</span>
                     ))}
@@ -312,16 +309,17 @@ export default function ConnectionsPage() {
 
               {/* Expanded Manual Config */}
               {isExpanded && (
-                <div className="border-t border-ats-border px-4 sm:px-5 py-4 space-y-3 bg-ats-bg/50 rounded-b-2xl">
-                  {/* Shopify store URL (needed before OAuth) */}
+                <div className="border-t border-ats-border px-3 sm:px-4 py-3 space-y-2.5 bg-ats-bg/50 rounded-b-xl">
+                  {/* Shopify */}
                   {platform.manualFields === 'shopify' && (
                     <>
-                      <div>
-                        <label className={labelCls}>Store URL</label>
-                        <input type="text" value={shopifyStoreUrl} onChange={e => setShopifyStoreUrl(e.target.value)}
-                          placeholder="mystore.myshopify.com" className={inputCls} />
-                        <div className="text-[10px] text-ats-text-muted mt-1">Required for OAuth connect</div>
-                      </div>
+                      {connected && (
+                        <div>
+                          <label className={labelCls}>Store URL</label>
+                          <input type="text" value={shopifyStoreUrl} onChange={e => setShopifyStoreUrl(e.target.value)}
+                            placeholder="mystore.myshopify.com" className={inputCls} />
+                        </div>
+                      )}
                       <div>
                         <label className={labelCls}>Webhook Secret</label>
                         <input type="password" value={shopifySecret} onChange={e => setShopifySecret(e.target.value)}
@@ -329,9 +327,9 @@ export default function ConnectionsPage() {
                       </div>
                       <div>
                         <label className={labelCls}>Webhook URL</label>
-                        <div className="flex gap-2">
-                          <input readOnly value={`${webhookBaseUrl}/api/webhooks/shopify`} className={`${inputCls} text-ats-text-muted flex-1`} />
-                          <button onClick={() => copy(`${webhookBaseUrl}/api/webhooks/shopify`)} className={btnSecondary}>Copy</button>
+                        <div className="flex gap-1.5">
+                          <input readOnly value={`${webhookBaseUrl}/api/webhooks/shopify`} className={`${inputCls} text-ats-text-muted flex-1 min-w-0`} />
+                          <button onClick={() => copy(`${webhookBaseUrl}/api/webhooks/shopify`)} className={`${btnSecondary} shrink-0`}>Copy</button>
                         </div>
                       </div>
                     </>
@@ -349,9 +347,9 @@ export default function ConnectionsPage() {
                         <label className={labelCls}>Ad Account IDs</label>
                         <input type="text" value={fbAccountIds} onChange={e => setFbAccountIds(e.target.value)}
                           placeholder="act_123456789, act_987654321" className={inputCls} />
-                        <div className="text-[10px] text-ats-text-muted mt-1">Comma-separated, include act_ prefix</div>
+                        <div className="text-[10px] text-ats-text-muted mt-0.5">Comma-separated, include act_ prefix</div>
                       </div>
-                      <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+                      <div className="flex items-center gap-2">
                         <button onClick={handleTestFB} className={btnSecondary}>
                           {fbTestStatus === 'testing' ? 'Testing...' : 'Test Connection'}
                         </button>
@@ -376,58 +374,43 @@ export default function ConnectionsPage() {
                     </>
                   )}
 
-                  {/* CheckoutChamp manual */}
+                  {/* CheckoutChamp */}
                   {platform.manualFields === 'checkoutchamp' && (
                     <>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <div>
-                          <label className={labelCls}>Login ID</label>
-                          <input type="text" value={ccLoginId} onChange={e => setCcLoginId(e.target.value)}
-                            placeholder={settings.cc_login_id || 'API user login ID'} className={inputCls} />
+                      <div>
+                        <label className={labelCls}>Webhook URL</label>
+                        <div className="flex gap-1.5">
+                          <input readOnly value={`${webhookBaseUrl}/api/webhooks/checkout-champ`} className={`${inputCls} text-ats-text-muted flex-1 min-w-0`} />
+                          <button onClick={() => copy(`${webhookBaseUrl}/api/webhooks/checkout-champ`)} className={`${btnSecondary} shrink-0`}>Copy</button>
                         </div>
-                        <div>
-                          <label className={labelCls}>Password</label>
-                          <input type="password" value={ccPassword} onChange={e => setCcPassword(e.target.value)}
-                            placeholder={settings.cc_password || 'API user password'} className={inputCls} />
-                        </div>
+                      </div>
+                      <div>
+                        <label className={labelCls}>API Key</label>
+                        <input type="password" value={ccLoginId} onChange={e => setCcLoginId(e.target.value)}
+                          placeholder={settings.cc_login_id || 'cc_api_...'} className={inputCls} />
                       </div>
                       <div>
                         <label className={labelCls}>API Base URL</label>
                         <input type="text" value={ccApiUrl} onChange={e => setCcApiUrl(e.target.value)}
-                          placeholder={settings.cc_api_url || 'https://api.checkoutchamp.com'} className={inputCls} />
-                        <div className="text-[10px] text-ats-text-muted mt-1">Default: https://api.checkoutchamp.com</div>
+                          placeholder={settings.cc_api_url || 'https://api.checkoutchamp.com/v1'} className={inputCls} />
                       </div>
                       <div>
                         <label className={labelCls}>Webhook Secret</label>
                         <input type="password" value={ccWebhookSecret} onChange={e => setCcWebhookSecret(e.target.value)}
                           placeholder={settings.cc_webhook_secret || 'whsec_...'} className={inputCls} />
                       </div>
-                      <div>
-                        <label className={labelCls}>Webhook URL</label>
-                        <div className="flex gap-2">
-                          <input readOnly value={`${webhookBaseUrl}/api/webhooks/checkout-champ`} className={`${inputCls} text-ats-text-muted flex-1`} />
-                          <button onClick={() => copy(`${webhookBaseUrl}/api/webhooks/checkout-champ`)} className={btnSecondary}>Copy</button>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <label className={`${labelCls} mb-0`}>API Polling</label>
-                        <button onClick={() => setCcPollEnabled(!ccPollEnabled)}
-                          className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${ccPollEnabled ? 'bg-emerald-500/15 text-emerald-400' : 'bg-white/5 text-ats-text-muted'}`}>
-                          {ccPollEnabled ? 'Enabled' : 'Disabled'}
-                        </button>
-                      </div>
-                      <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+                      <div className="flex items-center gap-2">
                         <button onClick={handleTestCC} className={btnSecondary}>
-                          {ccTestStatus === 'testing' ? 'Testing...' : 'Test Connection'}
+                          {ccTestStatus === 'testing' ? 'Testing...' : 'Test API Connection'}
                         </button>
                         {ccTestMessage && <span className={`text-xs ${ccTestStatus === 'success' ? 'text-emerald-400' : 'text-red-400'}`}>{ccTestMessage}</span>}
                       </div>
                     </>
                   )}
 
-                  {/* Per-section save */}
+                  {/* Save */}
                   <button onClick={handleSave} disabled={saving}
-                    className="w-full py-2.5 bg-ats-accent text-white rounded-xl text-sm font-semibold hover:bg-blue-600 active:scale-[0.98] transition-all disabled:opacity-60">
+                    className="w-full py-2 bg-ats-accent text-white rounded-lg text-xs font-semibold hover:bg-blue-600 active:scale-[0.98] transition-all disabled:opacity-60">
                     {saving ? 'Saving...' : 'Save Changes'}
                   </button>
                 </div>
@@ -438,21 +421,21 @@ export default function ConnectionsPage() {
       </div>
 
       {/* Webhook Tokens — collapsible */}
-      <div className="mt-6">
+      <div className="mt-4">
         <button onClick={() => setShowTokenSection(!showTokenSection)}
-          className="flex items-center gap-2 text-sm font-semibold text-ats-text mb-3 hover:text-ats-accent transition-colors">
-          <span className={`transition-transform ${showTokenSection ? 'rotate-90' : ''}`}>&#9654;</span>
+          className="flex items-center gap-2 text-xs font-semibold text-ats-text-muted mb-2 hover:text-ats-accent transition-colors">
+          <span className={`transition-transform text-[10px] ${showTokenSection ? 'rotate-90' : ''}`}>&#9654;</span>
           Webhook Tokens
-          {tokens.length > 0 && <span className="text-[10px] px-2 py-0.5 bg-white/5 rounded-full text-ats-text-muted font-mono">{tokens.length}</span>}
+          {tokens.length > 0 && <span className="text-[10px] px-1.5 py-0.5 bg-white/5 rounded-full text-ats-text-muted font-mono">{tokens.length}</span>}
         </button>
 
         {showTokenSection && (
-          <div className="bg-ats-card rounded-2xl border border-ats-border p-4 sm:p-5">
-            <p className="text-xs text-ats-text-muted mb-4">
+          <div className="bg-ats-card rounded-xl border border-ats-border p-3 sm:p-4">
+            <p className="text-[11px] text-ats-text-muted mb-3">
               Generate user-scoped webhook tokens. Orders received via token-based URLs are automatically associated with your account.
             </p>
 
-            <div className="flex flex-col sm:flex-row gap-2 mb-4">
+            <div className="flex flex-col sm:flex-row gap-2 mb-3">
               <select value={newTokenSource} onChange={e => setNewTokenSource(e.target.value)}
                 className={`${inputCls} sm:w-auto`}>
                 <option value="checkout_champ">CheckoutChamp</option>
@@ -461,37 +444,37 @@ export default function ConnectionsPage() {
               <input type="text" value={newTokenLabel} onChange={e => setNewTokenLabel(e.target.value)}
                 placeholder="Label (optional)" className={`${inputCls} flex-1`} />
               <button onClick={handleCreateToken} disabled={creatingToken}
-                className="px-5 py-2.5 bg-ats-accent text-white rounded-xl text-sm font-semibold hover:bg-blue-600 active:scale-[0.98] transition-all disabled:opacity-60 whitespace-nowrap">
+                className="px-4 py-2 bg-ats-accent text-white rounded-lg text-xs font-semibold hover:bg-blue-600 active:scale-[0.98] transition-all disabled:opacity-60 whitespace-nowrap">
                 {creatingToken ? 'Creating...' : 'Generate'}
               </button>
             </div>
 
             {tokens.length === 0 ? (
-              <div className="text-xs text-ats-text-muted text-center py-6 bg-ats-bg/50 rounded-xl">No tokens yet</div>
+              <div className="text-[11px] text-ats-text-muted text-center py-4 bg-ats-bg/50 rounded-lg">No tokens yet</div>
             ) : (
               <div className="space-y-2">
                 {tokens.map(t => {
                   const route = t.source === 'shopify' ? 'shopify' : 'checkout-champ';
                   const url = `${webhookBaseUrl}/api/webhooks/${route}/${t.token}`;
                   return (
-                    <div key={t.id} className={`p-3 rounded-xl border ${t.active ? 'border-ats-border bg-ats-bg/50' : 'border-ats-border/50 opacity-50'}`}>
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center gap-2">
-                          <span className={`w-2 h-2 rounded-full ${t.active ? 'bg-emerald-500' : 'bg-red-500'}`} />
-                          <span className="text-xs font-semibold text-ats-text uppercase">{t.source.replace('_', ' ')}</span>
-                          {t.label && <span className="text-xs text-ats-text-muted">· {t.label}</span>}
+                    <div key={t.id} className={`p-2.5 rounded-lg border ${t.active ? 'border-ats-border bg-ats-bg/50' : 'border-ats-border/50 opacity-50'}`}>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <div className="flex items-center gap-1.5">
+                          <span className={`w-1.5 h-1.5 rounded-full ${t.active ? 'bg-emerald-500' : 'bg-red-500'}`} />
+                          <span className="text-[11px] font-semibold text-ats-text uppercase">{t.source.replace('_', ' ')}</span>
+                          {t.label && <span className="text-[11px] text-ats-text-muted">· {t.label}</span>}
                         </div>
                         {t.active && (
                           <button onClick={() => handleRevokeToken(t.id)} className="text-[10px] text-red-400 hover:text-red-300 transition-colors">Revoke</button>
                         )}
                       </div>
                       {t.active && (
-                        <div className="flex gap-2">
-                          <input readOnly value={url} className="flex-1 px-2.5 py-1.5 bg-ats-bg border border-ats-border rounded-lg text-[11px] font-mono text-ats-text-muted outline-none" />
-                          <button onClick={() => copy(url)} className="px-3 py-1.5 bg-ats-surface border border-ats-border rounded-lg text-[11px] text-ats-text-muted hover:bg-ats-hover transition-colors">Copy</button>
+                        <div className="flex gap-1.5">
+                          <input readOnly value={url} className="flex-1 min-w-0 px-2 py-1 bg-ats-bg border border-ats-border rounded text-[10px] font-mono text-ats-text-muted outline-none" />
+                          <button onClick={() => copy(url)} className="px-2.5 py-1 bg-ats-surface border border-ats-border rounded text-[10px] text-ats-text-muted hover:bg-ats-hover transition-colors shrink-0">Copy</button>
                         </div>
                       )}
-                      <div className="text-[9px] text-ats-text-muted mt-1.5 font-mono">
+                      <div className="text-[9px] text-ats-text-muted mt-1 font-mono">
                         {t.last_used_at ? `Used ${new Date(t.last_used_at).toLocaleString()}` : 'Never used'} · Created {new Date(t.created_at).toLocaleDateString()}
                       </div>
                     </div>
