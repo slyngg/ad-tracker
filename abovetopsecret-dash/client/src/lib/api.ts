@@ -275,6 +275,37 @@ export interface PnLData {
   margin: number;
 }
 
+// --- OAuth types ---
+export interface OAuthStatus {
+  platform: string;
+  status: string;
+  connectionMethod: string;
+  tokenExpiresAt?: string;
+  scopes?: string[];
+  error?: string;
+  updatedAt?: string;
+}
+
+// --- OAuth API ---
+export function getOAuthAuthorizeUrl(platform: string, storeUrl?: string): Promise<{ authUrl: string }> {
+  const params = new URLSearchParams();
+  if (storeUrl) params.set('storeUrl', storeUrl);
+  const qs = params.toString();
+  return request<{ authUrl: string }>(`/oauth/${platform}/authorize${qs ? `?${qs}` : ''}`);
+}
+
+export function getOAuthStatus(): Promise<OAuthStatus[]> {
+  return request<OAuthStatus[]>('/oauth/status');
+}
+
+export function disconnectOAuth(platform: string): Promise<{ success: boolean }> {
+  return request<{ success: boolean }>(`/oauth/${platform}/disconnect`, { method: 'POST' });
+}
+
+export function refreshOAuthToken(platform: string): Promise<{ success: boolean; expiresAt?: string }> {
+  return request<{ success: boolean; expiresAt?: string }>(`/oauth/${platform}/refresh`, { method: 'POST' });
+}
+
 export function fetchMetrics(offer?: string, account?: string): Promise<MetricRow[]> {
   const params = new URLSearchParams();
   if (offer && offer !== 'All') params.set('offer', offer);

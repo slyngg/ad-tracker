@@ -30,6 +30,7 @@ import scheduledReportsRouter from './routes/scheduled-reports';
 import brandVaultRouter from './routes/brand-vault';
 import globalFiltersRouter from './routes/global-filters';
 import integrationsConfigRouter from './routes/integrations-config';
+import oauthRouter from './routes/oauth';
 import dataDeletionRouter from './routes/data-deletion';
 import dataDictionaryRouter from './routes/data-dictionary';
 import onboardingRouter from './routes/onboarding';
@@ -100,6 +101,9 @@ app.use('/api/auth', authRouter);
 
 // Webhooks use their own auth (signature verification), mount before general auth
 app.use('/api/webhooks', webhooksRouter);
+
+// OAuth routes handle auth per-endpoint (callback is public, others require JWT)
+app.use('/api/oauth', oauthRouter);
 
 // Public snapshot endpoint (no auth required — uses token-based access)
 app.get('/api/creatives/public/snapshot/:token', async (req, res) => {

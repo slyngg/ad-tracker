@@ -30,11 +30,15 @@ export default function SQLBuilderPage() {
       setSavedQueries(queries);
       // Schema endpoint returns either an array or an object keyed by table_name — normalize to array
       if (Array.isArray(schemaData)) {
-        setSchema(schemaData);
-      } else {
+        // Ensure each entry has a columns array
+        setSchema(schemaData.map((t: any) => ({
+          table_name: t.table_name,
+          columns: Array.isArray(t.columns) ? t.columns : [],
+        })));
+      } else if (schemaData && typeof schemaData === 'object') {
         const normalized: SchemaInfo[] = Object.entries(schemaData).map(([table_name, columns]) => ({
           table_name,
-          columns: columns as SchemaInfo['columns'],
+          columns: Array.isArray(columns) ? columns as SchemaInfo['columns'] : [],
         }));
         setSchema(normalized);
       }

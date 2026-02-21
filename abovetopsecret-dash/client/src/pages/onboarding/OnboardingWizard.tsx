@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getAuthToken } from '../../stores/authStore';
+import { getOAuthStatus, OAuthStatus } from '../../lib/api';
+import OAuthConnectButton from '../../components/shared/OAuthConnectButton';
 
 async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
   const token = getAuthToken();
@@ -15,6 +17,8 @@ interface IntegrationStatus {
   checkoutChamp: 'idle' | 'testing' | 'connected' | 'error';
   meta: 'idle' | 'testing' | 'connected' | 'error';
   google: 'idle' | 'testing' | 'connected' | 'error';
+  tiktok: 'idle' | 'testing' | 'connected' | 'error';
+  klaviyo: 'idle' | 'testing' | 'connected' | 'error';
 }
 
 /* ── Tour page definitions ───────────────────────── */
@@ -36,7 +40,8 @@ export default function OnboardingWizard() {
   const [phase, setPhase] = useState<'connect' | 'connected' | 'tour'>('connect');
   const [tourIdx, setTourIdx] = useState(0);
 
-  /* ── Connection fields ─────────────────────────── */
+  /* ── Connection fields (manual fallback) ────────── */
+  const [showManual, setShowManual] = useState<Record<string, boolean>>({});
   // Shopify
   const [shopifySecret, setShopifySecret] = useState('');
   const [shopifyStore, setShopifyStore] = useState('');
@@ -52,7 +57,7 @@ export default function OnboardingWizard() {
   const [ga4PropertyId, setGa4PropertyId] = useState('');
   const [ga4CredentialsJson, setGa4CredentialsJson] = useState('');
 
-  const [status, setStatus] = useState<IntegrationStatus>({ shopify: 'idle', checkoutChamp: 'idle', meta: 'idle', google: 'idle' });
+  const [status, setStatus] = useState<IntegrationStatus>({ shopify: 'idle', checkoutChamp: 'idle', meta: 'idle', google: 'idle', tiktok: 'idle', klaviyo: 'idle' });
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [hasAnyData, setHasAnyData] = useState(false);
@@ -60,6 +65,24 @@ export default function OnboardingWizard() {
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const webhookBase = typeof window !== 'undefined' ? `${window.location.origin}/api/webhooks` : 'https://your-domain.com/api/webhooks';
+
+  /* ── Load OAuth statuses ────────────────────────── */
+  const loadOAuthStatuses = useCallback(async () => {
+    try {
+      const statuses = await getOAuthStatus();
+      setStatus(prev => {
+        const next = { ...prev };
+        for (const s of statuses) {
+          const key = s.platform as keyof IntegrationStatus;
+          if (key in next && s.status === 'connected') {
+            next[key] = 'connected';
+          }
+        }
+        return next;
+      });
+      if (statuses.some(s => s.status === 'connected')) setHasAnyData(true);
+    } catch {}
+  }, []);
 
   /* ── Check existing connections on mount ────────── */
   useEffect(() => {
@@ -77,8 +100,9 @@ export default function OnboardingWizard() {
         }));
         if (wh.shopify || wh.checkoutChamp || fb.connected) setHasAnyData(true);
       } catch {}
+      loadOAuthStatuses();
     })();
-  }, []);
+  }, [loadOAuthStatuses]);
 
   /* ── Poll for webhook data while on connect screen */
   useEffect(() => {
@@ -93,6 +117,17 @@ export default function OnboardingWizard() {
     }, 5000);
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [phase]);
+
+  /* ── OAuth success handler ──────────────────────── */
+  const handleOAuthSuccess = (platform: keyof IntegrationStatus) => {
+    setStatus(prev => ({ ...prev, [platform]: 'connected' }));
+    setHasAnyData(true);
+    loadOAuthStatuses();
+  };
+
+  const handleOAuthError = (msg: string) => {
+    setMessage({ type: 'error', text: msg });
+  };
 
   /* ── Save all settings at once ─────────────────── */
   const saveAll = async () => {
@@ -126,7 +161,6 @@ export default function OnboardingWizard() {
     setStatus(prev => ({ ...prev, meta: 'testing' }));
     setFbTestMsg('');
     try {
-      // Save first so test endpoint can use it
       if (fbToken) await apiFetch('/settings', { method: 'POST', body: JSON.stringify({ fb_access_token: fbToken, ...(fbAccounts ? { fb_ad_account_ids: fbAccounts } : {}) }) });
       const r = await apiFetch<{ success: boolean; error?: string; account_name?: string }>('/settings/test/facebook', { method: 'POST' });
       if (r.success) { setStatus(prev => ({ ...prev, meta: 'connected' })); setFbTestMsg(r.account_name || 'Connected'); setHasAnyData(true); }
@@ -180,6 +214,7 @@ export default function OnboardingWizard() {
   const copyUrl = (text: string) => { navigator.clipboard.writeText(text); setMessage({ type: 'success', text: 'Copied!' }); setTimeout(() => setMessage(null), 1500); };
 
   const connectedCount = Object.values(status).filter(s => s === 'connected').length;
+  const totalPlatforms = Object.keys(status).length;
   const inputCls = 'w-full bg-ats-bg border border-ats-border rounded-lg px-4 py-3 text-sm text-ats-text font-mono focus:outline-none focus:border-ats-accent transition-colors';
   const labelCls = 'text-[10px] text-ats-text-muted uppercase tracking-widest font-mono mb-1 block';
   const statusDot = (s: IntegrationStatus[keyof IntegrationStatus]) =>
@@ -197,26 +232,85 @@ export default function OnboardingWizard() {
         <div className="text-center mb-6 sm:mb-8">
           <h1 className="text-2xl sm:text-3xl font-bold text-ats-text mb-2">Connect Your Data Sources</h1>
           <p className="text-xs sm:text-sm text-ats-text-muted max-w-md mx-auto">
-            Hook up your store and ad platforms so data starts flowing immediately. This is the only required step — everything else is optional.
+            Hook up your store and ad platforms so data starts flowing immediately. Click Connect for one-click setup, or enter credentials manually.
           </p>
         </div>
 
         {/* Connection status bar */}
         <div className="bg-ats-card border border-ats-border rounded-xl p-3 sm:p-4 mb-4 sm:mb-6 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-3 sm:gap-4 flex-wrap">
-            {(['shopify', 'checkoutChamp', 'meta', 'google'] as const).map(k => (
+            {(['meta', 'google', 'shopify', 'tiktok', 'klaviyo', 'checkoutChamp'] as const).map(k => (
               <div key={k} className="flex items-center gap-1.5">
                 <div className={`w-2 h-2 rounded-full ${statusDot(status[k])}`} />
                 <span className="text-xs text-ats-text-muted capitalize">{k === 'checkoutChamp' ? 'CC' : k}</span>
               </div>
             ))}
           </div>
-          <span className="text-xs font-mono text-ats-text-muted">{connectedCount}/4 connected</span>
+          <span className="text-xs font-mono text-ats-text-muted">{connectedCount}/{totalPlatforms} connected</span>
         </div>
 
         {message && <div className={`px-3 py-2 mb-4 rounded-lg text-sm ${message.type === 'success' ? 'bg-emerald-900/50 text-emerald-300' : 'bg-red-900/50 text-red-300'}`}>{message.text}</div>}
 
-        {/* ── Shopify ──────────────────────────────── */}
+        {/* ── Meta / Facebook Ads (OAuth primary) ───── */}
+        <div className="bg-ats-card border border-ats-border rounded-xl p-4 sm:p-5 mb-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <span className="text-lg">🔷</span>
+              <h3 className="text-sm font-bold text-ats-text">Meta / Facebook Ads</h3>
+            </div>
+            <div className="flex items-center gap-1.5"><div className={`w-2 h-2 rounded-full ${statusDot(status.meta)}`} /><span className="text-[10px] text-ats-text-muted font-mono">{statusLabel(status.meta)}</span></div>
+          </div>
+          <p className="text-xs text-ats-text-muted mb-3">Connect to pull ad spend, ROAS, creative performance, and attribution data.</p>
+          {status.meta !== 'connected' && (
+            <>
+              <OAuthConnectButton platform="meta" onSuccess={() => handleOAuthSuccess('meta')} onError={handleOAuthError} />
+              <button onClick={() => setShowManual(p => ({ ...p, meta: !p.meta }))} className="ml-3 text-[11px] text-ats-text-muted hover:text-ats-text transition-colors">
+                {showManual.meta ? 'Hide manual' : 'Or enter manually'}
+              </button>
+              {showManual.meta && (
+                <div className="space-y-3 mt-3 pt-3 border-t border-ats-border">
+                  <div><label className={labelCls}>Access Token</label><input type="password" value={fbToken} onChange={e => setFbToken(e.target.value)} placeholder="EAAxxxxxxxx..." className={inputCls} /></div>
+                  <div><label className={labelCls}>Ad Account IDs (comma-separated)</label><input value={fbAccounts} onChange={e => setFbAccounts(e.target.value)} placeholder="act_123456789, act_987654321" className={inputCls} /></div>
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-3">
+                    <button onClick={testMeta} disabled={!fbToken} className="w-full sm:w-auto px-4 py-2.5 sm:py-2 bg-ats-surface border border-ats-border rounded-lg text-xs text-ats-text font-semibold disabled:opacity-40 hover:bg-ats-hover transition-colors">Test Connection</button>
+                    {fbTestMsg && <span className={`text-xs ${fbTestMsg.toLowerCase().includes('fail') || fbTestMsg.toLowerCase().includes('error') ? 'text-red-400' : 'text-emerald-400'}`}>{fbTestMsg}</span>}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+          {status.meta === 'connected' && <div className="text-xs text-emerald-400 font-mono">Connected via {status.meta === 'connected' ? 'OAuth' : 'manual'}</div>}
+        </div>
+
+        {/* ── Google / GA4 (OAuth primary) ────────── */}
+        <div className="bg-ats-card border border-ats-border rounded-xl p-4 sm:p-5 mb-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <span className="text-lg">🔴</span>
+              <h3 className="text-sm font-bold text-ats-text">Google Analytics 4</h3>
+            </div>
+            <div className="flex items-center gap-1.5"><div className={`w-2 h-2 rounded-full ${statusDot(status.google)}`} /><span className="text-[10px] text-ats-text-muted font-mono">{statusLabel(status.google)}</span></div>
+          </div>
+          <p className="text-xs text-ats-text-muted mb-3">Connect for traffic analytics, funnel analysis, and conversion data.</p>
+          {status.google !== 'connected' && (
+            <>
+              <OAuthConnectButton platform="google" onSuccess={() => handleOAuthSuccess('google')} onError={handleOAuthError} />
+              <button onClick={() => setShowManual(p => ({ ...p, google: !p.google }))} className="ml-3 text-[11px] text-ats-text-muted hover:text-ats-text transition-colors">
+                {showManual.google ? 'Hide manual' : 'Or enter manually'}
+              </button>
+              {showManual.google && (
+                <div className="space-y-3 mt-3 pt-3 border-t border-ats-border">
+                  <div><label className={labelCls}>GA4 Property ID</label><input value={ga4PropertyId} onChange={e => setGa4PropertyId(e.target.value)} placeholder="properties/123456789" className={inputCls} /></div>
+                  <div><label className={labelCls}>Service Account JSON (paste credentials)</label><textarea rows={3} value={ga4CredentialsJson} onChange={e => setGa4CredentialsJson(e.target.value)} placeholder='{"type":"service_account","project_id":"..."}' className={`${inputCls} resize-none`} /></div>
+                  <button onClick={testGA4} disabled={!ga4PropertyId} className="w-full sm:w-auto px-4 py-2.5 sm:py-2 bg-ats-surface border border-ats-border rounded-lg text-xs text-ats-text font-semibold disabled:opacity-40 hover:bg-ats-hover transition-colors">Test GA4 Connection</button>
+                </div>
+              )}
+            </>
+          )}
+          {status.google === 'connected' && <div className="text-xs text-emerald-400 font-mono">Connected</div>}
+        </div>
+
+        {/* ── Shopify (OAuth primary) ────────────── */}
         <div className="bg-ats-card border border-ats-border rounded-xl p-4 sm:p-5 mb-4">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
@@ -225,18 +319,67 @@ export default function OnboardingWizard() {
             </div>
             <div className="flex items-center gap-1.5"><div className={`w-2 h-2 rounded-full ${statusDot(status.shopify)}`} /><span className="text-[10px] text-ats-text-muted font-mono">{statusLabel(status.shopify)}</span></div>
           </div>
-          <p className="text-xs text-ats-text-muted mb-3">Add this webhook URL in Shopify Admin → Settings → Notifications → Webhooks (Order creation)</p>
-          <div className="flex gap-2 mb-3">
-            <input readOnly value={`${webhookBase}/shopify/YOUR_TOKEN`} className={`${inputCls} text-ats-accent flex-1 min-w-0`} />
-            <button onClick={() => copyUrl(`${webhookBase}/shopify/YOUR_TOKEN`)} className="px-3 sm:px-4 py-3 bg-ats-accent text-white rounded-lg text-xs font-semibold shrink-0">Copy</button>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div><label className={labelCls}>Webhook Secret</label><input type="password" value={shopifySecret} onChange={e => setShopifySecret(e.target.value)} placeholder="shpss_..." className={inputCls} /></div>
-            <div><label className={labelCls}>Store URL</label><input value={shopifyStore} onChange={e => setShopifyStore(e.target.value)} placeholder="mystore.myshopify.com" className={inputCls} /></div>
-          </div>
+          <p className="text-xs text-ats-text-muted mb-3">Connect for order data, product insights, and webhook-based real-time updates.</p>
+          {status.shopify !== 'connected' && (
+            <>
+              <div className="mb-3">
+                <label className={labelCls}>Store URL (required)</label>
+                <input value={shopifyStore} onChange={e => setShopifyStore(e.target.value)} placeholder="mystore.myshopify.com" className={inputCls} />
+              </div>
+              <OAuthConnectButton platform="shopify" storeUrl={shopifyStore} onSuccess={() => handleOAuthSuccess('shopify')} onError={handleOAuthError} />
+              <button onClick={() => setShowManual(p => ({ ...p, shopify: !p.shopify }))} className="ml-3 text-[11px] text-ats-text-muted hover:text-ats-text transition-colors">
+                {showManual.shopify ? 'Hide manual' : 'Or enter manually'}
+              </button>
+              {showManual.shopify && (
+                <div className="space-y-3 mt-3 pt-3 border-t border-ats-border">
+                  <p className="text-xs text-ats-text-muted">Add this webhook URL in Shopify Admin → Settings → Notifications → Webhooks (Order creation)</p>
+                  <div className="flex gap-2">
+                    <input readOnly value={`${webhookBase}/shopify/YOUR_TOKEN`} className={`${inputCls} text-ats-accent flex-1 min-w-0`} />
+                    <button onClick={() => copyUrl(`${webhookBase}/shopify/YOUR_TOKEN`)} className="px-3 sm:px-4 py-3 bg-ats-accent text-white rounded-lg text-xs font-semibold shrink-0">Copy</button>
+                  </div>
+                  <div><label className={labelCls}>Webhook Secret</label><input type="password" value={shopifySecret} onChange={e => setShopifySecret(e.target.value)} placeholder="shpss_..." className={inputCls} /></div>
+                </div>
+              )}
+            </>
+          )}
+          {status.shopify === 'connected' && <div className="text-xs text-emerald-400 font-mono">Connected</div>}
         </div>
 
-        {/* ── CheckoutChamp ────────────────────────── */}
+        {/* ── TikTok Ads (OAuth only) ────────────── */}
+        <div className="bg-ats-card border border-ats-border rounded-xl p-4 sm:p-5 mb-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <span className="text-lg">🎵</span>
+              <h3 className="text-sm font-bold text-ats-text">TikTok Ads</h3>
+            </div>
+            <div className="flex items-center gap-1.5"><div className={`w-2 h-2 rounded-full ${statusDot(status.tiktok)}`} /><span className="text-[10px] text-ats-text-muted font-mono">{statusLabel(status.tiktok)}</span></div>
+          </div>
+          <p className="text-xs text-ats-text-muted mb-3">Connect for TikTok campaign performance and spend data.</p>
+          {status.tiktok !== 'connected' ? (
+            <OAuthConnectButton platform="tiktok" onSuccess={() => handleOAuthSuccess('tiktok')} onError={handleOAuthError} />
+          ) : (
+            <div className="text-xs text-emerald-400 font-mono">Connected</div>
+          )}
+        </div>
+
+        {/* ── Klaviyo (OAuth only) ───────────────── */}
+        <div className="bg-ats-card border border-ats-border rounded-xl p-4 sm:p-5 mb-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <span className="text-lg">💜</span>
+              <h3 className="text-sm font-bold text-ats-text">Klaviyo</h3>
+            </div>
+            <div className="flex items-center gap-1.5"><div className={`w-2 h-2 rounded-full ${statusDot(status.klaviyo)}`} /><span className="text-[10px] text-ats-text-muted font-mono">{statusLabel(status.klaviyo)}</span></div>
+          </div>
+          <p className="text-xs text-ats-text-muted mb-3">Connect for email list metrics, campaign performance, and customer profiles.</p>
+          {status.klaviyo !== 'connected' ? (
+            <OAuthConnectButton platform="klaviyo" onSuccess={() => handleOAuthSuccess('klaviyo')} onError={handleOAuthError} />
+          ) : (
+            <div className="text-xs text-emerald-400 font-mono">Connected</div>
+          )}
+        </div>
+
+        {/* ── CheckoutChamp (manual only) ────────── */}
         <div className="bg-ats-card border border-ats-border rounded-xl p-4 sm:p-5 mb-4">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
@@ -256,44 +399,6 @@ export default function OnboardingWizard() {
           </div>
           <div className="mb-3"><label className={labelCls}>Webhook Secret</label><input type="password" value={ccWebhookSecret} onChange={e => setCcWebhookSecret(e.target.value)} placeholder="whsec_..." className={inputCls} /></div>
           <button onClick={testCC} disabled={!ccApiKey && status.checkoutChamp !== 'connected'} className="w-full sm:w-auto px-4 py-2.5 sm:py-2 bg-ats-surface border border-ats-border rounded-lg text-xs text-ats-text font-semibold disabled:opacity-40 hover:bg-ats-hover transition-colors">Test API Connection</button>
-        </div>
-
-        {/* ── Meta / Facebook Ads ──────────────────── */}
-        <div className="bg-ats-card border border-ats-border rounded-xl p-4 sm:p-5 mb-4">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <span className="text-lg">🔷</span>
-              <h3 className="text-sm font-bold text-ats-text">Meta / Facebook Ads</h3>
-            </div>
-            <div className="flex items-center gap-1.5"><div className={`w-2 h-2 rounded-full ${statusDot(status.meta)}`} /><span className="text-[10px] text-ats-text-muted font-mono">{statusLabel(status.meta)}</span></div>
-          </div>
-          <div className="space-y-3 mb-3">
-            <div><label className={labelCls}>Access Token</label><input type="password" value={fbToken} onChange={e => setFbToken(e.target.value)} placeholder="EAAxxxxxxxx..." className={inputCls} /></div>
-            <div><label className={labelCls}>Ad Account IDs (comma-separated)</label><input value={fbAccounts} onChange={e => setFbAccounts(e.target.value)} placeholder="act_123456789, act_987654321" className={inputCls} /></div>
-          </div>
-          <div className="bg-amber-900/15 border border-amber-800/30 rounded-lg px-3 py-2 mb-3">
-            <p className="text-[11px] text-amber-300/80 break-words"><strong>Important:</strong> Your ad_set_name must match utm_campaign for attribution. Template: <code className="text-ats-accent break-all">utm_source=facebook&utm_medium=cpc&utm_campaign={'{{adset.name}}'}</code></p>
-          </div>
-          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-3">
-            <button onClick={testMeta} disabled={!fbToken && status.meta !== 'connected'} className="w-full sm:w-auto px-4 py-2.5 sm:py-2 bg-ats-surface border border-ats-border rounded-lg text-xs text-ats-text font-semibold disabled:opacity-40 hover:bg-ats-hover transition-colors">Test Connection</button>
-            {fbTestMsg && <span className={`text-xs ${status.meta === 'connected' ? 'text-emerald-400' : 'text-red-400'}`}>{fbTestMsg}</span>}
-          </div>
-        </div>
-
-        {/* ── Google / GA4 ─────────────────────────── */}
-        <div className="bg-ats-card border border-ats-border rounded-xl p-4 sm:p-5 mb-6">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <span className="text-lg">🔴</span>
-              <h3 className="text-sm font-bold text-ats-text">Google Analytics 4</h3>
-            </div>
-            <div className="flex items-center gap-1.5"><div className={`w-2 h-2 rounded-full ${statusDot(status.google)}`} /><span className="text-[10px] text-ats-text-muted font-mono">{statusLabel(status.google)}</span></div>
-          </div>
-          <div className="space-y-3 mb-3">
-            <div><label className={labelCls}>GA4 Property ID</label><input value={ga4PropertyId} onChange={e => setGa4PropertyId(e.target.value)} placeholder="properties/123456789" className={inputCls} /></div>
-            <div><label className={labelCls}>Service Account JSON (paste credentials)</label><textarea rows={3} value={ga4CredentialsJson} onChange={e => setGa4CredentialsJson(e.target.value)} placeholder='{"type":"service_account","project_id":"..."}' className={`${inputCls} resize-none`} /></div>
-          </div>
-          <button onClick={testGA4} disabled={!ga4PropertyId} className="w-full sm:w-auto px-4 py-2.5 sm:py-2 bg-ats-surface border border-ats-border rounded-lg text-xs text-ats-text font-semibold disabled:opacity-40 hover:bg-ats-hover transition-colors">Test GA4 Connection</button>
         </div>
 
         {/* ── Action buttons ───────────────────────── */}
@@ -328,7 +433,7 @@ export default function OnboardingWizard() {
 
         {/* Connected summary */}
         <div className="bg-ats-card border border-ats-border rounded-xl p-3 sm:p-4 mb-6 sm:mb-8 flex flex-wrap justify-center gap-3 sm:gap-4 mx-auto">
-          {(['shopify', 'checkoutChamp', 'meta', 'google'] as const).map(k => (
+          {(['meta', 'google', 'shopify', 'tiktok', 'klaviyo', 'checkoutChamp'] as const).map(k => (
             <div key={k} className="flex items-center gap-1.5">
               <div className={`w-2.5 h-2.5 rounded-full ${statusDot(status[k])}`} />
               <span className={`text-xs font-mono ${status[k] === 'connected' ? 'text-emerald-400' : 'text-ats-text-muted'}`}>
@@ -374,7 +479,6 @@ export default function OnboardingWizard() {
             <p className="text-xs sm:text-sm text-ats-text-muted leading-relaxed max-w-sm mx-auto">{page.desc}</p>
           </div>
 
-          {/* Mobile: stack vertically. Desktop: side-by-side */}
           <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4">
             <button
               onClick={() => tourIdx > 0 ? setTourIdx(tourIdx - 1) : setPhase('connected')}
@@ -399,7 +503,6 @@ export default function OnboardingWizard() {
           </div>
         </div>
 
-        {/* Jump to this page link */}
         <button
           onClick={() => { finishOnboarding(); setTimeout(() => navigate(page.path), 100); }}
           className="mt-3 sm:mt-4 text-xs text-ats-accent hover:underline block text-center w-full py-2"

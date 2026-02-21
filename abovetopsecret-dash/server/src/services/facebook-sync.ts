@@ -2,6 +2,7 @@ import pool from '../db';
 import https from 'https';
 import { getSetting } from './settings';
 import { getRealtime } from './realtime';
+import { decrypt } from './oauth-providers';
 
 interface FBAction {
   action_type: string;
@@ -90,8 +91,33 @@ async function fetchAllPages(initialUrl: string): Promise<FBInsightRow[]> {
   return allRows;
 }
 
+/**
+ * Resolve Meta access token: check integration_configs for OAuth token first,
+ * fall back to app_settings.
+ */
+async function getAccessToken(userId?: number): Promise<string | undefined> {
+  if (userId) {
+    try {
+      const result = await pool.query(
+        `SELECT credentials FROM integration_configs
+         WHERE user_id = $1 AND platform = 'meta' AND status = 'connected' AND connection_method = 'oauth'`,
+        [userId]
+      );
+      if (result.rows.length > 0) {
+        const creds = result.rows[0].credentials;
+        if (creds?.access_token_encrypted) {
+          return decrypt(creds.access_token_encrypted);
+        }
+      }
+    } catch {
+      // Fall through to getSetting
+    }
+  }
+  return getSetting('fb_access_token', userId);
+}
+
 export async function syncFacebook(userId?: number): Promise<{ synced: number; accounts: number; skipped: boolean }> {
-  const accessToken = await getSetting('fb_access_token', userId);
+  const accessToken = await getAccessToken(userId);
   const accountIds = await getSetting('fb_ad_account_ids', userId);
 
   if (!accessToken || !accountIds) {
@@ -175,7 +201,7 @@ function getVideoActionValue(actions?: FBAction[]): number {
 
 // Sync ad-level creatives from Facebook
 export async function syncFacebookCreatives(userId?: number): Promise<{ synced: number; metrics: number; skipped: boolean }> {
-  const accessToken = await getSetting('fb_access_token', userId);
+  const accessToken = await getAccessToken(userId);
   const accountIds = await getSetting('fb_ad_account_ids', userId);
 
   if (!accessToken || !accountIds) {

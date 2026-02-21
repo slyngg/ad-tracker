@@ -5,6 +5,7 @@ import { getSetting } from './settings';
 import { evaluateRules } from './rules-engine';
 import { checkThresholds } from './notifications';
 import { tagUntaggedCreatives } from './creative-tagger';
+import { refreshOAuthTokens } from './oauth-refresh';
 import pool from '../db';
 
 async function getActiveUserIds(): Promise<number[]> {
@@ -162,5 +163,21 @@ export function startScheduler(): void {
     });
   });
 
-  console.log('[Scheduler] Cron jobs registered: Meta Ads sync (*/10 * * * *), CC poll (* * * * *), Creative sync (5,35 * * * *), Daily reset (0 0 * * *)');
+  // OAuth token refresh every 6 hours
+  const LOCK_TOKEN_REFRESH = 100005;
+  cron.schedule('0 */6 * * *', async () => {
+    await withAdvisoryLock(LOCK_TOKEN_REFRESH, 'OAuth token refresh', async () => {
+      console.log('[Scheduler] Running OAuth token refresh...');
+      try {
+        const result = await refreshOAuthTokens();
+        if (result.refreshed > 0) {
+          console.log(`[Scheduler] Refreshed ${result.refreshed} OAuth tokens (${result.failed} failed)`);
+        }
+      } catch (err) {
+        console.error('[Scheduler] OAuth token refresh failed:', err);
+      }
+    });
+  });
+
+  console.log('[Scheduler] Cron jobs registered: Meta Ads sync (*/10 * * * *), CC poll (* * * * *), Creative sync (5,35 * * * *), Daily reset (0 0 * * *), OAuth refresh (0 */6 * * *)');
 }
