@@ -536,8 +536,8 @@ export function uploadCsv(
   });
 }
 
-export function fetchUploadTemplates(): Promise<Record<string, { required: string[]; optional: string[] }>> {
-  return request<Record<string, { required: string[]; optional: string[] }>>('/upload/templates');
+export function fetchUploadTemplates(): Promise<Record<string, { columns?: string[]; required?: string[]; optional?: string[]; description?: string }>> {
+  return request<Record<string, { columns?: string[]; required?: string[]; optional?: string[]; description?: string }>>('/upload/templates');
 }
 
 // --- Webhook Tokens API ---

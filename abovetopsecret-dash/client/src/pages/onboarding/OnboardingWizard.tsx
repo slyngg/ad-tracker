@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getAuthToken } from '../../stores/authStore';
+import { getAuthToken, useAuthStore } from '../../stores/authStore';
 import { getOAuthStatus, OAuthStatus } from '../../lib/api';
 import OAuthConnectButton from '../../components/shared/OAuthConnectButton';
 
@@ -35,6 +35,12 @@ const TOUR_PAGES = [
 
 export default function OnboardingWizard() {
   const navigate = useNavigate();
+  const user = useAuthStore(s => s.user);
+
+  // Already completed onboarding — redirect to dashboard
+  useEffect(() => {
+    if (user?.onboardingCompleted) navigate('/summary', { replace: true });
+  }, [user?.onboardingCompleted, navigate]);
 
   /* ── Phase: 'connect' | 'connected' | 'tour' ──── */
   const [phase, setPhase] = useState<'connect' | 'connected' | 'tour'>('connect');
@@ -197,8 +203,11 @@ export default function OnboardingWizard() {
     setPhase('connected');
   };
 
+  const markComplete = useAuthStore(s => s.markOnboardingComplete);
+
   const finishOnboarding = async () => {
     await apiFetch('/onboarding/complete', { method: 'POST' }).catch(() => {});
+    markComplete();
     navigate('/summary');
   };
 
@@ -208,6 +217,7 @@ export default function OnboardingWizard() {
     setDemoLoading(true);
     try { await apiFetch('/onboarding/demo-mode', { method: 'POST', body: JSON.stringify({ enabled: true }) }); } catch {}
     await apiFetch('/onboarding/complete', { method: 'POST' }).catch(() => {});
+    markComplete();
     navigate('/summary');
   };
 
@@ -403,15 +413,12 @@ export default function OnboardingWizard() {
 
         {/* ── Action buttons ───────────────────────── */}
         <div className="space-y-3">
-          <button onClick={goLive} className="w-full py-4 bg-ats-accent text-white rounded-xl text-sm font-bold hover:bg-blue-600 transition-colors shadow-lg shadow-ats-accent/20 active:scale-[0.98]">
-            {connectedCount > 0 ? `Save & Go Live (${connectedCount} connected)` : 'Save & Continue'}
+          <button onClick={goLive} disabled={connectedCount === 0} className={`w-full py-4 rounded-xl text-sm font-bold transition-colors active:scale-[0.98] ${connectedCount > 0 ? 'bg-ats-accent text-white hover:bg-blue-600 shadow-lg shadow-ats-accent/20' : 'bg-ats-border text-ats-text-muted cursor-not-allowed'}`}>
+            {connectedCount > 0 ? `Save & Go Live (${connectedCount} connected)` : 'Connect at least one platform to continue'}
           </button>
-          <div className="flex flex-col sm:flex-row justify-center items-center gap-3 sm:gap-6">
+          <div className="flex justify-center">
             <button onClick={enableDemo} disabled={demoLoading} className="text-sm text-ats-text-muted hover:text-ats-accent transition-colors py-1">
               {demoLoading ? 'Loading demo...' : 'Explore with demo data instead'}
-            </button>
-            <button onClick={finishOnboarding} className="text-sm text-ats-text-muted hover:text-ats-text transition-colors py-1">
-              Skip everything
             </button>
           </div>
         </div>

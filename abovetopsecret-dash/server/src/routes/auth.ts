@@ -53,7 +53,7 @@ router.post('/register', async (req: Request, res: Response) => {
     const result = await pool.query(
       `INSERT INTO users (email, password_hash, display_name)
        VALUES ($1, $2, $3)
-       RETURNING id, email, display_name, created_at`,
+       RETURNING id, email, display_name, onboarding_completed, created_at`,
       [email.toLowerCase(), passwordHash, displayName || email.split('@')[0]]
     );
 
@@ -66,6 +66,7 @@ router.post('/register', async (req: Request, res: Response) => {
         id: user.id,
         email: user.email,
         displayName: user.display_name,
+        onboardingCompleted: user.onboarding_completed ?? false,
       },
     });
   } catch (err) {
@@ -85,7 +86,7 @@ router.post('/login', async (req: Request, res: Response) => {
     }
 
     const result = await pool.query(
-      'SELECT id, email, password_hash, display_name FROM users WHERE email = $1',
+      'SELECT id, email, password_hash, display_name, onboarding_completed FROM users WHERE email = $1',
       [email.toLowerCase()]
     );
 
@@ -113,6 +114,7 @@ router.post('/login', async (req: Request, res: Response) => {
         id: user.id,
         email: user.email,
         displayName: user.display_name,
+        onboardingCompleted: user.onboarding_completed ?? false,
       },
     });
   } catch (err) {
@@ -140,7 +142,7 @@ router.get('/me', async (req: Request, res: Response) => {
     }
 
     const result = await pool.query(
-      'SELECT id, email, display_name, created_at, last_login_at FROM users WHERE id = $1',
+      'SELECT id, email, display_name, onboarding_completed, created_at, last_login_at FROM users WHERE id = $1',
       [payload.userId]
     );
 
@@ -154,6 +156,7 @@ router.get('/me', async (req: Request, res: Response) => {
       id: user.id,
       email: user.email,
       displayName: user.display_name,
+      onboardingCompleted: user.onboarding_completed ?? false,
       createdAt: user.created_at,
       lastLoginAt: user.last_login_at,
     });

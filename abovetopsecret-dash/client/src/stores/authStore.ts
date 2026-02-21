@@ -7,6 +7,7 @@ interface User {
   id: number;
   email: string;
   displayName: string;
+  onboardingCompleted: boolean;
 }
 
 interface AuthState {
@@ -22,6 +23,7 @@ interface AuthState {
   updateProfile: (data: { displayName?: string; password?: string; currentPassword?: string }) => Promise<boolean>;
   checkAuth: () => Promise<void>;
   handleUnauthorized: () => void;
+  markOnboardingComplete: () => void;
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
@@ -97,7 +99,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       });
       if (res.ok) {
         const data = await res.json();
-        const user = { id: data.id, email: data.email, displayName: data.displayName };
+        const user = { id: data.id, email: data.email, displayName: data.displayName, onboardingCompleted: data.onboardingCompleted ?? false };
         localStorage.setItem(USER_KEY, JSON.stringify(user));
         set({ user });
       }
@@ -120,7 +122,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         set({ error: result.error || 'Update failed' });
         return false;
       }
-      const user = { id: result.id, email: result.email, displayName: result.displayName };
+      const existing = get().user;
+      const user = { id: result.id, email: result.email, displayName: result.displayName, onboardingCompleted: existing?.onboardingCompleted ?? false };
       localStorage.setItem(USER_KEY, JSON.stringify(user));
       set({ user, error: null });
       return true;
@@ -140,7 +143,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         });
         if (res.ok) {
           const data = await res.json();
-          const user = { id: data.id, email: data.email, displayName: data.displayName };
+          const user = { id: data.id, email: data.email, displayName: data.displayName, onboardingCompleted: data.onboardingCompleted ?? false };
           localStorage.setItem(USER_KEY, JSON.stringify(user));
           set({ user, isAuthenticated: true, checking: false });
           return;
@@ -185,6 +188,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
     set({ token: null, user: null, isAuthenticated: false });
+  },
+
+  markOnboardingComplete: () => {
+    const user = get().user;
+    if (user) {
+      const updated = { ...user, onboardingCompleted: true };
+      localStorage.setItem(USER_KEY, JSON.stringify(updated));
+      set({ user: updated });
+    }
   },
 }));
 

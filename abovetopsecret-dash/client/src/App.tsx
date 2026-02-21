@@ -3,6 +3,7 @@ import { Routes, Route, Navigate, Link } from 'react-router-dom';
 import AuthGate from './components/auth/AuthGate';
 import LoadingSpinner from './components/shared/LoadingSpinner';
 import AppLayout from './components/layout/AppLayout';
+import { useAuthStore } from './stores/authStore';
 
 // Lazy-loaded pages
 const SummaryDashboard = lazy(() => import('./pages/SummaryDashboard'));
@@ -129,13 +130,24 @@ function NotFoundPage() {
   );
 }
 
+function OnboardingGate({ children }: { children: ReactNode }) {
+  const user = useAuthStore(s => s.user);
+  if (user && !user.onboardingCompleted) {
+    return <Navigate to="/onboarding" replace />;
+  }
+  return <>{children}</>;
+}
+
 export default function App() {
   return (
     <ErrorBoundary>
       <AuthGate>
         <Suspense fallback={<LoadingSpinner />}>
           <Routes>
-            <Route element={<AppLayout />}>
+            {/* Onboarding — full-screen, no sidebar */}
+            <Route path="/onboarding" element={<OnboardingWizard />} />
+
+            <Route element={<OnboardingGate><AppLayout /></OnboardingGate>}>
               <Route index element={<Navigate to="/summary" replace />} />
               <Route path="/summary" element={<SummaryDashboard />} />
               <Route path="/operator" element={<OperatorPage />} />
@@ -206,9 +218,6 @@ export default function App() {
 
               {/* Data — new */}
               <Route path="/data/dictionary" element={<DataDictionaryPage />} />
-
-              {/* Onboarding */}
-              <Route path="/onboarding" element={<OnboardingWizard />} />
 
               {/* Workspaces */}
               <Route path="/workspaces" element={<WorkspacesListPage />} />

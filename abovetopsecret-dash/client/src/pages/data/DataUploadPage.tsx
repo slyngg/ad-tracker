@@ -46,7 +46,7 @@ export default function DataUploadPage() {
   const [uploading, setUploading] = useState(false);
   const [result, setResult] = useState<UploadResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [templates, setTemplates] = useState<Record<string, { required: string[]; optional: string[] }>>({});
+  const [templates, setTemplates] = useState<Record<string, { columns?: string[]; required?: string[]; optional?: string[]; description?: string }>>({});
   const fileRef = useRef<HTMLInputElement>(null);
 
   const loadTemplates = useCallback(async () => {
@@ -110,7 +110,7 @@ export default function DataUploadPage() {
     const tmpl = templates[type];
     if (!tmpl) return;
 
-    const cols = [...tmpl.required, ...tmpl.optional];
+    const cols = tmpl.columns ?? [...(tmpl.required ?? []), ...(tmpl.optional ?? [])];
     const csv = cols.join(',') + '\n';
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
@@ -313,19 +313,33 @@ export default function DataUploadPage() {
                       </button>
                     </div>
                     <div className="space-y-1">
-                      <div>
-                        <span className="text-[10px] text-ats-text-muted uppercase">Required:</span>
-                        <div className="text-[11px] text-ats-text font-mono">
-                          {tmpl.required.join(', ')}
-                        </div>
-                      </div>
-                      {tmpl.optional.length > 0 && (
+                      {tmpl.columns ? (
                         <div>
-                          <span className="text-[10px] text-ats-text-muted uppercase">Optional:</span>
-                          <div className="text-[11px] text-ats-text-muted font-mono">
-                            {tmpl.optional.join(', ')}
+                          <span className="text-[10px] text-ats-text-muted uppercase">Columns:</span>
+                          <div className="text-[11px] text-ats-text font-mono">
+                            {tmpl.columns.join(', ')}
                           </div>
                         </div>
+                      ) : (
+                        <>
+                          <div>
+                            <span className="text-[10px] text-ats-text-muted uppercase">Required:</span>
+                            <div className="text-[11px] text-ats-text font-mono">
+                              {(tmpl.required ?? []).join(', ')}
+                            </div>
+                          </div>
+                          {(tmpl.optional ?? []).length > 0 && (
+                            <div>
+                              <span className="text-[10px] text-ats-text-muted uppercase">Optional:</span>
+                              <div className="text-[11px] text-ats-text-muted font-mono">
+                                {(tmpl.optional ?? []).join(', ')}
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      )}
+                      {tmpl.description && (
+                        <p className="text-[10px] text-ats-text-muted mt-1">{tmpl.description}</p>
                       )}
                     </div>
                   </div>
