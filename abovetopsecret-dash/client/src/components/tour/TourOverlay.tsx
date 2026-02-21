@@ -125,6 +125,18 @@ export default function TourOverlay() {
 
   const padding = 6;
 
+  // Fallback rect: center of viewport (used when target element not found)
+  const fallbackRect = {
+    top: window.innerHeight / 2 - 20,
+    left: window.innerWidth / 2 - 20,
+    width: 40,
+    height: 40,
+    bottom: window.innerHeight / 2 + 20,
+    right: window.innerWidth / 2 + 20,
+  } as DOMRect;
+
+  const displayRect = targetRect || fallbackRect;
+
   return createPortal(
     <>
       {/* Dim overlay with spotlight cutout using box-shadow */}
@@ -143,13 +155,13 @@ export default function TourOverlay() {
               }
             : {
                 inset: 0,
-                background: 'rgba(0, 0, 0, 0.65)',
+                background: 'rgba(0, 0, 0, 0.45)',
               }
         }
       />
-      {/* Click-blocking layer */}
-      <div className="fixed inset-0 z-[10001]" style={{ pointerEvents: 'auto' }}>
-        {targetRect && (
+      {/* Click-blocking layer — only when we have a real target */}
+      {targetRect && (
+        <div className="fixed inset-0 z-[10001]" style={{ pointerEvents: 'auto' }}>
           <div
             style={{
               position: 'fixed',
@@ -160,14 +172,12 @@ export default function TourOverlay() {
               pointerEvents: 'none',
             }}
           />
-        )}
-      </div>
-      {/* Tooltip */}
-      {targetRect && (
-        <div data-tour-tooltip>
-          <TourTooltip targetRect={targetRect} />
         </div>
       )}
+      {/* Tooltip — always shown so user can navigate/skip */}
+      <div data-tour-tooltip>
+        <TourTooltip targetRect={displayRect} />
+      </div>
     </>,
     document.body,
   );
