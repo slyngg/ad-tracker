@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import pool from '../db';
 import { parseAccountFilter } from '../services/account-filter';
+import { getUserTimezone } from '../services/timezone';
 
 const router = Router();
 
@@ -236,9 +237,11 @@ router.get('/summary', async (req: Request, res: Response) => {
     const sAllParams = [...userParams, ...saf.params];
 
     // Compute totals from each table independently — no join needed for summary
+    // Include both Meta and TikTok ad spend
     const result = await pool.query(`
       SELECT
-        (SELECT COALESCE(SUM(spend), 0) FROM fb_ads_today WHERE 1=1 ${userFilter} ${saf.clause}) AS total_spend,
+        (SELECT COALESCE(SUM(spend), 0) FROM fb_ads_today WHERE 1=1 ${userFilter} ${saf.clause}) +
+        (SELECT COALESCE(SUM(spend), 0) FROM tiktok_ads_today WHERE 1=1 ${userFilter} ${saf.clause}) AS total_spend,
         (SELECT COALESCE(SUM(COALESCE(subtotal, revenue)), 0) FROM cc_orders_today WHERE order_status = 'completed' AND (is_test = false OR is_test IS NULL) ${userFilter} ${saf.clause}) AS total_revenue,
         (SELECT COUNT(DISTINCT order_id) FROM cc_orders_today WHERE order_status = 'completed' AND (is_test = false OR is_test IS NULL) ${userFilter} ${saf.clause}) AS total_conversions
     `, sAllParams);
@@ -246,15 +249,21 @@ router.get('/summary', async (req: Request, res: Response) => {
     // Fetch previous period (yesterday) from archive tables.
     // Time-of-day adjustment: only compare yesterday's data through the same hour
     // so a partial "today" isn't compared against a full "yesterday".
-    // - Orders: filter by conversion_time <= current time-of-day
+    // - Orders: filter by conversion_time <= current time-of-day (in user's timezone)
     // - Spend: prorate by fraction of day elapsed (FB reports daily totals, no hourly breakdown)
+    // Use the user's timezone so "yesterday" and "current time" are correct for their locale.
+    const tz = await getUserTimezone(userId);
+    const prevTzParams = [...userParams, tz];
+    const tzIdx = prevTzParams.length; // $1 if no userId, $2 if userId
+
     const prevSpendResult = await pool.query(`
-      SELECT
-        COALESCE(SUM((ad_data->>'spend')::NUMERIC), 0)
-          * (EXTRACT(EPOCH FROM CURRENT_TIME) / 86400.0) AS prev_spend
-      FROM fb_ads_archive
-      WHERE archived_date = CURRENT_DATE - INTERVAL '1 day' ${prevUserFilter}
-    `, userParams);
+      SELECT (
+        COALESCE((SELECT SUM((ad_data->>'spend')::NUMERIC) FROM fb_ads_archive
+          WHERE archived_date = (NOW() AT TIME ZONE $${tzIdx})::DATE - 1 ${prevUserFilter}), 0) +
+        COALESCE((SELECT SUM((ad_data->>'spend')::NUMERIC) FROM tiktok_ads_archive
+          WHERE archived_date = (NOW() AT TIME ZONE $${tzIdx})::DATE - 1 ${prevUserFilter}), 0)
+      ) * (EXTRACT(EPOCH FROM (NOW() AT TIME ZONE $${tzIdx})::TIME) / 86400.0) AS prev_spend
+    `, prevTzParams);
 
     const prevOrdersResult = await pool.query(`
       SELECT
@@ -265,10 +274,10 @@ router.get('/summary', async (req: Request, res: Response) => {
           AND COALESCE((order_data->>'is_test')::BOOLEAN, false) = false
           THEN order_data->>'order_id' END) AS prev_conversions
       FROM orders_archive
-      WHERE archived_date = CURRENT_DATE - INTERVAL '1 day'
-        AND (order_data->>'conversion_time')::TIMESTAMPTZ::TIME <= CURRENT_TIME
+      WHERE archived_date = (NOW() AT TIME ZONE $${tzIdx})::DATE - 1
+        AND ((order_data->>'conversion_time')::TIMESTAMPTZ AT TIME ZONE $${tzIdx})::TIME <= (NOW() AT TIME ZONE $${tzIdx})::TIME
         ${prevUserFilter}
-    `, userParams);
+    `, prevTzParams);
 
     const row = result.rows[0];
     const totalSpend = parseFloat(row.total_spend) || 0;

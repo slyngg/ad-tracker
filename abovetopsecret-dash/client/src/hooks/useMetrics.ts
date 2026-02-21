@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { fetchMetrics, fetchSummary, MetricRow, SummaryData } from '../lib/api';
 import { useWebSocket, WsMessage } from './useWebSocket';
+import { useAccountStore } from '../stores/accountStore';
 
 interface UseMetricsReturn {
   data: MetricRow[];
@@ -28,6 +29,8 @@ export function useMetrics(
   const hasLoaded = useRef(false);
 
   const { status: wsStatus, subscribe } = useWebSocket();
+  const selectedAccountIds = useAccountStore((s) => s.selectedAccountIds);
+  const selectedOfferIds = useAccountStore((s) => s.selectedOfferIds);
 
   const refresh = useCallback(async () => {
     try {
@@ -55,7 +58,7 @@ export function useMetrics(
       setLoading(false);
       setRefreshing(false);
     }
-  }, [offer, account, onUnauthorized]);
+  }, [offer, account, onUnauthorized, selectedAccountIds, selectedOfferIds]);
 
   // Subscribe to WS events for live summary updates
   useEffect(() => {

@@ -645,13 +645,17 @@ export function fetchPixelSnippet(funnelPage: string): Promise<{ snippet: string
 export function fetchSourceMedium(dateRange?: string): Promise<SourceMediumRow[]> {
   const params = new URLSearchParams();
   if (dateRange) params.set('dateRange', dateRange);
+  const af = getAccountFilterParams();
+  af.forEach((v, k) => { if (!params.has(k)) params.set(k, v); });
   const qs = params.toString();
   return request<SourceMediumRow[]>(`/analytics/source-medium${qs ? `?${qs}` : ''}`);
 }
 
 // --- P&L API ---
 export function fetchPnL(): Promise<PnLData> {
-  return request<PnLData>('/analytics/pnl');
+  const af = getAccountFilterParams();
+  const qs = af.toString();
+  return request<PnLData>(`/analytics/pnl${qs ? `?${qs}` : ''}`);
 }
 
 // --- Creative Analytics API ---

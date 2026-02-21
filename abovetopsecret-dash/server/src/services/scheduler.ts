@@ -11,6 +11,7 @@ import { evaluateRules } from './rules-engine';
 import { checkThresholds } from './notifications';
 import { tagUntaggedCreatives } from './creative-tagger';
 import { refreshOAuthTokens } from './oauth-refresh';
+import { getUsersAtMidnight } from './timezone';
 import pool from '../db';
 
 async function getActiveUserIds(): Promise<number[]> {
@@ -121,34 +122,105 @@ export function startScheduler(): void {
     });
   });
 
-  // Daily reset at midnight
-  cron.schedule('0 0 * * *', async () => {
+  // Timezone-aware daily reset — runs every hour, archives data for users whose
+  // midnight just passed in their configured timezone. Uses DELETE per-user
+  // instead of TRUNCATE so different users reset at different times.
+  cron.schedule('0 * * * *', async () => {
     await withAdvisoryLock(LOCK_DAILY_RESET, 'Daily reset', async () => {
-      // NOTE: Daily reset runs at midnight UTC. "Today" means UTC day.
-      // If timezone-aware reset is needed, run per-user based on users.timezone.
-      console.log('[Scheduler] Running daily reset (UTC midnight)...');
       try {
-        // Archive with ON CONFLICT DO NOTHING to prevent double-archiving
-        // if this job runs twice (e.g., server restart near midnight)
-        await pool.query(`
-          INSERT INTO fb_ads_archive (archived_date, ad_data, user_id, account_id)
-          SELECT CURRENT_DATE, row_to_json(fb_ads_today)::jsonb, user_id, account_id FROM fb_ads_today
-          ON CONFLICT DO NOTHING;
+        const usersAtMidnight = await getUsersAtMidnight();
+        if (usersAtMidnight.length === 0) {
+          return; // No users at midnight right now
+        }
 
-          INSERT INTO orders_archive (archived_date, order_data, user_id, account_id, offer_id)
-          SELECT CURRENT_DATE, row_to_json(cc_orders_today)::jsonb, user_id, account_id, offer_id FROM cc_orders_today
-          ON CONFLICT DO NOTHING;
+        console.log(`[Scheduler] Daily reset for ${usersAtMidnight.length} user(s) at their local midnight: [${usersAtMidnight.join(', ')}]`);
 
-          INSERT INTO tiktok_ads_archive (archived_date, ad_data, user_id, account_id)
-          SELECT CURRENT_DATE, row_to_json(tiktok_ads_today)::jsonb, user_id, account_id FROM tiktok_ads_today
-          ON CONFLICT DO NOTHING;
+        for (const userId of usersAtMidnight) {
+          try {
+            // Archive the user's data with ON CONFLICT DO NOTHING to prevent double-archiving
+            // The archived_date is "yesterday" in the user's timezone
+            await pool.query(`
+              INSERT INTO fb_ads_archive (archived_date, ad_data, user_id, account_id)
+              SELECT
+                (NOW() AT TIME ZONE COALESCE(u.timezone, 'UTC'))::DATE - 1,
+                row_to_json(f)::jsonb,
+                f.user_id,
+                f.account_id
+              FROM fb_ads_today f
+              JOIN users u ON u.id = f.user_id
+              WHERE f.user_id = $1
+              ON CONFLICT DO NOTHING
+            `, [userId]);
 
-          TRUNCATE fb_ads_today RESTART IDENTITY;
-          TRUNCATE cc_orders_today RESTART IDENTITY;
-          TRUNCATE cc_upsells_today RESTART IDENTITY;
-          TRUNCATE tiktok_ads_today RESTART IDENTITY;
-        `);
-        console.log('[Scheduler] Daily reset complete');
+            await pool.query(`
+              INSERT INTO orders_archive (archived_date, order_data, user_id, account_id, offer_id)
+              SELECT
+                (NOW() AT TIME ZONE COALESCE(u.timezone, 'UTC'))::DATE - 1,
+                row_to_json(o)::jsonb,
+                o.user_id,
+                o.account_id,
+                o.offer_id
+              FROM cc_orders_today o
+              JOIN users u ON u.id = o.user_id
+              WHERE o.user_id = $1
+              ON CONFLICT DO NOTHING
+            `, [userId]);
+
+            await pool.query(`
+              INSERT INTO tiktok_ads_archive (archived_date, ad_data, user_id, account_id)
+              SELECT
+                (NOW() AT TIME ZONE COALESCE(u.timezone, 'UTC'))::DATE - 1,
+                row_to_json(t)::jsonb,
+                t.user_id,
+                t.account_id
+              FROM tiktok_ads_today t
+              JOIN users u ON u.id = t.user_id
+              WHERE t.user_id = $1
+              ON CONFLICT DO NOTHING
+            `, [userId]);
+
+            // Delete archived data from _today tables for this user
+            await pool.query('DELETE FROM fb_ads_today WHERE user_id = $1', [userId]);
+            await pool.query('DELETE FROM cc_orders_today WHERE user_id = $1', [userId]);
+            await pool.query('DELETE FROM cc_upsells_today WHERE user_id = $1', [userId]);
+            await pool.query('DELETE FROM tiktok_ads_today WHERE user_id = $1', [userId]);
+
+            console.log(`[Scheduler] Daily reset complete for user ${userId}`);
+          } catch (err) {
+            console.error(`[Scheduler] Daily reset failed for user ${userId}:`, err);
+          }
+        }
+
+        // Also archive/delete legacy rows (user_id IS NULL) at UTC midnight
+        const utcHour = new Date().getUTCHours();
+        if (utcHour === 0) {
+          try {
+            await pool.query(`
+              INSERT INTO fb_ads_archive (archived_date, ad_data, user_id)
+              SELECT CURRENT_DATE, row_to_json(fb_ads_today)::jsonb, user_id
+              FROM fb_ads_today WHERE user_id IS NULL
+              ON CONFLICT DO NOTHING;
+
+              INSERT INTO orders_archive (archived_date, order_data, user_id)
+              SELECT CURRENT_DATE, row_to_json(cc_orders_today)::jsonb, user_id
+              FROM cc_orders_today WHERE user_id IS NULL
+              ON CONFLICT DO NOTHING;
+
+              INSERT INTO tiktok_ads_archive (archived_date, ad_data, user_id)
+              SELECT CURRENT_DATE, row_to_json(tiktok_ads_today)::jsonb, user_id
+              FROM tiktok_ads_today WHERE user_id IS NULL
+              ON CONFLICT DO NOTHING;
+
+              DELETE FROM fb_ads_today WHERE user_id IS NULL;
+              DELETE FROM cc_orders_today WHERE user_id IS NULL;
+              DELETE FROM cc_upsells_today WHERE user_id IS NULL;
+              DELETE FROM tiktok_ads_today WHERE user_id IS NULL;
+            `);
+            console.log('[Scheduler] Legacy (null user_id) daily reset complete');
+          } catch (err) {
+            console.error('[Scheduler] Legacy daily reset failed:', err);
+          }
+        }
       } catch (err) {
         console.error('[Scheduler] Daily reset failed:', err);
       }

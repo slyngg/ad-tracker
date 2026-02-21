@@ -130,3 +130,35 @@ CREATE INDEX IF NOT EXISTS idx_orders_archive_date_user
 
 CREATE INDEX IF NOT EXISTS idx_fb_ads_archive_date_user
   ON fb_ads_archive(archived_date, user_id);
+
+CREATE INDEX IF NOT EXISTS idx_tiktok_ads_archive_date_user
+  ON tiktok_ads_archive(archived_date, user_id);
+
+-- ============================================================
+-- 8. TikTok safe-aggregation view
+-- Pre-computed ratio columns (ctr, cpc, cpm, cpa, roas) must NEVER
+-- be SUMmed or AVGed across ads. This view recomputes them from
+-- component metrics so consumers can safely aggregate at any level.
+-- ============================================================
+CREATE OR REPLACE VIEW tiktok_campaign_summary AS
+SELECT
+  user_id,
+  campaign_id,
+  campaign_name,
+  SUM(spend) AS spend,
+  SUM(impressions) AS impressions,
+  SUM(clicks) AS clicks,
+  SUM(conversions) AS conversions,
+  SUM(conversion_value) AS conversion_value,
+  SUM(video_views) AS video_views,
+  SUM(video_watched_2s) AS video_watched_2s,
+  SUM(video_watched_6s) AS video_watched_6s,
+  SUM(video_watched_100pct) AS video_watched_100pct,
+  -- Recomputed ratios from components — safe to use after further aggregation
+  CASE WHEN SUM(impressions) > 0 THEN SUM(clicks)::NUMERIC / SUM(impressions) ELSE 0 END AS ctr,
+  CASE WHEN SUM(clicks) > 0 THEN SUM(spend) / SUM(clicks) ELSE 0 END AS cpc,
+  CASE WHEN SUM(impressions) > 0 THEN (SUM(spend) / SUM(impressions)) * 1000 ELSE 0 END AS cpm,
+  CASE WHEN SUM(conversions) > 0 THEN SUM(spend) / SUM(conversions) ELSE 0 END AS cpa,
+  CASE WHEN SUM(spend) > 0 THEN SUM(conversion_value) / SUM(spend) ELSE 0 END AS roas
+FROM tiktok_ads_today
+GROUP BY user_id, campaign_id, campaign_name;

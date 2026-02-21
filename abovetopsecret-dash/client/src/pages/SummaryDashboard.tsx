@@ -2,9 +2,10 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMetrics } from '../hooks/useMetrics';
 import { useAuthStore, getAuthToken } from '../stores/authStore';
-import { fetchTimeseries, TimeseriesPoint } from '../lib/api';
+import { fetchTimeseries, TimeseriesPoint, fetchAccountSummary, AccountSummary } from '../lib/api';
 import { ROUTES } from '../lib/routes';
 import { fmt } from '../lib/formatters';
+import { useAccountStore } from '../stores/accountStore';
 import PageShell from '../components/shared/PageShell';
 import SpendRevenueChart from '../components/charts/SpendRevenueChart';
 import MetricSparkline from '../components/charts/MetricSparkline';
@@ -41,6 +42,9 @@ export default function SummaryDashboard() {
   const [favorites, setFavorites] = useState<Favorite[]>([]);
   const [ga4, setGa4] = useState<GA4Overview | null>(null);
   const [attrData, setAttrData] = useState<AttrRow[]>([]);
+  const [accountSummaries, setAccountSummaries] = useState<AccountSummary[]>([]);
+  const selectedAccountIds = useAccountStore((s) => s.selectedAccountIds);
+  const setSelectedAccountIds = useAccountStore((s) => s.setSelectedAccountIds);
 
   useEffect(() => {
     let cancelled = false;
@@ -52,11 +56,12 @@ export default function SummaryDashboard() {
     return () => { cancelled = true; };
   }, []);
 
-  // Load pinned metrics, GA4 overview, attribution summary
+  // Load pinned metrics, GA4 overview, attribution summary, account summaries
   useEffect(() => {
     apiFetch<Favorite[]>('/favorites').then(setFavorites).catch(() => {});
     apiFetch<GA4Overview>('/ga4/overview').then(setGa4).catch(() => {});
     apiFetch<AttrRow[]>('/attribution-models/data').then(setAttrData).catch(() => {});
+    fetchAccountSummary().then(setAccountSummaries).catch(() => {});
   }, []);
 
   const togglePin = useCallback(async (metricKey: string, label: string) => {
@@ -179,6 +184,36 @@ export default function SummaryDashboard() {
             <div className={`text-2xl font-bold font-mono ${profitColor}`}><AnimatedNumber value={profit} format={fmt.currency} /></div>
           </div>
         </div>
+      )}
+
+      {/* Account Overview — only when 2+ accounts and All Accounts selected */}
+      {accountSummaries.length >= 2 && selectedAccountIds.length === 0 && (
+        <>
+          <h2 className="text-sm font-semibold text-ats-text-muted uppercase tracking-wider mb-3">Accounts Overview</h2>
+          <div className="flex gap-3 overflow-x-auto mb-6 pb-1">
+            {accountSummaries.map((acct) => {
+              const roas = acct.spend > 0 ? acct.revenue / acct.spend : 0;
+              return (
+                <button
+                  key={acct.id}
+                  onClick={() => setSelectedAccountIds([acct.id])}
+                  className={`${cardCls} p-3 min-w-[180px] flex-shrink-0 hover:border-ats-accent transition-colors text-left`}
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: acct.color || '#6b7280' }} />
+                    <span className="text-xs font-semibold text-ats-text truncate">{acct.name}</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
+                    <div><span className="text-ats-text-muted">Spend</span><div className="font-mono text-ats-text">{fmt.currency(acct.spend)}</div></div>
+                    <div><span className="text-ats-text-muted">Revenue</span><div className="font-mono text-ats-green">{fmt.currency(acct.revenue)}</div></div>
+                    <div><span className="text-ats-text-muted">ROAS</span><div className="font-mono" style={{ color: roas >= 2 ? '#22c55e' : roas >= 1 ? '#f59e0b' : '#ef4444' }}>{fmt.ratio(roas)}</div></div>
+                    <div><span className="text-ats-text-muted">Conv</span><div className="font-mono text-ats-text">{acct.conversions}</div></div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </>
       )}
 
       {/* Spend vs Revenue Chart */}

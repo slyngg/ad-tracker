@@ -5,6 +5,7 @@ import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { JWT_SECRET } from '../routes/auth';
 import { refreshPinnedDashboards } from './slack-bot';
+import { getUserTimezone } from './timezone';
 
 interface AuthenticatedSocket extends WebSocket {
   userId: number | null;
@@ -168,10 +169,16 @@ export class RealtimeService {
     const prevUserFilter = userId ? 'AND user_id = $1' : '';
     const params = userId ? [userId] : [];
 
+    // Use user's timezone for "yesterday" and time-of-day comparisons
+    const tz = await getUserTimezone(userId);
+    const prevTzParams = [...params, tz];
+    const tzIdx = prevTzParams.length; // $1 if no userId, $2 if userId
+
     const [summaryResult, recentOrdersResult, prevSpendResult, prevOrdersResult] = await Promise.all([
       this.pool.query(`
         SELECT
-          (SELECT COALESCE(SUM(spend), 0) FROM fb_ads_today ${uf ? 'WHERE user_id = $1' : ''}) AS total_spend,
+          (SELECT COALESCE(SUM(spend), 0) FROM fb_ads_today ${uf ? 'WHERE user_id = $1' : ''}) +
+          (SELECT COALESCE(SUM(spend), 0) FROM tiktok_ads_today ${uf ? 'WHERE user_id = $1' : ''}) AS total_spend,
           (SELECT COALESCE(SUM(COALESCE(subtotal, revenue)), 0) FROM cc_orders_today WHERE order_status = 'completed' AND (is_test = false OR is_test IS NULL) ${ufAnd}) AS total_revenue,
           (SELECT COUNT(DISTINCT order_id) FROM cc_orders_today WHERE order_status = 'completed' AND (is_test = false OR is_test IS NULL) ${ufAnd}) AS total_conversions
       `, params),
@@ -182,11 +189,16 @@ export class RealtimeService {
         ORDER BY conversion_time DESC
         LIMIT 20
       `, params),
+      // Prorate yesterday's spend (Meta + TikTok) by fraction of day elapsed in user's timezone
       this.pool.query(`
-        SELECT COALESCE(SUM((ad_data->>'spend')::NUMERIC), 0) AS prev_spend
-        FROM fb_ads_archive
-        WHERE archived_date = CURRENT_DATE - INTERVAL '1 day' ${prevUserFilter}
-      `, params),
+        SELECT (
+          COALESCE((SELECT SUM((ad_data->>'spend')::NUMERIC) FROM fb_ads_archive
+            WHERE archived_date = (NOW() AT TIME ZONE $${tzIdx})::DATE - 1 ${prevUserFilter}), 0) +
+          COALESCE((SELECT SUM((ad_data->>'spend')::NUMERIC) FROM tiktok_ads_archive
+            WHERE archived_date = (NOW() AT TIME ZONE $${tzIdx})::DATE - 1 ${prevUserFilter}), 0)
+        ) * (EXTRACT(EPOCH FROM (NOW() AT TIME ZONE $${tzIdx})::TIME) / 86400.0) AS prev_spend
+      `, prevTzParams),
+      // Filter yesterday's orders to same time-of-day in user's timezone
       this.pool.query(`
         SELECT
           COALESCE(SUM(CASE WHEN order_data->>'order_status' = 'completed'
@@ -196,8 +208,10 @@ export class RealtimeService {
             AND COALESCE((order_data->>'is_test')::BOOLEAN, false) = false
             THEN order_data->>'order_id' END) AS prev_conversions
         FROM orders_archive
-        WHERE archived_date = CURRENT_DATE - INTERVAL '1 day' ${prevUserFilter}
-      `, params),
+        WHERE archived_date = (NOW() AT TIME ZONE $${tzIdx})::DATE - 1
+          AND ((order_data->>'conversion_time')::TIMESTAMPTZ AT TIME ZONE $${tzIdx})::TIME <= (NOW() AT TIME ZONE $${tzIdx})::TIME
+          ${prevUserFilter}
+      `, prevTzParams),
     ]);
 
     const row = summaryResult.rows[0];
@@ -239,18 +253,29 @@ export class RealtimeService {
     const prevUserFilter = userId ? 'AND user_id = $1' : '';
     const params = userId ? [userId] : [];
 
+    // Use user's timezone for "yesterday" and time-of-day comparisons
+    const tz = await getUserTimezone(userId);
+    const prevTzParams = [...params, tz];
+    const tzIdx = prevTzParams.length;
+
     const [result, prevSpendResult, prevOrdersResult] = await Promise.all([
       this.pool.query(`
         SELECT
-          (SELECT COALESCE(SUM(spend), 0) FROM fb_ads_today ${uf ? 'WHERE user_id = $1' : ''}) AS total_spend,
+          (SELECT COALESCE(SUM(spend), 0) FROM fb_ads_today ${uf ? 'WHERE user_id = $1' : ''}) +
+          (SELECT COALESCE(SUM(spend), 0) FROM tiktok_ads_today ${uf ? 'WHERE user_id = $1' : ''}) AS total_spend,
           (SELECT COALESCE(SUM(COALESCE(subtotal, revenue)), 0) FROM cc_orders_today WHERE order_status = 'completed' AND (is_test = false OR is_test IS NULL) ${ufAnd}) AS total_revenue,
           (SELECT COUNT(DISTINCT order_id) FROM cc_orders_today WHERE order_status = 'completed' AND (is_test = false OR is_test IS NULL) ${ufAnd}) AS total_conversions
       `, params),
+      // Prorate yesterday's spend (Meta + TikTok) by fraction of day elapsed in user's timezone
       this.pool.query(`
-        SELECT COALESCE(SUM((ad_data->>'spend')::NUMERIC), 0) AS prev_spend
-        FROM fb_ads_archive
-        WHERE archived_date = CURRENT_DATE - INTERVAL '1 day' ${prevUserFilter}
-      `, params),
+        SELECT (
+          COALESCE((SELECT SUM((ad_data->>'spend')::NUMERIC) FROM fb_ads_archive
+            WHERE archived_date = (NOW() AT TIME ZONE $${tzIdx})::DATE - 1 ${prevUserFilter}), 0) +
+          COALESCE((SELECT SUM((ad_data->>'spend')::NUMERIC) FROM tiktok_ads_archive
+            WHERE archived_date = (NOW() AT TIME ZONE $${tzIdx})::DATE - 1 ${prevUserFilter}), 0)
+        ) * (EXTRACT(EPOCH FROM (NOW() AT TIME ZONE $${tzIdx})::TIME) / 86400.0) AS prev_spend
+      `, prevTzParams),
+      // Filter yesterday's orders to same time-of-day in user's timezone
       this.pool.query(`
         SELECT
           COALESCE(SUM(CASE WHEN order_data->>'order_status' = 'completed'
@@ -260,8 +285,10 @@ export class RealtimeService {
             AND COALESCE((order_data->>'is_test')::BOOLEAN, false) = false
             THEN order_data->>'order_id' END) AS prev_conversions
         FROM orders_archive
-        WHERE archived_date = CURRENT_DATE - INTERVAL '1 day' ${prevUserFilter}
-      `, params),
+        WHERE archived_date = (NOW() AT TIME ZONE $${tzIdx})::DATE - 1
+          AND ((order_data->>'conversion_time')::TIMESTAMPTZ AT TIME ZONE $${tzIdx})::TIME <= (NOW() AT TIME ZONE $${tzIdx})::TIME
+          ${prevUserFilter}
+      `, prevTzParams),
     ]);
 
     const row = result.rows[0];
