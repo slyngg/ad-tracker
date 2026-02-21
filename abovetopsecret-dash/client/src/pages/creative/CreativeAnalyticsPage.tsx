@@ -241,7 +241,7 @@ export default function CreativeAnalyticsPage() {
         <div>
           {comparative.length > 0 && (
             <div className={`${cardCls} mb-4`}>
-              <ResponsiveContainer width="100%" height={300}>
+              <div className="h-[200px] sm:h-[300px]"><ResponsiveContainer width="100%" height="100%">
                 <BarChart data={comparative} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                   <CartesianGrid stroke="#374151" strokeDasharray="3 3" />
                   <XAxis dataKey="dimension_value" tick={{ fontSize: 11, fill: '#9ca3af' }} />
@@ -249,14 +249,14 @@ export default function CreativeAnalyticsPage() {
                   <Tooltip contentStyle={{ background: '#1f2937', border: '1px solid #374151', borderRadius: 8 }} />
                   <Bar dataKey={`avg_${compMetric}`} fill="#3b82f6" radius={[4, 4, 0, 0]} />
                 </BarChart>
-              </ResponsiveContainer>
+              </ResponsiveContainer></div>
             </div>
           )}
           <div className={`${cardCls} overflow-x-auto`}>
             <table className="w-full">
               <thead><tr className="border-b border-ats-border">
                 {['Dimension', 'Creatives', 'Total Spend', 'Avg ROAS', 'Avg CPA', 'Avg CTR', 'Avg CVR'].map(h => (
-                  <th key={h} className="px-3 py-2 text-left text-[11px] uppercase tracking-wider font-semibold text-ats-text-muted">{h}</th>
+                  <th key={h} className="px-3 py-2 text-left text-xs sm:text-[11px] uppercase tracking-wider font-semibold text-ats-text-muted">{h}</th>
                 ))}
               </tr></thead>
               <tbody>

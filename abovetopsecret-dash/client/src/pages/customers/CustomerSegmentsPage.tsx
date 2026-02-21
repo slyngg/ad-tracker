@@ -84,7 +84,7 @@ export default function CustomerSegmentsPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
         <div className={`${cardCls} flex items-center justify-center`}>
           {pieData.length > 0 ? (
-            <PieChart width={180} height={180}><Pie data={pieData} cx={85} cy={85} innerRadius={40} outerRadius={80} dataKey="value" stroke="none">{pieData.map((d, i) => <Cell key={i} fill={d.color} />)}</Pie><Tooltip /></PieChart>
+            <div className="w-[140px] h-[140px] sm:w-[180px] sm:h-[180px]"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={pieData} cx="50%" cy="50%" innerRadius="35%" outerRadius="70%" dataKey="value" stroke="none">{pieData.map((d, i) => <Cell key={i} fill={d.color} />)}</Pie><Tooltip /></PieChart></ResponsiveContainer></div>
           ) : <div className="text-sm text-ats-text-muted">No segment data. Click "Recompute RFM".</div>}
         </div>
         <div className="lg:col-span-2 grid grid-cols-2 lg:grid-cols-3 gap-3">
@@ -105,7 +105,7 @@ export default function CustomerSegmentsPage() {
       {selected && customers.length > 0 && (
         <div className={`${cardCls} overflow-hidden`}>
           <h3 className="text-sm font-semibold text-ats-text mb-3">Customers in Segment</h3>
-          <table className="w-full"><thead><tr className="border-b border-ats-border">{['Email', 'Name', 'Recency', 'Frequency', 'Monetary', 'RFM Score'].map(h => <th key={h} className="px-3 py-2 text-left text-[11px] uppercase tracking-wider font-semibold text-ats-text-muted">{h}</th>)}</tr></thead><tbody>
+          <table className="w-full"><thead><tr className="border-b border-ats-border">{['Email', 'Name', 'Recency', 'Frequency', 'Monetary', 'RFM Score'].map(h => <th key={h} className="px-3 py-2 text-left text-xs sm:text-[11px] uppercase tracking-wider font-semibold text-ats-text-muted">{h}</th>)}</tr></thead><tbody>
             {customers.map((c, i) => <tr key={i} className="border-b border-ats-border last:border-0">
               <td className="px-3 py-2 text-sm text-ats-text">{c.customer_email}</td>
               <td className="px-3 py-2 text-sm text-ats-text-muted">{c.customer_name || '-'}</td>

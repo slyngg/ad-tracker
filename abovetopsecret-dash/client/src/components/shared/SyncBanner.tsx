@@ -36,7 +36,7 @@ export default function SyncBanner() {
       <div className="flex-1 max-w-[120px] h-1 bg-ats-accent/20 rounded-full overflow-hidden">
         <div className="h-full bg-ats-accent rounded-full transition-all duration-500" style={{ width: `${Math.max(pct, 8)}%` }} />
       </div>
-      <span className="text-[10px] text-ats-accent/70 font-mono">{donePlatforms.length}/{total}</span>
+      <span className="text-xs sm:text-[10px] text-ats-accent/70 font-mono">{donePlatforms.length}/{total}</span>
     </div>
   );
 }

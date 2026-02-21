@@ -44,7 +44,7 @@ export default function AccountSwitcher() {
     <div ref={ref} className="relative">
       <button
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium text-ats-text bg-ats-card border border-ats-border hover:border-ats-accent transition-colors"
+        className="flex items-center gap-1.5 px-3 py-2.5 min-h-[44px] rounded-lg text-xs font-medium text-ats-text bg-ats-card border border-ats-border hover:border-ats-accent transition-colors"
       >
         {selectedAccountIds.length > 0 && (
           <span className="w-2 h-2 rounded-full bg-ats-accent" />
@@ -60,7 +60,7 @@ export default function AccountSwitcher() {
             {selectedAccountIds.length > 0 && (
               <button
                 onClick={() => { clearFilters(); }}
-                className="text-[10px] text-ats-accent hover:underline flex items-center gap-1"
+                className="text-xs text-ats-accent hover:underline flex items-center gap-1 min-h-[44px] px-2"
               >
                 <X size={10} /> Clear
               </button>
@@ -72,7 +72,7 @@ export default function AccountSwitcher() {
               <button
                 key={acct.id}
                 onClick={() => toggle(acct.id)}
-                className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-ats-bg transition-colors text-left"
+                className="w-full flex items-center gap-2.5 px-3 py-2.5 min-h-[44px] hover:bg-ats-bg transition-colors text-left"
               >
                 <span
                   className="w-3 h-3 rounded-full border-2 flex items-center justify-center flex-shrink-0"

@@ -2,6 +2,7 @@ import pool from '../db';
 import { getSetting } from './settings';
 import { pauseAdset, enableAdset, adjustBudget } from './meta-api';
 import { getRealtime } from './realtime';
+import { sendEmail, buildRuleAlertEmail } from './email';
 
 interface Rule {
   id: number;
@@ -190,6 +191,14 @@ async function executeAction(rule: Rule, metrics: Record<string, number>, userId
     if (!slackUrl) throw new Error('No Slack webhook URL configured');
     await sendSlackNotification(slackUrl, rule, metrics);
     return { type: 'slack_notify', delivered: true };
+
+  } else if (rule.action_type === 'email_notify') {
+    const emailAddress = await getUserEmail(userId);
+    if (!emailAddress) throw new Error('No email address found for user');
+    const { subject, html } = buildRuleAlertEmail(rule.name, metrics, rule.action_type);
+    const sent = await sendEmail({ to: emailAddress, subject, html });
+    if (!sent) throw new Error('Email delivery failed or SMTP not configured');
+    return { type: 'email_notify', delivered: true, to: emailAddress };
   }
 
   return { type: rule.action_type, status: 'unknown_action' };
@@ -304,5 +313,14 @@ async function sendSlackNotification(
 
   if (!response.ok) {
     throw new Error(`Slack webhook failed: ${response.status}`);
+  }
+}
+
+async function getUserEmail(userId: number): Promise<string | null> {
+  try {
+    const result = await pool.query('SELECT email FROM users WHERE id = $1', [userId]);
+    return result.rows[0]?.email || null;
+  } catch {
+    return null;
   }
 }

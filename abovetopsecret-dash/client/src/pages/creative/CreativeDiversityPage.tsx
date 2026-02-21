@@ -104,12 +104,7 @@ export default function CreativeDiversityPage() {
               {pieData.length > 0 ? (
                 <>
                   <div className="flex justify-center mb-3">
-                    <PieChart width={120} height={120}>
-                      <Pie data={pieData} cx={55} cy={55} innerRadius={28} outerRadius={55} dataKey="value" stroke="none">
-                        {pieData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
-                      </Pie>
-                      <Tooltip />
-                    </PieChart>
+                    <div className="w-[100px] h-[100px] sm:w-[120px] sm:h-[120px] mx-auto"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={pieData} cx="50%" cy="50%" innerRadius="35%" outerRadius="85%" dataKey="value" stroke="none">{pieData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}</Pie><Tooltip /></PieChart></ResponsiveContainer></div>
                   </div>
                   <div className="space-y-1">
                     {pieData.map((d, i) => {
@@ -151,10 +146,10 @@ export default function CreativeDiversityPage() {
                 <div className="overflow-x-auto">
                   <table className="w-full">
                     <thead><tr className="border-b border-ats-border">
-                      <th className="px-2 py-1 text-left text-[10px] uppercase text-ats-text-muted">Value</th>
-                      <th className="px-2 py-1 text-right text-[10px] uppercase text-ats-text-muted">Creatives</th>
-                      <th className="px-2 py-1 text-right text-[10px] uppercase text-ats-text-muted">Spend</th>
-                      <th className="px-2 py-1 text-right text-[10px] uppercase text-ats-text-muted">Avg ROAS</th>
+                      <th className="px-2 py-1 text-left text-xs sm:text-[10px] uppercase text-ats-text-muted">Value</th>
+                      <th className="px-2 py-1 text-right text-xs sm:text-[10px] uppercase text-ats-text-muted">Creatives</th>
+                      <th className="px-2 py-1 text-right text-xs sm:text-[10px] uppercase text-ats-text-muted">Spend</th>
+                      <th className="px-2 py-1 text-right text-xs sm:text-[10px] uppercase text-ats-text-muted">Avg ROAS</th>
                     </tr></thead>
                     <tbody>
                       {rows.map((r: any, i: number) => (

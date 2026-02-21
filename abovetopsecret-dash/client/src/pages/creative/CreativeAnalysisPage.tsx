@@ -84,10 +84,10 @@ export default function CreativeAnalysisPage() {
       {/* KPI Cards */}
       {summary && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
-          <div className={cardCls}><div className="text-[11px] text-ats-text-muted uppercase font-mono mb-1">Total Spend</div><div className="text-2xl font-bold text-ats-text font-mono">${parseFloat(String(summary.total_spend)).toFixed(0)}</div></div>
-          <div className={cardCls}><div className="text-[11px] text-ats-text-muted uppercase font-mono mb-1">Avg CTR</div><div className="text-2xl font-bold text-ats-accent font-mono">{parseFloat(String(summary.avg_ctr)).toFixed(2)}%</div></div>
-          <div className={cardCls}><div className="text-[11px] text-ats-text-muted uppercase font-mono mb-1">Avg ROAS</div><div className="text-2xl font-bold text-ats-text font-mono">{parseFloat(String(summary.avg_roas)).toFixed(2)}x</div></div>
-          <div className={cardCls}><div className="text-[11px] text-ats-text-muted uppercase font-mono mb-1">Top Type</div><div className="text-2xl font-bold text-ats-text capitalize">{summary.top_type || '-'}</div></div>
+          <div className={cardCls}><div className="text-xs sm:text-[11px] text-ats-text-muted uppercase font-mono mb-1">Total Spend</div><div className="text-2xl font-bold text-ats-text font-mono">${parseFloat(String(summary.total_spend)).toFixed(0)}</div></div>
+          <div className={cardCls}><div className="text-xs sm:text-[11px] text-ats-text-muted uppercase font-mono mb-1">Avg CTR</div><div className="text-2xl font-bold text-ats-accent font-mono">{parseFloat(String(summary.avg_ctr)).toFixed(2)}%</div></div>
+          <div className={cardCls}><div className="text-xs sm:text-[11px] text-ats-text-muted uppercase font-mono mb-1">Avg ROAS</div><div className="text-2xl font-bold text-ats-text font-mono">{parseFloat(String(summary.avg_roas)).toFixed(2)}x</div></div>
+          <div className={cardCls}><div className="text-xs sm:text-[11px] text-ats-text-muted uppercase font-mono mb-1">Top Type</div><div className="text-2xl font-bold text-ats-text capitalize">{summary.top_type || '-'}</div></div>
         </div>
       )}
 
@@ -95,7 +95,7 @@ export default function CreativeAnalysisPage() {
       {pieData.length > 0 && (
         <div className={`${cardCls} mb-6 flex items-center gap-6`}>
           <div><h3 className="text-sm font-semibold text-ats-text mb-2">Spend by Type</h3>
-            <PieChart width={120} height={120}><Pie data={pieData} cx={55} cy={55} innerRadius={30} outerRadius={55} dataKey="value" stroke="none">{pieData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}</Pie><Tooltip /></PieChart>
+            <div className="w-[100px] h-[100px] sm:w-[120px] sm:h-[120px]"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={pieData} cx="50%" cy="50%" innerRadius="40%" outerRadius="90%" dataKey="value" stroke="none">{pieData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}</Pie><Tooltip /></PieChart></ResponsiveContainer></div>
           </div>
           <div className="space-y-1">{pieData.map((d, i) => <div key={d.name} className="flex items-center gap-2"><div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS[i % COLORS.length] }} /><span className="text-sm text-ats-text capitalize">{d.name}: ${d.value.toFixed(0)}</span></div>)}</div>
         </div>
@@ -128,7 +128,7 @@ export default function CreativeAnalysisPage() {
         <div className="overflow-x-auto">
           <table className="w-full"><thead><tr className="border-b border-ats-border bg-ats-bg/50">
             <th className="px-2 py-2 w-8"></th>
-            {['Ad Name', 'Platform', 'Type', 'Spend', 'Impressions', 'Clicks', 'CTR', 'Conv', 'CPA', 'ROAS'].map(h => <th key={h} className="px-3 py-2 text-left text-[11px] uppercase tracking-wider font-semibold text-ats-text-muted">{h}</th>)}
+            {['Ad Name', 'Platform', 'Type', 'Spend', 'Impressions', 'Clicks', 'CTR', 'Conv', 'CPA', 'ROAS'].map(h => <th key={h} className="px-3 py-2 text-left text-xs sm:text-[11px] uppercase tracking-wider font-semibold text-ats-text-muted">{h}</th>)}
           </tr></thead><tbody>
             {filtered.map((c, i) => <tr key={i} className={`border-b border-ats-border last:border-0 hover:bg-ats-hover/50 ${compare.has(c.ad_id) ? 'bg-ats-accent/10' : ''}`}>
               <td className="px-2 py-2"><input type="checkbox" checked={compare.has(c.ad_id)} onChange={() => toggleCompare(c.ad_id)} className="accent-ats-accent" /></td>

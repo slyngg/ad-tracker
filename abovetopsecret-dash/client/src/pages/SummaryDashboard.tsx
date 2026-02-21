@@ -12,6 +12,7 @@ import MetricSparkline from '../components/charts/MetricSparkline';
 import AnimatedNumber from '../components/shared/AnimatedNumber';
 import LiveOrderFeed from '../components/dashboard/LiveOrderFeed';
 import SyncPreloader from '../components/shared/SyncPreloader';
+import { Download, Share2 } from 'lucide-react';
 
 async function apiFetch<T>(path: string): Promise<T> {
   const token = getAuthToken();
@@ -114,6 +115,43 @@ export default function SummaryDashboard() {
     return items;
   }, [timeseries, data]);
 
+  const exportDashboardCSV = useCallback(() => {
+    if (!summary || !data.length) return;
+    const headers = ['Metric', 'Value'];
+    const rows = [
+      ['Total Spend', summary.total_spend.toFixed(2)],
+      ['Total Revenue', summary.total_revenue.toFixed(2)],
+      ['ROAS', summary.total_roi.toFixed(2)],
+      ['Conversions', String(summary.total_conversions)],
+      ['Net Profit', profit.toFixed(2)],
+      [''],
+      ['Offer', 'Spend', 'Revenue', 'ROI', 'Conversions'],
+      ...data.map(r => [r.offer_name, r.spend.toFixed(2), r.revenue.toFixed(2), r.roi.toFixed(2), String(r.conversions)]),
+    ];
+    const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `dashboard-${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [summary, data, profit]);
+
+  const shareDashboard = useCallback(async () => {
+    const shareData = {
+      title: 'OpticData Dashboard',
+      text: summary ? `Spend: ${fmt.currency(summary.total_spend)} | Revenue: ${fmt.currency(summary.total_revenue)} | ROAS: ${fmt.ratio(summary.total_roi)}` : 'Dashboard Summary',
+      url: window.location.href,
+    };
+    if (navigator.share) {
+      try { await navigator.share(shareData); } catch { /* cancelled */ }
+    } else {
+      await navigator.clipboard.writeText(`${shareData.text}\n${shareData.url}`);
+      alert('Dashboard summary copied to clipboard!');
+    }
+  }, [summary]);
+
   const activityDotColor = (type: 'info' | 'success' | 'warning') => type === 'success' ? 'bg-ats-green' : type === 'warning' ? 'bg-ats-yellow' : 'bg-ats-accent';
 
   const pinnedMetrics = useMemo(() => {
@@ -137,9 +175,28 @@ export default function SummaryDashboard() {
       title="Command Center"
       subtitle={new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
       actions={
-        <button onClick={() => refresh()} disabled={refreshing} className="bg-ats-accent text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-blue-600 transition-colors disabled:opacity-60">
-          {refreshing ? 'Syncing...' : 'Refresh'}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={exportDashboardCSV}
+            disabled={!summary}
+            className="flex items-center gap-1.5 px-3 py-2.5 min-h-[44px] bg-ats-card border border-ats-border text-ats-text-muted rounded-lg text-sm hover:text-ats-text hover:border-ats-accent transition-colors disabled:opacity-40"
+            title="Export CSV"
+          >
+            <Download size={14} />
+            <span className="hidden sm:inline">Export</span>
+          </button>
+          <button
+            onClick={shareDashboard}
+            className="flex items-center gap-1.5 px-3 py-2.5 min-h-[44px] bg-ats-card border border-ats-border text-ats-text-muted rounded-lg text-sm hover:text-ats-text hover:border-ats-accent transition-colors"
+            title="Share"
+          >
+            <Share2 size={14} />
+            <span className="hidden sm:inline">Share</span>
+          </button>
+          <button onClick={() => refresh()} disabled={refreshing} className="flex items-center gap-1.5 px-3 py-2.5 min-h-[44px] bg-ats-accent text-white rounded-lg text-sm font-semibold hover:bg-blue-600 transition-colors disabled:opacity-60">
+            {refreshing ? 'Syncing...' : 'Refresh'}
+          </button>
+        </div>
       }
     >
       <SyncPreloader hasData={hasRealData} loading={loading}>
@@ -161,7 +218,7 @@ export default function SummaryDashboard() {
           {pinnedMetrics.map(pm => (
             <div key={pm.id} className="bg-ats-accent/10 border border-ats-accent/30 rounded-lg px-4 py-2 min-w-[120px] flex-shrink-0 relative group">
               <button onClick={() => togglePin(pm.metric_key, pm.label)} className="absolute top-1 right-1 text-[10px] text-ats-accent opacity-0 group-hover:opacity-100">unpin</button>
-              <div className="text-[10px] text-ats-accent uppercase tracking-wider font-mono">{pm.label}</div>
+              <div className="text-xs sm:text-[10px] text-ats-accent uppercase tracking-wider font-mono">{pm.label}</div>
               <div className="text-lg font-bold text-ats-text font-mono">{pm.format(pm.value)}</div>
             </div>
           ))}
@@ -173,7 +230,7 @@ export default function SummaryDashboard() {
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-6">
           <div className={cardCls}>
             <div className="flex items-center justify-between">
-              <div className="text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Spend</div>
+              <div className="text-xs sm:text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Spend</div>
               <button onClick={() => togglePin('spend', 'Spend')} className={`text-[10px] ${favorites.some(f => f.metric_key === 'spend') ? 'text-ats-accent' : 'text-ats-text-muted hover:text-ats-accent'}`}>📌</button>
             </div>
             <div className="text-2xl font-bold text-ats-text font-mono"><AnimatedNumber value={summary.total_spend} format={fmt.currency} /></div>
@@ -181,23 +238,23 @@ export default function SummaryDashboard() {
           </div>
           <div className={cardCls}>
             <div className="flex items-center justify-between">
-              <div className="text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Revenue</div>
+              <div className="text-xs sm:text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Revenue</div>
               <button onClick={() => togglePin('revenue', 'Revenue')} className={`text-[10px] ${favorites.some(f => f.metric_key === 'revenue') ? 'text-ats-accent' : 'text-ats-text-muted hover:text-ats-accent'}`}>📌</button>
             </div>
             <div className="text-2xl font-bold text-ats-green font-mono"><AnimatedNumber value={summary.total_revenue} format={fmt.currency} /></div>
             {revenueSpark.length > 0 && <div className="mt-2"><MetricSparkline data={revenueSpark} color="#22c55e" height={28} /></div>}
           </div>
           <div className={cardCls}>
-            <div className="text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">ROAS</div>
+            <div className="text-xs sm:text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">ROAS</div>
             <div className={`text-2xl font-bold font-mono ${roiColor}`}><AnimatedNumber value={summary.total_roi} format={fmt.ratio} /></div>
           </div>
           <div className={cardCls}>
-            <div className="text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Conversions</div>
+            <div className="text-xs sm:text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Conversions</div>
             <div className="text-2xl font-bold text-ats-text font-mono"><AnimatedNumber value={summary.total_conversions} format={fmt.num} /></div>
             {conversionSpark.length > 0 && <div className="mt-2"><MetricSparkline data={conversionSpark} color="#3b82f6" height={28} /></div>}
           </div>
           <div className={cardCls}>
-            <div className="text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Net Profit</div>
+            <div className="text-xs sm:text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Net Profit</div>
             <div className={`text-2xl font-bold font-mono ${profitColor}`}><AnimatedNumber value={profit} format={fmt.currency} /></div>
           </div>
         </div>
@@ -220,7 +277,7 @@ export default function SummaryDashboard() {
                     <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: acct.color || '#6b7280' }} />
                     <span className="text-xs font-semibold text-ats-text truncate">{acct.name}</span>
                   </div>
-                  <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs sm:text-[11px]">
                     <div><span className="text-ats-text-muted">Spend</span><div className="font-mono text-ats-text">{fmt.currency(acct.spend)}</div></div>
                     <div><span className="text-ats-text-muted">Revenue</span><div className="font-mono text-ats-green">{fmt.currency(acct.revenue)}</div></div>
                     <div><span className="text-ats-text-muted">ROAS</span><div className="font-mono" style={{ color: roas >= 2 ? '#22c55e' : roas >= 1 ? '#f59e0b' : '#ef4444' }}>{fmt.ratio(roas)}</div></div>
@@ -253,10 +310,10 @@ export default function SummaryDashboard() {
           </div>
           {ga4 ? (
             <div className="grid grid-cols-2 gap-3">
-              <div><div className="text-[10px] text-ats-text-muted uppercase font-mono">Sessions</div><div className="text-lg font-bold text-ats-text font-mono">{fmt.num(ga4.sessions)}</div></div>
-              <div><div className="text-[10px] text-ats-text-muted uppercase font-mono">Pageviews</div><div className="text-lg font-bold text-ats-text font-mono">{fmt.num(ga4.pageviews)}</div></div>
-              <div><div className="text-[10px] text-ats-text-muted uppercase font-mono">Bounce Rate</div><div className="text-lg font-bold text-ats-text font-mono">{fmt.pctRaw(ga4.bounce_rate)}</div></div>
-              <div><div className="text-[10px] text-ats-text-muted uppercase font-mono">Avg Duration</div><div className="text-lg font-bold text-ats-text font-mono">{Math.round(ga4.avg_duration)}s</div></div>
+              <div><div className="text-xs sm:text-[10px] text-ats-text-muted uppercase font-mono">Sessions</div><div className="text-lg font-bold text-ats-text font-mono">{fmt.num(ga4.sessions)}</div></div>
+              <div><div className="text-xs sm:text-[10px] text-ats-text-muted uppercase font-mono">Pageviews</div><div className="text-lg font-bold text-ats-text font-mono">{fmt.num(ga4.pageviews)}</div></div>
+              <div><div className="text-xs sm:text-[10px] text-ats-text-muted uppercase font-mono">Bounce Rate</div><div className="text-lg font-bold text-ats-text font-mono">{fmt.pctRaw(ga4.bounce_rate)}</div></div>
+              <div><div className="text-xs sm:text-[10px] text-ats-text-muted uppercase font-mono">Avg Duration</div><div className="text-lg font-bold text-ats-text font-mono">{Math.round(ga4.avg_duration)}s</div></div>
             </div>
           ) : (
             <div className="text-center py-6">
@@ -304,7 +361,7 @@ export default function SummaryDashboard() {
           <button key={ws.path} onClick={() => navigate(ws.path)} className={`${cardCls} text-left hover:border-ats-accent transition-colors group`}>
             <div className="text-2xl mb-2">{ws.icon}</div>
             <div className="text-sm font-semibold text-ats-text group-hover:text-ats-accent transition-colors">{ws.label}</div>
-            <div className="text-[11px] text-ats-text-muted mt-0.5">{ws.desc}</div>
+            <div className="text-xs sm:text-[11px] text-ats-text-muted mt-0.5">{ws.desc}</div>
           </button>
         ))}
       </div>
@@ -322,7 +379,7 @@ export default function SummaryDashboard() {
                   <span className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${activityDotColor(item.type)}`} />
                   <div className="flex-1 min-w-0">
                     <div className="text-sm text-ats-text">{item.text}</div>
-                    <div className="text-[11px] text-ats-text-muted mt-0.5">{item.time}</div>
+                    <div className="text-xs sm:text-[11px] text-ats-text-muted mt-0.5">{item.time}</div>
                   </div>
                 </div>
               ))

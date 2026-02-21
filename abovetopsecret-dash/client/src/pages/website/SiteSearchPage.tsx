@@ -41,13 +41,13 @@ export default function SiteSearchPage() {
     <PageShell title="Site Search" subtitle="Search analytics">
       <div className={`${cardCls} mb-6`}>
         <h3 className="text-sm font-semibold text-ats-text mb-3">Daily Search Volume</h3>
-        <ResponsiveContainer width="100%" height={200}>
+        <div className="h-[160px] sm:h-[200px]"><ResponsiveContainer width="100%" height="100%">
           <LineChart data={daily}><CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} /><XAxis dataKey="date" tick={{ fill: '#6b7280', fontSize: 11 }} /><YAxis tick={{ fill: '#6b7280', fontSize: 11 }} axisLine={false} /><Tooltip contentStyle={{ backgroundColor: '#1f2937', border: '1px solid #374151', borderRadius: 8, color: '#f9fafb' }} /><Line type="monotone" dataKey="searches" stroke="#3b82f6" strokeWidth={2} dot={false} /></LineChart>
-        </ResponsiveContainer>
+        </ResponsiveContainer></div>
       </div>
       <div className={`${cardCls} mb-6 overflow-hidden`}>
         <h3 className="text-sm font-semibold text-ats-text mb-3">Top Search Queries</h3>
-        <table className="w-full"><thead><tr className="border-b border-ats-border">{['Query', 'Searches', 'Exits', 'Conversions', 'CVR', 'Revenue'].map(h => <th key={h} className="px-3 py-2 text-left text-[11px] uppercase tracking-wider font-semibold text-ats-text-muted">{h}</th>)}</tr></thead><tbody>
+        <table className="w-full"><thead><tr className="border-b border-ats-border">{['Query', 'Searches', 'Exits', 'Conversions', 'CVR', 'Revenue'].map(h => <th key={h} className="px-3 py-2 text-left text-xs sm:text-[11px] uppercase tracking-wider font-semibold text-ats-text-muted">{h}</th>)}</tr></thead><tbody>
           {queries.slice(0, 15).map((q, i) => <tr key={i} className="border-b border-ats-border last:border-0 hover:bg-ats-hover/50">
             <td className="px-3 py-2 text-sm text-ats-text font-semibold">{q.search_term}</td>
             <td className="px-3 py-2 text-sm font-mono text-ats-text">{Number(q.total_searches).toLocaleString()}</td>

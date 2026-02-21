@@ -56,15 +56,15 @@ export default function LTVAnalysisPage() {
   return (
     <PageShell title="LTV Analysis" subtitle="Customer lifetime value">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
-        <div className={cardCls}><div className="text-[11px] text-ats-text-muted uppercase font-mono mb-1">Total Customers</div><div className="text-2xl font-bold text-ats-text font-mono">{Number(overview?.total_customers || 0).toLocaleString()}</div></div>
-        <div className={cardCls}><div className="text-[11px] text-ats-text-muted uppercase font-mono mb-1">Average LTV</div><div className="text-2xl font-bold text-ats-accent font-mono">${parseFloat(String(overview?.avg_ltv || 0)).toFixed(2)}</div></div>
-        <div className={cardCls}><div className="text-[11px] text-ats-text-muted uppercase font-mono mb-1">Top 10% LTV</div><div className="text-2xl font-bold text-emerald-400 font-mono">${top10Avg.toFixed(2)}</div></div>
-        <div className={cardCls}><div className="text-[11px] text-ats-text-muted uppercase font-mono mb-1">Avg Frequency</div><div className="text-2xl font-bold text-ats-text font-mono">{parseFloat(String(overview?.avg_frequency || 0)).toFixed(1)}</div></div>
+        <div className={cardCls}><div className="text-xs sm:text-[11px] text-ats-text-muted uppercase font-mono mb-1">Total Customers</div><div className="text-2xl font-bold text-ats-text font-mono">{Number(overview?.total_customers || 0).toLocaleString()}</div></div>
+        <div className={cardCls}><div className="text-xs sm:text-[11px] text-ats-text-muted uppercase font-mono mb-1">Average LTV</div><div className="text-2xl font-bold text-ats-accent font-mono">${parseFloat(String(overview?.avg_ltv || 0)).toFixed(2)}</div></div>
+        <div className={cardCls}><div className="text-xs sm:text-[11px] text-ats-text-muted uppercase font-mono mb-1">Top 10% LTV</div><div className="text-2xl font-bold text-emerald-400 font-mono">${top10Avg.toFixed(2)}</div></div>
+        <div className={cardCls}><div className="text-xs sm:text-[11px] text-ats-text-muted uppercase font-mono mb-1">Avg Frequency</div><div className="text-2xl font-bold text-ats-text font-mono">{parseFloat(String(overview?.avg_frequency || 0)).toFixed(1)}</div></div>
       </div>
 
       <div className={`${cardCls} mb-6`}>
         <h3 className="text-sm font-semibold text-ats-text mb-3">LTV Distribution</h3>
-        <ResponsiveContainer width="100%" height={250}>
+        <div className="h-[180px] sm:h-[250px]"><ResponsiveContainer width="100%" height="100%">
           <BarChart data={distribution}>
             <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
             <XAxis dataKey="label" tick={{ fill: '#6b7280', fontSize: 11 }} />
@@ -72,12 +72,12 @@ export default function LTVAnalysisPage() {
             <Tooltip contentStyle={{ backgroundColor: '#1f2937', border: '1px solid #374151', borderRadius: 8, color: '#f9fafb' }} />
             <Bar dataKey="count" fill="#3b82f6" radius={[4, 4, 0, 0]} />
           </BarChart>
-        </ResponsiveContainer>
+        </ResponsiveContainer></div>
       </div>
 
       <div className={`${cardCls} overflow-hidden`}>
         <h3 className="text-sm font-semibold text-ats-text mb-3">Top Customers by LTV</h3>
-        <table className="w-full"><thead><tr className="border-b border-ats-border">{['Email', 'Name', 'LTV', 'Orders', 'Recency'].map(h => <th key={h} className="px-3 py-2 text-left text-[11px] uppercase tracking-wider font-semibold text-ats-text-muted">{h}</th>)}</tr></thead><tbody>
+        <table className="w-full"><thead><tr className="border-b border-ats-border">{['Email', 'Name', 'LTV', 'Orders', 'Recency'].map(h => <th key={h} className="px-3 py-2 text-left text-xs sm:text-[11px] uppercase tracking-wider font-semibold text-ats-text-muted">{h}</th>)}</tr></thead><tbody>
           {sorted.slice(0, 20).map((c, i) => <tr key={i} className="border-b border-ats-border last:border-0 hover:bg-ats-hover/50">
             <td className="px-3 py-2 text-sm text-ats-text">{c.customer_email}</td>
             <td className="px-3 py-2 text-sm text-ats-text-muted">{c.customer_name || '-'}</td>

@@ -2,7 +2,9 @@ import { Router, Request, Response } from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
+import crypto from 'crypto';
 import { z } from 'zod';
+import rateLimit from 'express-rate-limit';
 import pool from '../db';
 import { validateBody } from '../middleware/validate';
 import { publishCampaignDraft, activateCampaign, validateDraft } from '../services/campaign-publisher';
@@ -11,20 +13,37 @@ import { decrypt } from '../services/oauth-providers';
 
 const router = Router();
 
+// ── Rate limiters ───────────────────────────────────────────
+const publishLimiter = rateLimit({ windowMs: 60_000, max: 5, keyGenerator: (req) => String(req.user?.id), message: { error: 'Too many publish attempts' } });
+const metaApiLimiter = rateLimit({ windowMs: 60_000, max: 30, keyGenerator: (req) => String(req.user?.id), message: { error: 'Too many requests' } });
+
+// ── Helper: parse + validate ID param ───────────────────────
+function parseId(val: string, res: Response): number | null {
+  const id = parseInt(val, 10);
+  if (isNaN(id) || id <= 0) { res.status(400).json({ error: 'Invalid ID' }); return null; }
+  return id;
+}
+
 // ── Multer setup for media uploads ──────────────────────────
 const uploadDir = path.join(__dirname, '../../uploads/campaign-media');
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 
+const ALLOWED_MIMES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'video/mp4', 'video/quicktime'];
+
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, uploadDir),
-  filename: (_req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`),
+  filename: (_req, file, cb) => {
+    const ext = path.extname(file.originalname).replace(/[^a-zA-Z0-9.]/g, '');
+    cb(null, `${Date.now()}-${crypto.randomBytes(8).toString('hex')}${ext}`);
+  },
 });
 const upload = multer({
   storage,
-  limits: { fileSize: 30 * 1024 * 1024 }, // 30MB
+  limits: { fileSize: 30 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
-    const allowed = /\.(jpg|jpeg|png|gif|mp4|mov|webp)$/i;
-    cb(null, allowed.test(path.extname(file.originalname)));
+    const extOk = /\.(jpg|jpeg|png|gif|mp4|mov|webp)$/i.test(path.extname(file.originalname));
+    const mimeOk = ALLOWED_MIMES.includes(file.mimetype);
+    cb(null, extOk && mimeOk);
   },
 });
 
@@ -43,7 +62,7 @@ async function getAccessToken(userId: number): Promise<string> {
 
 // ── Zod schemas ─────────────────────────────────────────────
 const createDraftSchema = z.object({
-  account_id: z.number(),
+  account_id: z.number().int().positive(),
   name: z.string().min(1).max(200),
   objective: z.string().default('OUTCOME_TRAFFIC'),
   special_ad_categories: z.array(z.string()).optional(),
@@ -60,7 +79,7 @@ const createAdsetSchema = z.object({
   name: z.string().min(1).max(200),
   targeting: z.record(z.string(), z.any()).optional(),
   budget_type: z.enum(['daily', 'lifetime']).default('daily'),
-  budget_cents: z.number().min(100).default(2000),
+  budget_cents: z.number().int().min(100).max(100_000_000).default(2000),
   bid_strategy: z.string().optional(),
   schedule_start: z.string().optional(),
   schedule_end: z.string().optional(),
@@ -70,7 +89,7 @@ const updateAdsetSchema = z.object({
   name: z.string().min(1).max(200).optional(),
   targeting: z.record(z.string(), z.any()).optional(),
   budget_type: z.enum(['daily', 'lifetime']).optional(),
-  budget_cents: z.number().min(100).optional(),
+  budget_cents: z.number().int().min(100).max(100_000_000).optional(),
   bid_strategy: z.string().optional(),
   schedule_start: z.string().nullable().optional(),
   schedule_end: z.string().nullable().optional(),
@@ -79,20 +98,20 @@ const updateAdsetSchema = z.object({
 const createAdSchema = z.object({
   name: z.string().min(1).max(200),
   creative_config: z.record(z.string(), z.any()).optional(),
-  generated_creative_id: z.number().optional(),
-  media_upload_id: z.number().optional(),
+  generated_creative_id: z.number().int().positive().optional(),
+  media_upload_id: z.number().int().positive().optional(),
 });
 
 const updateAdSchema = z.object({
   name: z.string().min(1).max(200).optional(),
   creative_config: z.record(z.string(), z.any()).optional(),
-  generated_creative_id: z.number().nullable().optional(),
-  media_upload_id: z.number().nullable().optional(),
+  generated_creative_id: z.number().int().positive().nullable().optional(),
+  media_upload_id: z.number().int().positive().nullable().optional(),
 });
 
 const createTemplateSchema = z.object({
   name: z.string().min(1).max(200),
-  description: z.string().optional(),
+  description: z.string().max(2000).optional(),
   objective: z.string().optional(),
   targeting: z.record(z.string(), z.any()).optional(),
   budget_config: z.record(z.string(), z.any()).optional(),
@@ -101,11 +120,52 @@ const createTemplateSchema = z.object({
   is_shared: z.boolean().optional(),
 });
 
+const useTemplateSchema = z.object({
+  account_id: z.number().int().positive().optional(),
+});
+
+// ── Whitelisted update fields (prevents SQL column injection) ─
+const DRAFT_UPDATE_FIELDS = ['name', 'objective', 'special_ad_categories', 'config'];
+const DRAFT_JSON_FIELDS = ['special_ad_categories', 'config'];
+
+const ADSET_UPDATE_FIELDS = ['name', 'targeting', 'budget_type', 'budget_cents', 'bid_strategy', 'schedule_start', 'schedule_end'];
+const ADSET_JSON_FIELDS = ['targeting'];
+
+const AD_UPDATE_FIELDS = ['name', 'creative_config', 'generated_creative_id', 'media_upload_id'];
+const AD_JSON_FIELDS = ['creative_config'];
+
+const TEMPLATE_UPDATE_FIELDS = ['name', 'description', 'objective', 'targeting', 'budget_config', 'creative_config', 'config', 'is_shared'];
+const TEMPLATE_JSON_FIELDS = ['targeting', 'budget_config', 'creative_config', 'config'];
+
+function buildUpdateQuery(
+  body: Record<string, any>,
+  allowedFields: string[],
+  jsonFields: string[],
+): { fields: string[]; values: any[]; idx: number } {
+  const fields: string[] = [];
+  const values: any[] = [];
+  let idx = 1;
+  for (const key of allowedFields) {
+    const val = body[key];
+    if (val !== undefined) {
+      if (jsonFields.includes(key)) {
+        fields.push(`${key} = $${idx++}::JSONB`);
+        values.push(JSON.stringify(val));
+      } else {
+        fields.push(`${key} = $${idx++}`);
+        values.push(val);
+      }
+    }
+  }
+  return { fields, values, idx };
+}
+
 // ── Draft CRUD ──────────────────────────────────────────────
 
 router.get('/drafts', async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
     const result = await pool.query(
       `SELECT cd.*, a.name AS account_name, a.platform
        FROM campaign_drafts cd
@@ -124,7 +184,13 @@ router.get('/drafts', async (req: Request, res: Response) => {
 router.post('/drafts', validateBody(createDraftSchema), async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
     const { account_id, name, objective, special_ad_categories } = req.body;
+
+    // Verify account ownership
+    const acctCheck = await pool.query('SELECT id FROM accounts WHERE id = $1 AND user_id = $2', [account_id, userId]);
+    if (acctCheck.rows.length === 0) { res.status(403).json({ error: 'Account not found' }); return; }
+
     const result = await pool.query(
       `INSERT INTO campaign_drafts (user_id, account_id, name, objective, special_ad_categories)
        VALUES ($1, $2, $3, $4, $5) RETURNING *`,
@@ -140,7 +206,10 @@ router.post('/drafts', validateBody(createDraftSchema), async (req: Request, res
 router.get('/drafts/:id', async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
-    const draftId = parseInt(req.params.id);
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+    const draftId = parseId(req.params.id, res);
+    if (draftId === null) return;
+
     const draftRes = await pool.query(
       `SELECT cd.*, a.name AS account_name, a.platform, a.platform_account_id
        FROM campaign_drafts cd
@@ -167,28 +236,17 @@ router.get('/drafts/:id', async (req: Request, res: Response) => {
 router.put('/drafts/:id', validateBody(updateDraftSchema), async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
-    const draftId = parseInt(req.params.id);
-    const fields: string[] = [];
-    const values: any[] = [];
-    let idx = 1;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+    const draftId = parseId(req.params.id, res);
+    if (draftId === null) return;
 
-    for (const [key, val] of Object.entries(req.body)) {
-      if (val !== undefined) {
-        if (key === 'special_ad_categories' || key === 'config') {
-          fields.push(`${key} = $${idx++}::JSONB`);
-          values.push(JSON.stringify(val));
-        } else {
-          fields.push(`${key} = $${idx++}`);
-          values.push(val);
-        }
-      }
-    }
+    const { fields, values, idx } = buildUpdateQuery(req.body, DRAFT_UPDATE_FIELDS, DRAFT_JSON_FIELDS);
     if (fields.length === 0) { res.json({ success: true }); return; }
 
-    fields.push(`updated_at = NOW()`);
+    fields.push('updated_at = NOW()');
     values.push(draftId, userId);
     const result = await pool.query(
-      `UPDATE campaign_drafts SET ${fields.join(', ')} WHERE id = $${idx++} AND user_id = $${idx} RETURNING *`,
+      `UPDATE campaign_drafts SET ${fields.join(', ')} WHERE id = $${idx} AND user_id = $${idx + 1} RETURNING *`,
       values
     );
     res.json(result.rows[0]);
@@ -201,9 +259,13 @@ router.put('/drafts/:id', validateBody(updateDraftSchema), async (req: Request, 
 router.delete('/drafts/:id', async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+    const draftId = parseId(req.params.id, res);
+    if (draftId === null) return;
+
     await pool.query(
       "UPDATE campaign_drafts SET status = 'archived', updated_at = NOW() WHERE id = $1 AND user_id = $2",
-      [parseInt(req.params.id), userId]
+      [draftId, userId]
     );
     res.json({ success: true });
   } catch (err) {
@@ -214,33 +276,44 @@ router.delete('/drafts/:id', async (req: Request, res: Response) => {
 
 // ── Publish & Activate ──────────────────────────────────────
 
-router.post('/drafts/:id/publish', async (req: Request, res: Response) => {
+router.post('/drafts/:id/publish', publishLimiter, async (req: Request, res: Response) => {
   try {
-    const userId = req.user?.id!;
-    const draftId = parseInt(req.params.id);
+    const userId = req.user?.id;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+    const draftId = parseId(req.params.id, res);
+    if (draftId === null) return;
+
     const result = await publishCampaignDraft(draftId, userId);
     res.json(result);
   } catch (err: any) {
     console.error('Error publishing draft:', err);
-    res.status(500).json({ error: err.message || 'Failed to publish' });
+    res.status(500).json({ error: 'Failed to publish campaign' });
   }
 });
 
-router.post('/drafts/:id/activate', async (req: Request, res: Response) => {
+router.post('/drafts/:id/activate', publishLimiter, async (req: Request, res: Response) => {
   try {
-    const userId = req.user?.id!;
-    await activateCampaign(parseInt(req.params.id), userId);
+    const userId = req.user?.id;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+    const draftId = parseId(req.params.id, res);
+    if (draftId === null) return;
+
+    await activateCampaign(draftId, userId);
     res.json({ success: true });
   } catch (err: any) {
     console.error('Error activating campaign:', err);
-    res.status(500).json({ error: err.message || 'Failed to activate' });
+    res.status(500).json({ error: 'Failed to activate campaign' });
   }
 });
 
 router.get('/drafts/:id/validate', async (req: Request, res: Response) => {
   try {
-    const userId = req.user?.id!;
-    const result = await validateDraft(parseInt(req.params.id), userId);
+    const userId = req.user?.id;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+    const draftId = parseId(req.params.id, res);
+    if (draftId === null) return;
+
+    const result = await validateDraft(draftId, userId);
     res.json(result);
   } catch (err) {
     console.error('Error validating draft:', err);
@@ -253,9 +326,10 @@ router.get('/drafts/:id/validate', async (req: Request, res: Response) => {
 router.post('/drafts/:id/adsets', validateBody(createAdsetSchema), async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
-    const draftId = parseInt(req.params.id);
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+    const draftId = parseId(req.params.id, res);
+    if (draftId === null) return;
 
-    // Verify ownership
     const check = await pool.query('SELECT id FROM campaign_drafts WHERE id = $1 AND user_id = $2', [draftId, userId]);
     if (check.rows.length === 0) { res.status(404).json({ error: 'Draft not found' }); return; }
 
@@ -275,9 +349,10 @@ router.post('/drafts/:id/adsets', validateBody(createAdsetSchema), async (req: R
 router.put('/adsets/:id', validateBody(updateAdsetSchema), async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
-    const adsetId = parseInt(req.params.id);
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+    const adsetId = parseId(req.params.id, res);
+    if (adsetId === null) return;
 
-    // Verify ownership via draft
     const check = await pool.query(
       `SELECT ca.id FROM campaign_adsets ca
        JOIN campaign_drafts cd ON cd.id = ca.draft_id
@@ -286,21 +361,7 @@ router.put('/adsets/:id', validateBody(updateAdsetSchema), async (req: Request, 
     );
     if (check.rows.length === 0) { res.status(404).json({ error: 'Ad set not found' }); return; }
 
-    const fields: string[] = [];
-    const values: any[] = [];
-    let idx = 1;
-
-    for (const [key, val] of Object.entries(req.body)) {
-      if (val !== undefined) {
-        if (key === 'targeting') {
-          fields.push(`${key} = $${idx++}::JSONB`);
-          values.push(JSON.stringify(val));
-        } else {
-          fields.push(`${key} = $${idx++}`);
-          values.push(val);
-        }
-      }
-    }
+    const { fields, values, idx } = buildUpdateQuery(req.body, ADSET_UPDATE_FIELDS, ADSET_JSON_FIELDS);
     if (fields.length === 0) { res.json({ success: true }); return; }
 
     fields.push('updated_at = NOW()');
@@ -319,7 +380,10 @@ router.put('/adsets/:id', validateBody(updateAdsetSchema), async (req: Request, 
 router.delete('/adsets/:id', async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
-    const adsetId = parseInt(req.params.id);
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+    const adsetId = parseId(req.params.id, res);
+    if (adsetId === null) return;
+
     const check = await pool.query(
       `SELECT ca.id FROM campaign_adsets ca
        JOIN campaign_drafts cd ON cd.id = ca.draft_id
@@ -340,9 +404,10 @@ router.delete('/adsets/:id', async (req: Request, res: Response) => {
 router.post('/adsets/:id/ads', validateBody(createAdSchema), async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
-    const adsetId = parseInt(req.params.id);
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+    const adsetId = parseId(req.params.id, res);
+    if (adsetId === null) return;
 
-    // Verify ownership
     const check = await pool.query(
       `SELECT ca.id FROM campaign_adsets ca
        JOIN campaign_drafts cd ON cd.id = ca.draft_id
@@ -367,7 +432,9 @@ router.post('/adsets/:id/ads', validateBody(createAdSchema), async (req: Request
 router.put('/ads/:id', validateBody(updateAdSchema), async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
-    const adId = parseInt(req.params.id);
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+    const adId = parseId(req.params.id, res);
+    if (adId === null) return;
 
     const check = await pool.query(
       `SELECT cad.id FROM campaign_ads cad
@@ -378,21 +445,7 @@ router.put('/ads/:id', validateBody(updateAdSchema), async (req: Request, res: R
     );
     if (check.rows.length === 0) { res.status(404).json({ error: 'Ad not found' }); return; }
 
-    const fields: string[] = [];
-    const values: any[] = [];
-    let idx = 1;
-
-    for (const [key, val] of Object.entries(req.body)) {
-      if (val !== undefined) {
-        if (key === 'creative_config') {
-          fields.push(`${key} = $${idx++}::JSONB`);
-          values.push(JSON.stringify(val));
-        } else {
-          fields.push(`${key} = $${idx++}`);
-          values.push(val);
-        }
-      }
-    }
+    const { fields, values, idx } = buildUpdateQuery(req.body, AD_UPDATE_FIELDS, AD_JSON_FIELDS);
     if (fields.length === 0) { res.json({ success: true }); return; }
 
     fields.push('updated_at = NOW()');
@@ -411,7 +464,10 @@ router.put('/ads/:id', validateBody(updateAdSchema), async (req: Request, res: R
 router.delete('/ads/:id', async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
-    const adId = parseInt(req.params.id);
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+    const adId = parseId(req.params.id, res);
+    if (adId === null) return;
+
     const check = await pool.query(
       `SELECT cad.id FROM campaign_ads cad
        JOIN campaign_adsets ca ON ca.id = cad.adset_id
@@ -433,13 +489,22 @@ router.delete('/ads/:id', async (req: Request, res: Response) => {
 router.post('/media/upload', upload.single('file'), async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
     const file = req.file;
-    if (!file) { res.status(400).json({ error: 'No file provided' }); return; }
+    if (!file) { res.status(400).json({ error: 'No file provided or invalid file type' }); return; }
 
-    const accountId = req.body.account_id ? parseInt(req.body.account_id) : null;
+    const accountId = req.body.account_id ? parseInt(req.body.account_id, 10) : null;
+    if (accountId !== null && isNaN(accountId)) { res.status(400).json({ error: 'Invalid account_id' }); return; }
+
+    // Verify account ownership if provided
+    if (accountId) {
+      const acctCheck = await pool.query('SELECT id FROM accounts WHERE id = $1 AND user_id = $2', [accountId, userId]);
+      if (acctCheck.rows.length === 0) { res.status(403).json({ error: 'Account not found' }); return; }
+    }
+
     const result = await pool.query(
       `INSERT INTO campaign_media_uploads (user_id, account_id, filename, mime_type, file_size, file_path)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, user_id, account_id, filename, mime_type, file_size, status, created_at`,
       [userId, accountId, file.originalname, file.mimetype, file.size, file.path]
     );
     res.json(result.rows[0]);
@@ -451,27 +516,29 @@ router.post('/media/upload', upload.single('file'), async (req: Request, res: Re
 
 // ── Targeting helpers ───────────────────────────────────────
 
-router.get('/targeting/interests', async (req: Request, res: Response) => {
+router.get('/targeting/interests', metaApiLimiter, async (req: Request, res: Response) => {
   try {
-    const userId = req.user?.id!;
+    const userId = req.user?.id;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
     const q = req.query.q as string;
     if (!q || q.length < 2) { res.json([]); return; }
     const accessToken = await getAccessToken(userId);
     const results = await searchInterests(q, accessToken);
     res.json(results);
-  } catch (err: any) {
+  } catch (err) {
     console.error('Error searching interests:', err);
-    res.status(500).json({ error: err.message || 'Failed to search interests' });
+    res.status(500).json({ error: 'Failed to search interests' });
   }
 });
 
-router.get('/targeting/audiences', async (req: Request, res: Response) => {
+router.get('/targeting/audiences', metaApiLimiter, async (req: Request, res: Response) => {
   try {
-    const userId = req.user?.id!;
-    const accountId = req.query.account_id as string;
-    if (!accountId) { res.status(400).json({ error: 'account_id required' }); return; }
+    const userId = req.user?.id;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+    const accountId = parseId(req.query.account_id as string, res);
+    if (accountId === null) return;
 
-    const acctRes = await pool.query('SELECT platform_account_id FROM accounts WHERE id = $1 AND user_id = $2', [parseInt(accountId), userId]);
+    const acctRes = await pool.query('SELECT platform_account_id FROM accounts WHERE id = $1 AND user_id = $2', [accountId, userId]);
     if (acctRes.rows.length === 0) { res.status(404).json({ error: 'Account not found' }); return; }
     const pid = acctRes.rows[0].platform_account_id;
     const actId = pid.startsWith('act_') ? pid : `act_${pid}`;
@@ -479,19 +546,20 @@ router.get('/targeting/audiences', async (req: Request, res: Response) => {
     const accessToken = await getAccessToken(userId);
     const audiences = await getCustomAudiences(actId, accessToken);
     res.json(audiences);
-  } catch (err: any) {
+  } catch (err) {
     console.error('Error fetching audiences:', err);
-    res.status(500).json({ error: err.message || 'Failed to fetch audiences' });
+    res.status(500).json({ error: 'Failed to fetch audiences' });
   }
 });
 
-router.get('/account-pages', async (req: Request, res: Response) => {
+router.get('/account-pages', metaApiLimiter, async (req: Request, res: Response) => {
   try {
-    const userId = req.user?.id!;
-    const accountId = req.query.account_id as string;
-    if (!accountId) { res.status(400).json({ error: 'account_id required' }); return; }
+    const userId = req.user?.id;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+    const accountId = parseId(req.query.account_id as string, res);
+    if (accountId === null) return;
 
-    const acctRes = await pool.query('SELECT platform_account_id FROM accounts WHERE id = $1 AND user_id = $2', [parseInt(accountId), userId]);
+    const acctRes = await pool.query('SELECT platform_account_id FROM accounts WHERE id = $1 AND user_id = $2', [accountId, userId]);
     if (acctRes.rows.length === 0) { res.status(404).json({ error: 'Account not found' }); return; }
     const pid = acctRes.rows[0].platform_account_id;
     const actId = pid.startsWith('act_') ? pid : `act_${pid}`;
@@ -499,9 +567,9 @@ router.get('/account-pages', async (req: Request, res: Response) => {
     const accessToken = await getAccessToken(userId);
     const pages = await getAdAccountPages(actId, accessToken);
     res.json(pages);
-  } catch (err: any) {
+  } catch (err) {
     console.error('Error fetching pages:', err);
-    res.status(500).json({ error: err.message || 'Failed to fetch pages' });
+    res.status(500).json({ error: 'Failed to fetch pages' });
   }
 });
 
@@ -510,6 +578,7 @@ router.get('/account-pages', async (req: Request, res: Response) => {
 router.get('/templates', async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
     const result = await pool.query(
       'SELECT * FROM campaign_templates WHERE user_id = $1 OR is_shared = true ORDER BY updated_at DESC',
       [userId]
@@ -524,6 +593,7 @@ router.get('/templates', async (req: Request, res: Response) => {
 router.post('/templates', validateBody(createTemplateSchema), async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
     const { name, description, objective, targeting, budget_config, creative_config, config, is_shared } = req.body;
     const result = await pool.query(
       `INSERT INTO campaign_templates (user_id, name, description, objective, targeting, budget_config, creative_config, config, is_shared)
@@ -537,10 +607,13 @@ router.post('/templates', validateBody(createTemplateSchema), async (req: Reques
   }
 });
 
-router.post('/templates/:id/use', async (req: Request, res: Response) => {
+router.post('/templates/:id/use', validateBody(useTemplateSchema), async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
-    const templateId = parseInt(req.params.id);
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+    const templateId = parseId(req.params.id, res);
+    if (templateId === null) return;
+
     const tmpl = await pool.query(
       'SELECT * FROM campaign_templates WHERE id = $1 AND (user_id = $2 OR is_shared = true)',
       [templateId, userId]
@@ -549,9 +622,15 @@ router.post('/templates/:id/use', async (req: Request, res: Response) => {
 
     const t = tmpl.rows[0];
     const { account_id } = req.body;
+
+    // Verify account ownership if provided
+    if (account_id) {
+      const acctCheck = await pool.query('SELECT id FROM accounts WHERE id = $1 AND user_id = $2', [account_id, userId]);
+      if (acctCheck.rows.length === 0) { res.status(403).json({ error: 'Account not found' }); return; }
+    }
+
     const budgetConfig = t.budget_config || {};
 
-    // Create draft from template
     const draftRes = await pool.query(
       `INSERT INTO campaign_drafts (user_id, account_id, name, objective, config)
        VALUES ($1, $2, $3, $4, $5) RETURNING *`,
@@ -559,7 +638,6 @@ router.post('/templates/:id/use', async (req: Request, res: Response) => {
     );
     const draftId = draftRes.rows[0].id;
 
-    // Create default ad set from template targeting/budget
     const adsetRes = await pool.query(
       `INSERT INTO campaign_adsets (draft_id, name, targeting, budget_type, budget_cents, bid_strategy)
        VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
@@ -573,11 +651,9 @@ router.post('/templates/:id/use', async (req: Request, res: Response) => {
       ]
     );
 
-    // Create default ad from template creative config
     if (t.creative_config && Object.keys(t.creative_config).length > 0) {
       await pool.query(
-        `INSERT INTO campaign_ads (adset_id, name, creative_config)
-         VALUES ($1, $2, $3)`,
+        'INSERT INTO campaign_ads (adset_id, name, creative_config) VALUES ($1, $2, $3)',
         [adsetRes.rows[0].id, 'Ad 1', JSON.stringify(t.creative_config)]
       );
     }
@@ -592,30 +668,17 @@ router.post('/templates/:id/use', async (req: Request, res: Response) => {
 router.put('/templates/:id', validateBody(createTemplateSchema.partial()), async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
-    const templateId = parseInt(req.params.id);
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+    const templateId = parseId(req.params.id, res);
+    if (templateId === null) return;
 
-    const fields: string[] = [];
-    const values: any[] = [];
-    let idx = 1;
-    const jsonFields = ['targeting', 'budget_config', 'creative_config', 'config'];
-
-    for (const [key, val] of Object.entries(req.body)) {
-      if (val !== undefined) {
-        if (jsonFields.includes(key)) {
-          fields.push(`${key} = $${idx++}::JSONB`);
-          values.push(JSON.stringify(val));
-        } else {
-          fields.push(`${key} = $${idx++}`);
-          values.push(val);
-        }
-      }
-    }
+    const { fields, values, idx } = buildUpdateQuery(req.body, TEMPLATE_UPDATE_FIELDS, TEMPLATE_JSON_FIELDS);
     if (fields.length === 0) { res.json({ success: true }); return; }
 
     fields.push('updated_at = NOW()');
     values.push(templateId, userId);
     const result = await pool.query(
-      `UPDATE campaign_templates SET ${fields.join(', ')} WHERE id = $${idx++} AND user_id = $${idx} RETURNING *`,
+      `UPDATE campaign_templates SET ${fields.join(', ')} WHERE id = $${idx} AND user_id = $${idx + 1} RETURNING *`,
       values
     );
     res.json(result.rows[0]);
@@ -628,7 +691,11 @@ router.put('/templates/:id', validateBody(createTemplateSchema.partial()), async
 router.delete('/templates/:id', async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
-    await pool.query('DELETE FROM campaign_templates WHERE id = $1 AND user_id = $2', [parseInt(req.params.id), userId]);
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+    const templateId = parseId(req.params.id, res);
+    if (templateId === null) return;
+
+    await pool.query('DELETE FROM campaign_templates WHERE id = $1 AND user_id = $2', [templateId, userId]);
     res.json({ success: true });
   } catch (err) {
     console.error('Error deleting template:', err);

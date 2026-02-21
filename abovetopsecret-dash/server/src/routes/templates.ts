@@ -7,20 +7,61 @@ const router = Router();
 
 const createTemplateSchema = z.object({
   name: z.string().min(1).max(200),
-  description: z.string().optional(),
+  description: z.string().max(2000).optional(),
   structure: z.record(z.string(), z.any()).optional(),
   variable_slots: z.array(z.any()).optional(),
-  source_creative_id: z.number().optional(),
-  platform: z.string().default('meta'),
-  creative_type: z.string().default('ad_copy'),
-  tags: z.array(z.string()).optional(),
+  source_creative_id: z.number().int().positive().optional(),
+  platform: z.string().max(50).default('meta'),
+  creative_type: z.string().max(50).default('ad_copy'),
+  tags: z.array(z.string().max(50)).max(20).optional(),
   is_shared: z.boolean().optional(),
 });
+
+// Whitelist of columns allowed in updates
+const TEMPLATE_UPDATE_FIELDS: Record<string, 'text' | 'jsonb' | 'array' | 'boolean' | 'number'> = {
+  name: 'text',
+  description: 'text',
+  structure: 'jsonb',
+  variable_slots: 'jsonb',
+  platform: 'text',
+  creative_type: 'text',
+  tags: 'array',
+  is_shared: 'boolean',
+};
+
+function parseId(val: string): number | null {
+  const n = parseInt(val, 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function buildUpdateQuery(
+  body: Record<string, any>,
+  allowedFields: Record<string, string>,
+): { setClauses: string[]; values: any[] } {
+  const setClauses: string[] = [];
+  const values: any[] = [];
+  let idx = 1;
+
+  for (const [key, type] of Object.entries(allowedFields)) {
+    if (body[key] !== undefined) {
+      if (type === 'jsonb') {
+        setClauses.push(`${key} = $${idx++}::JSONB`);
+        values.push(JSON.stringify(body[key]));
+      } else {
+        setClauses.push(`${key} = $${idx++}`);
+        values.push(body[key]);
+      }
+    }
+  }
+
+  return { setClauses, values };
+}
 
 // List templates
 router.get('/', async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
     const result = await pool.query(
       'SELECT * FROM creative_templates WHERE user_id = $1 OR is_shared = true ORDER BY usage_count DESC, updated_at DESC',
       [userId]
@@ -36,7 +77,9 @@ router.get('/', async (req: Request, res: Response) => {
 router.get('/:id', async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
-    const id = parseInt(req.params.id);
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+    const id = parseId(req.params.id);
+    if (!id) { res.status(400).json({ error: 'Invalid ID' }); return; }
     const result = await pool.query(
       'SELECT * FROM creative_templates WHERE id = $1 AND (user_id = $2 OR is_shared = true)',
       [id, userId]
@@ -53,6 +96,7 @@ router.get('/:id', async (req: Request, res: Response) => {
 router.post('/', validateBody(createTemplateSchema), async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
     const { name, description, structure, variable_slots, source_creative_id, platform, creative_type, tags, is_shared } = req.body;
     const result = await pool.query(
       `INSERT INTO creative_templates (user_id, name, description, structure, variable_slots, source_creative_id, platform, creative_type, tags, is_shared)
@@ -66,36 +110,24 @@ router.post('/', validateBody(createTemplateSchema), async (req: Request, res: R
   }
 });
 
-// Update template
+// Update template (whitelisted fields only)
 router.put('/:id', validateBody(createTemplateSchema.partial()), async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
-    const id = parseInt(req.params.id);
-    const fields: string[] = [];
-    const values: any[] = [];
-    let idx = 1;
-    const jsonFields = ['structure', 'variable_slots'];
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+    const id = parseId(req.params.id);
+    if (!id) { res.status(400).json({ error: 'Invalid ID' }); return; }
 
-    for (const [key, val] of Object.entries(req.body)) {
-      if (val !== undefined) {
-        if (jsonFields.includes(key)) {
-          fields.push(`${key} = $${idx++}::JSONB`);
-          values.push(JSON.stringify(val));
-        } else if (key === 'tags') {
-          fields.push(`${key} = $${idx++}`);
-          values.push(val);
-        } else {
-          fields.push(`${key} = $${idx++}`);
-          values.push(val);
-        }
-      }
-    }
-    if (fields.length === 0) { res.json({ success: true }); return; }
+    const { setClauses, values } = buildUpdateQuery(req.body, TEMPLATE_UPDATE_FIELDS);
+    if (setClauses.length === 0) { res.json({ success: true }); return; }
 
-    fields.push('updated_at = NOW()');
+    setClauses.push('updated_at = NOW()');
+    const idIdx = values.length + 1;
+    const userIdx = values.length + 2;
     values.push(id, userId);
+
     const result = await pool.query(
-      `UPDATE creative_templates SET ${fields.join(', ')} WHERE id = $${idx++} AND user_id = $${idx} RETURNING *`,
+      `UPDATE creative_templates SET ${setClauses.join(', ')} WHERE id = $${idIdx} AND user_id = $${userIdx} RETURNING *`,
       values
     );
     if (result.rows.length === 0) { res.status(404).json({ error: 'Template not found' }); return; }
@@ -110,7 +142,9 @@ router.put('/:id', validateBody(createTemplateSchema.partial()), async (req: Req
 router.post('/:id/duplicate', async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
-    const id = parseInt(req.params.id);
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+    const id = parseId(req.params.id);
+    if (!id) { res.status(400).json({ error: 'Invalid ID' }); return; }
     const original = await pool.query(
       'SELECT * FROM creative_templates WHERE id = $1 AND (user_id = $2 OR is_shared = true)',
       [id, userId]
@@ -134,7 +168,10 @@ router.post('/:id/duplicate', async (req: Request, res: Response) => {
 router.delete('/:id', async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
-    await pool.query('DELETE FROM creative_templates WHERE id = $1 AND user_id = $2', [parseInt(req.params.id), userId]);
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+    const id = parseId(req.params.id);
+    if (!id) { res.status(400).json({ error: 'Invalid ID' }); return; }
+    await pool.query('DELETE FROM creative_templates WHERE id = $1 AND user_id = $2', [id, userId]);
     res.json({ success: true });
   } catch (err) {
     console.error('Error deleting template:', err);

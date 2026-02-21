@@ -117,7 +117,7 @@ export default function SourceMediumPage() {
     return sortDir === 'asc' ? ' \u2191' : ' \u2193';
   };
 
-  const thCls = "px-3 py-2.5 text-left text-[11px] uppercase tracking-wider font-semibold text-ats-text-muted cursor-pointer hover:text-ats-text transition-colors select-none";
+  const thCls = "px-3 py-2.5 text-left text-xs sm:text-[11px] uppercase tracking-wider font-semibold text-ats-text-muted cursor-pointer hover:text-ats-text transition-colors select-none";
   const tdCls = "px-3 py-2.5 text-sm font-mono";
 
   return (
@@ -144,19 +144,19 @@ export default function SourceMediumPage() {
           {/* Summary strip */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
             <div className="bg-ats-card rounded-xl p-4 border border-ats-border">
-              <div className="text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Total Revenue</div>
+              <div className="text-xs sm:text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Total Revenue</div>
               <div className="text-xl font-bold text-ats-green font-mono">
                 <AnimatedNumber value={totals.revenue} format={fmt.currency} />
               </div>
             </div>
             <div className="bg-ats-card rounded-xl p-4 border border-ats-border">
-              <div className="text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Total Conversions</div>
+              <div className="text-xs sm:text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Total Conversions</div>
               <div className="text-xl font-bold text-ats-text font-mono">
                 <AnimatedNumber value={totals.conversions} format={fmt.num} />
               </div>
             </div>
             <div className="bg-ats-card rounded-xl p-4 border border-ats-border">
-              <div className="text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Sources</div>
+              <div className="text-xs sm:text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Sources</div>
               <div className="text-xl font-bold text-ats-text font-mono">
                 <AnimatedNumber value={grouped.length} format={fmt.num} />
               </div>
@@ -176,7 +176,7 @@ export default function SourceMediumPage() {
               {barData.length === 0 ? (
                 <div className="flex items-center justify-center h-48 text-ats-text-muted text-sm">No data available</div>
               ) : (
-                <ResponsiveContainer width="100%" height={280}>
+                <div className="h-[200px] sm:h-[280px]"><ResponsiveContainer width="100%" height="100%">
                   <BarChart data={barData} margin={{ top: 8, right: 8, left: 0, bottom: 40 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
                     <XAxis
@@ -212,7 +212,7 @@ export default function SourceMediumPage() {
                     />
                     <Bar dataKey="revenue" fill="#22c55e" radius={[2, 2, 0, 0]} />
                   </BarChart>
-                </ResponsiveContainer>
+                </ResponsiveContainer></div>
               )}
             </div>
           </div>

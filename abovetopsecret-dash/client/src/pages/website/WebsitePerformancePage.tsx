@@ -70,7 +70,7 @@ export default function WebsitePerformancePage() {
   }, [overview]);
 
   const cardCls = 'bg-ats-card rounded-xl p-4 border border-ats-border';
-  const kpiLabel = 'text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1';
+  const kpiLabel = 'text-xs sm:text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1';
 
   if (loading) return <PageShell title="Website Performance" subtitle="GA4 web analytics"><div className="space-y-3">{[...Array(4)].map((_, i) => <div key={i} className="h-20 bg-ats-card rounded-xl animate-pulse" />)}</div></PageShell>;
 
@@ -110,7 +110,8 @@ export default function WebsitePerformancePage() {
       {/* Traffic Chart */}
       <div className={`${cardCls} mb-6`}>
         <h3 className="text-sm font-semibold text-ats-text mb-3">Daily Traffic &amp; Conversions</h3>
-        <ResponsiveContainer width="100%" height={280}>
+        <div className="h-[200px] sm:h-[280px]">
+        <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={daily} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
             <defs>
               <linearGradient id="gSessions" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} /><stop offset="95%" stopColor="#3b82f6" stopOpacity={0} /></linearGradient>
@@ -124,6 +125,7 @@ export default function WebsitePerformancePage() {
             <Area type="monotone" dataKey="conversions" stroke="#10b981" strokeWidth={2} fill="url(#gConv)" name="Conversions" />
           </AreaChart>
         </ResponsiveContainer>
+        </div>
       </div>
 
       {/* Engagement + New vs Returning */}
@@ -139,11 +141,15 @@ export default function WebsitePerformancePage() {
         <div className={cardCls}>
           <h3 className="text-sm font-semibold text-ats-text mb-3">New vs Returning</h3>
           <div className="flex items-center gap-4">
-            <PieChart width={100} height={100}>
-              <Pie data={newVsReturning} cx={45} cy={45} innerRadius={25} outerRadius={45} dataKey="value" stroke="none">
-                {newVsReturning.map((_, i) => <Cell key={i} fill={COLORS[i]} />)}
-              </Pie>
-            </PieChart>
+            <div className="w-[100px] h-[100px] sm:w-[120px] sm:h-[120px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={newVsReturning} cx="50%" cy="50%" innerRadius="40%" outerRadius="90%" dataKey="value" stroke="none">
+                    {newVsReturning.map((_, i) => <Cell key={i} fill={COLORS[i]} />)}
+                  </Pie>
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
             <div className="space-y-2">
               {newVsReturning.map((item, i) => (
                 <div key={item.name} className="flex items-center gap-2">
@@ -161,7 +167,7 @@ export default function WebsitePerformancePage() {
         <h3 className="text-sm font-semibold text-ats-text mb-3 px-1">Performance by Device</h3>
         <div className="overflow-x-auto">
           <table className="w-full"><thead><tr className="border-b border-ats-border bg-ats-bg/50">
-            {['Device', 'Sessions', 'Users', 'Bounce Rate', 'Conversions', 'Revenue'].map(h => <th key={h} className="px-3 py-2 text-left text-[11px] uppercase tracking-wider font-semibold text-ats-text-muted">{h}</th>)}
+            {['Device', 'Sessions', 'Users', 'Bounce Rate', 'Conversions', 'Revenue'].map(h => <th key={h} className="px-3 py-2 text-left text-xs sm:text-[11px] uppercase tracking-wider font-semibold text-ats-text-muted">{h}</th>)}
           </tr></thead><tbody>
             {byDevice.map((r, i) => <tr key={i} className="border-b border-ats-border last:border-0 hover:bg-ats-hover/50">
               <td className="px-3 py-2 text-sm text-ats-text font-semibold capitalize">{r.group_key || 'unknown'}</td>
@@ -180,7 +186,7 @@ export default function WebsitePerformancePage() {
         <h3 className="text-sm font-semibold text-ats-text mb-3 px-1">Traffic by Source</h3>
         <div className="overflow-x-auto">
           <table className="w-full"><thead><tr className="border-b border-ats-border bg-ats-bg/50">
-            {['Source', 'Sessions', 'New Users', 'Conversions', 'Revenue'].map(h => <th key={h} className="px-3 py-2 text-left text-[11px] uppercase tracking-wider font-semibold text-ats-text-muted">{h}</th>)}
+            {['Source', 'Sessions', 'New Users', 'Conversions', 'Revenue'].map(h => <th key={h} className="px-3 py-2 text-left text-xs sm:text-[11px] uppercase tracking-wider font-semibold text-ats-text-muted">{h}</th>)}
           </tr></thead><tbody>
             {bySource.slice(0, 20).map((r, i) => <tr key={i} className="border-b border-ats-border last:border-0 hover:bg-ats-hover/50">
               <td className="px-3 py-2 text-sm text-ats-text font-semibold">{r.group_key || 'direct'}</td>
@@ -198,7 +204,7 @@ export default function WebsitePerformancePage() {
         <h3 className="text-sm font-semibold text-ats-text mb-3 px-1">Top Countries</h3>
         <div className="overflow-x-auto">
           <table className="w-full"><thead><tr className="border-b border-ats-border bg-ats-bg/50">
-            {['Country', 'Sessions', 'Users', 'Conversions', 'Revenue'].map(h => <th key={h} className="px-3 py-2 text-left text-[11px] uppercase tracking-wider font-semibold text-ats-text-muted">{h}</th>)}
+            {['Country', 'Sessions', 'Users', 'Conversions', 'Revenue'].map(h => <th key={h} className="px-3 py-2 text-left text-xs sm:text-[11px] uppercase tracking-wider font-semibold text-ats-text-muted">{h}</th>)}
           </tr></thead><tbody>
             {byCountry.slice(0, 20).map((r, i) => <tr key={i} className="border-b border-ats-border last:border-0 hover:bg-ats-hover/50">
               <td className="px-3 py-2 text-sm text-ats-text font-semibold">{r.group_key}</td>
@@ -216,7 +222,7 @@ export default function WebsitePerformancePage() {
         <h3 className="text-sm font-semibold text-ats-text mb-3 px-1">Top 50 Landing Pages</h3>
         <div className="overflow-x-auto">
           <table className="w-full"><thead><tr className="border-b border-ats-border bg-ats-bg/50">
-            {['Page', 'Sessions', 'Pageviews', 'Conversions', 'CVR', 'Avg Time', 'Revenue'].map(h => <th key={h} className="px-3 py-2 text-left text-[11px] uppercase tracking-wider font-semibold text-ats-text-muted">{h}</th>)}
+            {['Page', 'Sessions', 'Pageviews', 'Conversions', 'CVR', 'Avg Time', 'Revenue'].map(h => <th key={h} className="px-3 py-2 text-left text-xs sm:text-[11px] uppercase tracking-wider font-semibold text-ats-text-muted">{h}</th>)}
           </tr></thead><tbody>
             {topPages.map((r, i) => <tr key={i} className="border-b border-ats-border last:border-0 hover:bg-ats-hover/50">
               <td className="px-3 py-2 text-sm text-ats-accent max-w-[250px] truncate" title={r.page_path}>{r.page_path}</td>

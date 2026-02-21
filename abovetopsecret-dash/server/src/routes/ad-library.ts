@@ -13,25 +13,51 @@ import { extractTemplate } from '../services/ai-creative-gen';
 
 const router = Router();
 
+function parseId(val: string): number | null {
+  const n = parseInt(val, 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 const searchSchema = z.object({
-  search_terms: z.string().optional(),
-  page_id: z.string().optional(),
-  country: z.string().default('US'),
-  ad_active_status: z.string().optional(),
-  ad_type: z.string().optional(),
-  limit: z.number().optional(),
-  after: z.string().optional(),
+  search_terms: z.string().max(500).optional(),
+  page_id: z.string().max(100).optional(),
+  country: z.string().max(5).default('US'),
+  ad_active_status: z.string().max(50).optional(),
+  ad_type: z.string().max(50).optional(),
+  limit: z.number().int().min(1).max(100).optional(),
+  after: z.string().max(500).optional(),
+});
+
+const saveToInspoSchema = z.object({
+  ad_library_id: z.number().int().positive(),
+});
+
+const extractTemplateSchema = z.object({
+  ad_library_id: z.number().int().positive(),
+});
+
+const analyzeSchema = z.object({
+  page_id: z.string().min(1).max(100),
 });
 
 // Search Ad Library
 router.post('/search', validateBody(searchSchema), async (req: Request, res: Response) => {
   try {
-    const userId = req.user?.id!;
+    const userId = req.user?.id;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+
+    // Check rate limit before making API call
+    const rateStatus = await getAdLibraryRateStatus(userId);
+    if (rateStatus.calls_used >= rateStatus.limit) {
+      res.status(429).json({ error: 'Rate limit exceeded. Try again later.', reset_at: rateStatus.reset_at });
+      return;
+    }
+
     const result = await searchAndCacheAdLibrary(userId, req.body);
     res.json(result);
-  } catch (err: any) {
+  } catch (err) {
     console.error('Error searching ad library:', err);
-    res.status(500).json({ error: err.message || 'Failed to search ad library' });
+    res.status(500).json({ error: 'Failed to search ad library' });
   }
 });
 
@@ -39,9 +65,10 @@ router.post('/search', validateBody(searchSchema), async (req: Request, res: Res
 router.get('/results', async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
     const { page_id, search, limit: lim, offset: off } = req.query;
     const limit = Math.min(100, parseInt(lim as string) || 50);
-    const offset = parseInt(off as string) || 0;
+    const offset = Math.max(0, parseInt(off as string) || 0);
 
     const conditions: string[] = ['user_id = $1'];
     const params: any[] = [userId];
@@ -71,7 +98,9 @@ router.get('/results', async (req: Request, res: Response) => {
 router.get('/results/:id', async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
-    const id = parseInt(req.params.id);
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+    const id = parseId(req.params.id);
+    if (!id) { res.status(400).json({ error: 'Invalid ID' }); return; }
     const result = await pool.query('SELECT * FROM ad_library_cache WHERE id = $1 AND user_id = $2', [id, userId]);
     if (result.rows.length === 0) { res.status(404).json({ error: 'Not found' }); return; }
     res.json(result.rows[0]);
@@ -81,12 +110,12 @@ router.get('/results/:id', async (req: Request, res: Response) => {
   }
 });
 
-// Save to inspo (saved_creatives)
-router.post('/save-to-inspo', async (req: Request, res: Response) => {
+// Save to inspo (saved_creatives) — fixed JSON injection
+router.post('/save-to-inspo', validateBody(saveToInspoSchema), async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
     const { ad_library_id } = req.body;
-    if (!ad_library_id) { res.status(400).json({ error: 'ad_library_id required' }); return; }
 
     const cached = await pool.query('SELECT * FROM ad_library_cache WHERE id = $1 AND user_id = $2', [ad_library_id, userId]);
     if (cached.rows.length === 0) { res.status(404).json({ error: 'Ad not found' }); return; }
@@ -94,6 +123,9 @@ router.post('/save-to-inspo', async (req: Request, res: Response) => {
     const ad = cached.rows[0];
     const bodies = ad.ad_creative_bodies || [];
     const titles = ad.ad_creative_link_titles || [];
+
+    // Use JSON.stringify for tags to prevent injection
+    const tags = JSON.stringify({ source: 'ad_library', page_name: ad.page_name });
 
     await pool.query(
       `INSERT INTO saved_creatives (user_id, platform, ad_id, ad_name, headline, body_text, thumbnail_url, source_url, tags)
@@ -107,7 +139,7 @@ router.post('/save-to-inspo', async (req: Request, res: Response) => {
         bodies[0] || '',
         ad.ad_snapshot_url || '',
         ad.ad_snapshot_url || '',
-        `{"source": "ad_library", "page_name": "${ad.page_name}"}`,
+        tags,
       ]
     );
     res.json({ success: true });
@@ -118,13 +150,12 @@ router.post('/save-to-inspo', async (req: Request, res: Response) => {
 });
 
 // Extract template from ad library result
-router.post('/extract-template', async (req: Request, res: Response) => {
+router.post('/extract-template', validateBody(extractTemplateSchema), async (req: Request, res: Response) => {
   try {
-    const userId = req.user?.id!;
+    const userId = req.user?.id;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
     const { ad_library_id } = req.body;
-    if (!ad_library_id) { res.status(400).json({ error: 'ad_library_id required' }); return; }
 
-    // Save to inspo first, then extract template from saved creative
     const cached = await pool.query('SELECT * FROM ad_library_cache WHERE id = $1 AND user_id = $2', [ad_library_id, userId]);
     if (cached.rows.length === 0) { res.status(404).json({ error: 'Ad not found' }); return; }
 
@@ -151,16 +182,17 @@ router.post('/extract-template', async (req: Request, res: Response) => {
 
     const template = await extractTemplate(creativeRes.rows[0].id, userId);
     res.json(template);
-  } catch (err: any) {
+  } catch (err) {
     console.error('Error extracting template:', err);
-    res.status(500).json({ error: err.message || 'Failed to extract template' });
+    res.status(500).json({ error: 'Failed to extract template' });
   }
 });
 
 // Rate limit status
 router.get('/rate-status', async (req: Request, res: Response) => {
   try {
-    const userId = req.user?.id!;
+    const userId = req.user?.id;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
     const status = await getAdLibraryRateStatus(userId);
     res.json(status);
   } catch (err) {
@@ -172,12 +204,13 @@ router.get('/rate-status', async (req: Request, res: Response) => {
 // Sync followed brands
 router.post('/sync-brands', async (req: Request, res: Response) => {
   try {
-    const userId = req.user?.id!;
+    const userId = req.user?.id;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
     const result = await syncFollowedBrands(userId);
     res.json(result);
-  } catch (err: any) {
+  } catch (err) {
     console.error('Error syncing brands:', err);
-    res.status(500).json({ error: err.message || 'Failed to sync brands' });
+    res.status(500).json({ error: 'Failed to sync brands' });
   }
 });
 
@@ -185,7 +218,9 @@ router.post('/sync-brands', async (req: Request, res: Response) => {
 router.get('/trends/:pageId', async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
     const pageId = req.params.pageId;
+    if (!pageId || pageId.length > 100) { res.status(400).json({ error: 'Invalid page ID' }); return; }
     const result = await pool.query(
       'SELECT * FROM ad_library_trends WHERE user_id = $1 AND page_id = $2 ORDER BY date DESC LIMIT 30',
       [userId, pageId]
@@ -200,26 +235,29 @@ router.get('/trends/:pageId', async (req: Request, res: Response) => {
 // Compute trends
 router.post('/trends/:pageId/compute', async (req: Request, res: Response) => {
   try {
-    const userId = req.user?.id!;
-    const result = await computeTrends(userId, req.params.pageId);
+    const userId = req.user?.id;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+    const pageId = req.params.pageId;
+    if (!pageId || pageId.length > 100) { res.status(400).json({ error: 'Invalid page ID' }); return; }
+    const result = await computeTrends(userId, pageId);
     res.json(result);
-  } catch (err: any) {
+  } catch (err) {
     console.error('Error computing trends:', err);
-    res.status(500).json({ error: err.message || 'Failed to compute trends' });
+    res.status(500).json({ error: 'Failed to compute trends' });
   }
 });
 
 // AI competitor analysis (SSE streaming)
-router.post('/ai/analyze', async (req: Request, res: Response) => {
+router.post('/ai/analyze', validateBody(analyzeSchema), async (req: Request, res: Response) => {
   try {
-    const userId = req.user?.id!;
+    const userId = req.user?.id;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
     const { page_id } = req.body;
-    if (!page_id) { res.status(400).json({ error: 'page_id required' }); return; }
     await analyzeCompetitorStrategy(userId, page_id, res);
-  } catch (err: any) {
+  } catch (err) {
     console.error('Error analyzing competitor:', err);
     if (!res.headersSent) {
-      res.status(500).json({ error: err.message || 'Failed to analyze' });
+      res.status(500).json({ error: 'Failed to analyze' });
     }
   }
 });

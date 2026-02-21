@@ -289,6 +289,9 @@ Be specific and actionable. Reference specific ads when possible.`;
     'Connection': 'keep-alive',
   });
 
+  let aborted = false;
+  res.on('close', () => { aborted = true; });
+
   try {
     const stream = anthropic.messages.stream({
       model: 'claude-sonnet-4-20250514',
@@ -297,13 +300,21 @@ Be specific and actionable. Reference specific ads when possible.`;
     });
 
     stream.on('text', (text) => {
-      res.write(`data: ${JSON.stringify({ type: 'text', content: text })}\n\n`);
+      if (!aborted) {
+        res.write(`data: ${JSON.stringify({ type: 'text', content: text })}\n\n`);
+      }
     });
 
-    await stream.finalMessage();
-    res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
+    if (!aborted) {
+      await stream.finalMessage();
+      res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
+    } else {
+      stream.abort();
+    }
   } catch (err: any) {
-    res.write(`data: ${JSON.stringify({ type: 'error', message: err.message })}\n\n`);
+    if (!aborted) {
+      res.write(`data: ${JSON.stringify({ type: 'error', message: 'Analysis failed' })}\n\n`);
+    }
   }
 
   res.end();

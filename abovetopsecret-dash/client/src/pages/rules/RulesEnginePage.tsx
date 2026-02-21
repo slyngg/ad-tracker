@@ -22,6 +22,7 @@ const ACTIONS = [
   { value: 'enable_adset', label: 'Enable Meta Adset' },
   { value: 'adjust_budget', label: 'Adjust Adset Budget' },
   { value: 'slack_notify', label: 'Slack Notification' },
+  { value: 'email_notify', label: 'Email Alert' },
 ];
 
 interface RuleFormData {
@@ -144,6 +145,8 @@ export default function RulesEnginePage() {
     if (form.action_type === 'webhook') {
       action_config = { webhook_url: form.action_config };
     } else if (form.action_type === 'notification') {
+      action_config = { message: form.action_config || `${form.name} triggered` };
+    } else if (form.action_type === 'email_notify') {
       action_config = { message: form.action_config || `${form.name} triggered` };
     } else if (META_ACTIONS.includes(form.action_type)) {
       action_meta = { adset_id: form.adset_id };
@@ -286,7 +289,7 @@ export default function RulesEnginePage() {
             <label className="text-[11px] text-ats-text-muted block mb-3 uppercase tracking-wide font-semibold">
               IF condition
             </label>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
               <span className="text-sm text-ats-text font-semibold">IF</span>
               <select
                 value={form.metric}
@@ -315,7 +318,7 @@ export default function RulesEnginePage() {
                 value={form.value}
                 onChange={(e) => setForm({ ...form, value: e.target.value })}
                 placeholder="Value"
-                className={`${selectCls} w-28`}
+                className={selectCls}
               />
               <span className="text-sm text-ats-text font-semibold">THEN</span>
               <select
@@ -346,6 +349,20 @@ export default function RulesEnginePage() {
                     ? 'https://hooks.example.com/...'
                     : 'Alert message text'
                 }
+                className={inputCls}
+              />
+            </div>
+          )}
+
+          {form.action_type === 'email_notify' && (
+            <div className="mb-4">
+              <label className="text-xs sm:text-[11px] text-ats-text-muted block mb-1 uppercase tracking-wide">
+                Custom Message (optional)
+              </label>
+              <input
+                value={form.action_config}
+                onChange={(e) => setForm({ ...form, action_config: e.target.value })}
+                placeholder="Alert message included in the email"
                 className={inputCls}
               />
             </div>
@@ -397,7 +414,7 @@ export default function RulesEnginePage() {
               value={form.cooldown_minutes}
               onChange={(e) => setForm({ ...form, cooldown_minutes: e.target.value })}
               placeholder="0 = no cooldown"
-              className={`${inputCls} max-w-[200px]`}
+              className={`${inputCls} sm:max-w-[200px]`}
             />
           </div>
 
@@ -443,18 +460,18 @@ export default function RulesEnginePage() {
             return (
               <div key={rule.id}>
                 <div className="bg-ats-card border border-ats-border rounded-lg p-4">
-                  <div className="flex items-center justify-between gap-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
                     <div className="flex items-center gap-3 flex-1 min-w-0">
                       {/* Toggle */}
                       <button
                         onClick={() => handleToggle(rule.id)}
-                        className={`relative w-10 h-5 rounded-full transition-colors shrink-0 ${
+                        className={`relative w-12 h-7 rounded-full transition-colors shrink-0 ${
                           rule.enabled ? 'bg-ats-green' : 'bg-gray-600'
                         }`}
                       >
                         <span
-                          className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
-                            rule.enabled ? 'left-5' : 'left-0.5'
+                          className={`absolute top-1 w-5 h-5 rounded-full bg-white transition-transform ${
+                            rule.enabled ? 'left-6' : 'left-1'
                           }`}
                         />
                       </button>
@@ -480,22 +497,22 @@ export default function RulesEnginePage() {
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2 shrink-0">
+                    <div className="flex items-center gap-1 sm:gap-2 shrink-0">
                       <button
                         onClick={() => viewLogs(rule.id)}
-                        className="px-2.5 py-1 text-xs bg-ats-bg border border-ats-border rounded text-ats-text-muted hover:text-ats-text transition-colors"
+                        className="px-3 py-2.5 min-h-[44px] text-xs bg-ats-bg border border-ats-border rounded text-ats-text-muted hover:text-ats-text transition-colors"
                       >
                         {logsRuleId === rule.id ? 'Hide Logs' : 'Logs'}
                       </button>
                       <button
                         onClick={() => openEdit(rule)}
-                        className="px-2.5 py-1 text-xs bg-ats-bg border border-ats-border rounded text-ats-text-muted hover:text-ats-text transition-colors"
+                        className="px-3 py-2.5 min-h-[44px] text-xs bg-ats-bg border border-ats-border rounded text-ats-text-muted hover:text-ats-text transition-colors"
                       >
                         Edit
                       </button>
                       <button
                         onClick={() => handleDelete(rule.id)}
-                        className="px-2.5 py-1 text-xs text-ats-red hover:text-red-400 transition-colors"
+                        className="px-3 py-2.5 min-h-[44px] text-xs text-ats-red hover:text-red-400 transition-colors"
                       >
                         Delete
                       </button>
@@ -505,7 +522,7 @@ export default function RulesEnginePage() {
 
                 {/* Execution Logs */}
                 {logsRuleId === rule.id && (
-                  <div className="mt-1 bg-ats-bg border border-ats-border rounded-lg p-4 ml-4">
+                  <div className="mt-1 bg-ats-bg border border-ats-border rounded-lg p-3 sm:p-4 sm:ml-4">
                     <h4 className="text-xs font-semibold text-ats-text-muted uppercase tracking-wide mb-3">
                       Execution Log
                     </h4>

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   fetchCampaignDraft,
@@ -91,7 +91,7 @@ const btnPrimary =
 const btnSecondary =
   'px-5 py-2.5 bg-ats-card border border-ats-border text-ats-text rounded-lg text-sm font-semibold hover:bg-ats-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2';
 const btnDanger =
-  'px-3 py-1.5 text-ats-red hover:bg-red-900/30 rounded-lg text-xs transition-colors flex items-center gap-1';
+  'px-3 py-2 min-h-[44px] text-ats-red hover:bg-red-900/30 rounded-lg text-xs transition-colors flex items-center gap-1';
 
 // ── Local types for form state ───────────────────────────────────────
 
@@ -188,7 +188,7 @@ function StepIndicator({ step }: { step: number }) {
                 {isCompleted ? <Check className="w-4 h-4" /> : stepNum}
               </div>
               <span
-                className={`text-[10px] mt-1 font-mono whitespace-nowrap ${
+                className={`hidden sm:block text-[10px] mt-1 font-mono whitespace-nowrap ${
                   isActive ? 'text-ats-accent' : isCompleted ? 'text-emerald-400' : 'text-ats-text-muted'
                 }`}
               >
@@ -197,7 +197,7 @@ function StepIndicator({ step }: { step: number }) {
             </div>
             {i < STEP_LABELS.length - 1 && (
               <div
-                className={`w-8 sm:w-16 h-px mx-1 mb-4 ${
+                className={`w-4 sm:w-12 h-px mx-1 mb-4 ${
                   stepNum < step ? 'bg-emerald-600' : 'bg-ats-border'
                 }`}
               />
@@ -242,6 +242,18 @@ function CountryMultiSelect({
   onChange: (v: string[]) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleMouseDown = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleMouseDown);
+    return () => document.removeEventListener('mousedown', handleMouseDown);
+  }, [open]);
 
   const toggle = (code: string) => {
     if (selected.includes(code)) {
@@ -252,7 +264,7 @@ function CountryMultiSelect({
   };
 
   return (
-    <div className="relative">
+    <div className="relative" ref={containerRef}>
       <button
         type="button"
         onClick={() => setOpen(!open)}
@@ -398,6 +410,19 @@ function ConfirmModal({
   onCancel: () => void;
   loading: boolean;
 }) {
+  useEffect(() => {
+    if (!open) return;
+    document.body.classList.add('overflow-hidden');
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onCancel();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.body.classList.remove('overflow-hidden');
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [open, onCancel]);
+
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
@@ -656,6 +681,7 @@ function Step2AdSets({
   };
 
   const removeAdSet = (index: number) => {
+    if (!confirm('Remove this ad set?')) return;
     setAdSets(adSets.filter((_, i) => i !== index));
     if (editingAdSet === index) setEditingAdSet(null);
     else if (editingAdSet !== null && editingAdSet > index)
@@ -743,11 +769,12 @@ function Step2AdSets({
                 </div>
 
                 {/* Age */}
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className={labelCls}>Min Age</label>
                     <input
                       type="number"
+                      inputMode="numeric"
                       min={13}
                       max={65}
                       value={adSet.targeting.age_min}
@@ -761,6 +788,7 @@ function Step2AdSets({
                     <label className={labelCls}>Max Age</label>
                     <input
                       type="number"
+                      inputMode="numeric"
                       min={13}
                       max={65}
                       value={adSet.targeting.age_max}
@@ -801,7 +829,7 @@ function Step2AdSets({
               </div>
 
               {/* Budget */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className={labelCls}>Budget Type</label>
                   <select
@@ -819,6 +847,7 @@ function Step2AdSets({
                   <label className={labelCls}>Budget Amount ($)</label>
                   <input
                     type="number"
+                    inputMode="decimal"
                     min={1}
                     step={0.01}
                     value={adSet.budget_amount}
@@ -846,7 +875,7 @@ function Step2AdSets({
               </div>
 
               {/* Schedule */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className={labelCls}>Start Date</label>
                   <input
@@ -999,7 +1028,7 @@ function Step3Ads({
                     />
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {/* Headline */}
                     <div>
                       <label className={labelCls}>Headline</label>
@@ -1022,7 +1051,7 @@ function Step3Ads({
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {/* CTA */}
                     <div>
                       <label className={labelCls}>Call to Action</label>
@@ -1042,6 +1071,8 @@ function Step3Ads({
                     <div>
                       <label className={labelCls}>Link URL</label>
                       <input
+                        type="url"
+                        inputMode="url"
                         value={ad.link_url}
                         onChange={(e) => updateAd(globalIndex, { link_url: e.target.value })}
                         placeholder="https://..."
@@ -1134,7 +1165,7 @@ function Step4Review({
       {/* Campaign summary */}
       <div className="bg-ats-card border border-ats-border rounded-xl p-5">
         <h3 className="text-sm font-bold text-ats-text mb-3">Campaign Summary</h3>
-        <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-xs">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-xs">
           <div>
             <span className="text-ats-text-muted">Account:</span>
             <span className="text-ats-text ml-2">{account?.name || 'None selected'}</span>

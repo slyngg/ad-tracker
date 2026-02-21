@@ -14,7 +14,7 @@ function ConnectionStatus() {
 
   if (status === 'connected') {
     return (
-      <div className="flex items-center gap-1.5 text-[10px] text-ats-text-muted">
+      <div className="flex items-center gap-1.5 text-xs sm:text-[10px] text-ats-text-muted">
         <span className="w-1.5 h-1.5 rounded-full bg-ats-green animate-pulse" />
         Live
       </div>
@@ -23,7 +23,7 @@ function ConnectionStatus() {
 
   if (status === 'connecting') {
     return (
-      <div className="flex items-center gap-1.5 text-[10px] text-yellow-400">
+      <div className="flex items-center gap-1.5 text-xs sm:text-[10px] text-yellow-400">
         <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse" />
         Connecting...
       </div>
@@ -31,7 +31,7 @@ function ConnectionStatus() {
   }
 
   return (
-    <div className="flex items-center gap-1.5 text-[10px] text-ats-text-muted">
+    <div className="flex items-center gap-1.5 text-xs sm:text-[10px] text-ats-text-muted">
       <span className="w-1.5 h-1.5 rounded-full bg-ats-text-muted" />
       Offline
     </div>

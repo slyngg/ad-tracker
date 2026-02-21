@@ -51,8 +51,11 @@ async function loadBrandContext(userId: number, brandConfigId?: number, accountI
   return fields.filter(f => config[f]).map(f => `${f}: ${config[f]}`).join('\n');
 }
 
-async function loadTemplateContext(templateId: number): Promise<string> {
-  const result = await pool.query('SELECT * FROM creative_templates WHERE id = $1', [templateId]);
+async function loadTemplateContext(templateId: number, userId: number): Promise<string> {
+  const result = await pool.query(
+    'SELECT * FROM creative_templates WHERE id = $1 AND (user_id = $2 OR is_shared = true)',
+    [templateId, userId]
+  );
   if (result.rows.length === 0) return '';
   const tmpl = result.rows[0];
 
@@ -152,7 +155,7 @@ Return ONLY the JSON array, no markdown code fences or other text.`;
 export async function generateAdCopy(params: GenerateParams): Promise<any> {
   const [brandContext, templateContext, inspirationContext, performanceContext] = await Promise.all([
     loadBrandContext(params.userId, params.brand_config_id, params.account_id),
-    params.template_id ? loadTemplateContext(params.template_id) : Promise.resolve(''),
+    params.template_id ? loadTemplateContext(params.template_id, params.userId) : Promise.resolve(''),
     params.inspiration_ad_id ? loadInspirationContext(params.inspiration_ad_id, params.userId) : Promise.resolve(''),
     loadTopPerformingContext(params.userId),
   ]);
@@ -183,8 +186,12 @@ export async function generateAdCopy(params: GenerateParams): Promise<any> {
       variations = JSON.parse(text);
     } catch {
       // Try to extract JSON from response
-      const match = text.match(/\[[\s\S]*\]/);
-      variations = match ? JSON.parse(match[0]) : [{ headline: text, primary_text: '', description: '', cta: '', hook: '', rationale: 'Raw response' }];
+      try {
+        const match = text.match(/\[[\s\S]*\]/);
+        variations = match ? JSON.parse(match[0]) : [{ headline: text, primary_text: '', description: '', cta: '', hook: '', rationale: 'Raw response' }];
+      } catch {
+        variations = [{ headline: text, primary_text: '', description: '', cta: '', hook: '', rationale: 'Raw response' }];
+      }
     }
 
     const content = { variations, brand_context_used: !!brandContext, brief: params.brief };
@@ -215,7 +222,7 @@ export async function generateAdCopy(params: GenerateParams): Promise<any> {
 export async function generateAdCopyStream(params: GenerateParams, res: Response): Promise<void> {
   const [brandContext, templateContext, inspirationContext, performanceContext] = await Promise.all([
     loadBrandContext(params.userId, params.brand_config_id, params.account_id),
-    params.template_id ? loadTemplateContext(params.template_id) : Promise.resolve(''),
+    params.template_id ? loadTemplateContext(params.template_id, params.userId) : Promise.resolve(''),
     params.inspiration_ad_id ? loadInspirationContext(params.inspiration_ad_id, params.userId) : Promise.resolve(''),
     loadTopPerformingContext(params.userId),
   ]);
@@ -259,8 +266,12 @@ export async function generateAdCopyStream(params: GenerateParams, res: Response
     try {
       variations = JSON.parse(fullText);
     } catch {
-      const match = fullText.match(/\[[\s\S]*\]/);
-      variations = match ? JSON.parse(match[0]) : [];
+      try {
+        const match = fullText.match(/\[[\s\S]*\]/);
+        variations = match ? JSON.parse(match[0]) : [];
+      } catch {
+        variations = [];
+      }
     }
 
     const content = { variations, brand_context_used: !!brandContext, brief: params.brief };
@@ -340,8 +351,12 @@ Return ONLY the JSON array.`;
   try {
     suggestions = JSON.parse(text);
   } catch {
-    const match = text.match(/\[[\s\S]*\]/);
-    suggestions = match ? JSON.parse(match[0]) : [];
+    try {
+      const match = text.match(/\[[\s\S]*\]/);
+      suggestions = match ? JSON.parse(match[0]) : [];
+    } catch {
+      suggestions = [];
+    }
   }
 
   // Track tokens
@@ -399,8 +414,12 @@ Return ONLY the JSON object.`;
   try {
     templateData = JSON.parse(text);
   } catch {
-    const match = text.match(/\{[\s\S]*\}/);
-    templateData = match ? JSON.parse(match[0]) : { name: 'Extracted Template', structure: {}, variable_slots: [] };
+    try {
+      const match = text.match(/\{[\s\S]*\}/);
+      templateData = match ? JSON.parse(match[0]) : { name: 'Extracted Template', structure: {}, variable_slots: [] };
+    } catch {
+      templateData = { name: 'Extracted Template', structure: {}, variable_slots: [] };
+    }
   }
 
   // Save to creative_templates

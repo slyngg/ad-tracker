@@ -22,6 +22,8 @@ import {
   Loader2,
   LayoutTemplate,
   ChevronRight,
+  XCircle,
+  AlertTriangle,
 } from 'lucide-react';
 import { getAuthToken } from '../../stores/authStore';
 
@@ -106,6 +108,9 @@ export default function CreativeGeneratorPage() {
   const [templates, setTemplates] = useState<CreativeTemplate[]>([]);
   const [history, setHistory] = useState<GenCreative[]>([]);
 
+  // Load error state
+  const [brandConfigError, setBrandConfigError] = useState(false);
+
   // Result state
   const [result, setResult] = useState<GenCreative | null>(null);
   const [generating, setGenerating] = useState(false);
@@ -131,8 +136,13 @@ export default function CreativeGeneratorPage() {
 
   useEffect(() => {
     fetchBrandConfigs()
-      .then(setBrandConfigs)
-      .catch(() => {});
+      .then((data) => {
+        setBrandConfigs(data);
+        setBrandConfigError(false);
+      })
+      .catch(() => {
+        setBrandConfigError(true);
+      });
     fetchCreativeTemplates()
       .then(setTemplates)
       .catch(() => {});
@@ -367,7 +377,7 @@ export default function CreativeGeneratorPage() {
     >
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
         {/* ── Left Panel: Input ──────────────────────────────────── */}
-        <div className="lg:col-span-3 space-y-4">
+        <div className="order-2 lg:order-none lg:col-span-3 space-y-4">
           <div className={cardCls}>
             <h3 className="text-sm font-semibold text-ats-text mb-4 flex items-center gap-2">
               <Wand2 className="w-4 h-4 text-ats-accent" />
@@ -444,6 +454,12 @@ export default function CreativeGeneratorPage() {
                   </option>
                 ))}
               </select>
+              {brandConfigError && brandConfigs.length === 0 && (
+                <span className="flex items-center gap-1 text-[11px] text-amber-400 mt-1">
+                  <AlertTriangle className="w-3 h-3 flex-shrink-0" />
+                  Failed to load brand configs
+                </span>
+              )}
             </label>
 
             {/* Template */}
@@ -517,7 +533,7 @@ export default function CreativeGeneratorPage() {
         </div>
 
         {/* ── Center Panel: Results ──────────────────────────────── */}
-        <div className="lg:col-span-6 space-y-4">
+        <div className="order-1 lg:order-none lg:col-span-6 space-y-4">
           {/* Error */}
           {error && (
             <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-3 text-sm text-ats-red">
@@ -533,6 +549,13 @@ export default function CreativeGeneratorPage() {
                 <span className="text-xs font-medium text-ats-text-muted uppercase tracking-wide">
                   Streaming...
                 </span>
+                <button
+                  onClick={() => streamAbortRef.current?.abort()}
+                  className="ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 bg-red-500/10 border border-red-500/30 text-ats-red rounded-lg text-xs font-medium hover:bg-red-500/20 transition-colors"
+                >
+                  <XCircle className="w-3.5 h-3.5" />
+                  Cancel
+                </button>
               </div>
               <div
                 ref={streamContainerRef}
@@ -559,11 +582,11 @@ export default function CreativeGeneratorPage() {
           {/* Variation Cards */}
           {!generating && !streaming && variations.length > 0 && (
             <>
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
                 <h3 className="text-sm font-semibold text-ats-text">
                   {variations.length} Variation{variations.length > 1 ? 's' : ''}
                 </h3>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <button
                     onClick={handleGenerateVariations}
                     disabled={isWorking}
@@ -598,7 +621,7 @@ export default function CreativeGeneratorPage() {
                             <button
                               key={s}
                               onClick={() => handleRate(result.id, s)}
-                              className="p-0.5"
+                              className="p-1.5"
                             >
                               <Star
                                 className={`w-3.5 h-3.5 ${
@@ -736,7 +759,7 @@ export default function CreativeGeneratorPage() {
         </div>
 
         {/* ── Right Panel: Context ───────────────────────────────── */}
-        <div className="lg:col-span-3 space-y-4">
+        <div className="order-3 lg:order-none lg:col-span-3 space-y-4">
           {/* Brand Config Summary */}
           <div className={cardCls}>
             <h3 className="text-sm font-semibold text-ats-text mb-3 flex items-center gap-2">

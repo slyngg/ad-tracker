@@ -38,16 +38,26 @@ export interface PublishResult {
 export async function publishCampaignDraft(draftId: number, userId: number): Promise<PublishResult> {
   const result: PublishResult = { success: false, adsets: [], ads: [] };
 
-  // Load draft
+  // Atomic compare-and-swap: only transition from 'draft' or 'failed' to 'publishing'
   const draftRes = await pool.query(
-    'SELECT * FROM campaign_drafts WHERE id = $1 AND user_id = $2',
+    `UPDATE campaign_drafts SET status = 'publishing', updated_at = NOW()
+     WHERE id = $1 AND user_id = $2 AND status IN ('draft', 'failed')
+     RETURNING *`,
     [draftId, userId]
   );
-  if (draftRes.rows.length === 0) throw new Error('Draft not found');
+  if (draftRes.rows.length === 0) {
+    // Check if it exists at all to give a better error
+    const check = await pool.query(
+      'SELECT status FROM campaign_drafts WHERE id = $1 AND user_id = $2',
+      [draftId, userId]
+    );
+    if (check.rows.length === 0) throw new Error('Draft not found');
+    const status = check.rows[0].status;
+    if (status === 'published') throw new Error('Draft already published');
+    if (status === 'publishing') throw new Error('Draft is currently being published');
+    throw new Error(`Cannot publish draft with status: ${status}`);
+  }
   const draft = draftRes.rows[0];
-
-  if (draft.status === 'published') throw new Error('Draft already published');
-  if (draft.status === 'publishing') throw new Error('Draft is currently being published');
 
   // Load account
   const accountRes = await pool.query('SELECT * FROM accounts WHERE id = $1 AND user_id = $2', [draft.account_id, userId]);
@@ -68,12 +78,6 @@ export async function publishCampaignDraft(draftId: number, userId: number): Pro
     const pages = await getAdAccountPages(actId, accessToken);
     if (pages.length > 0) pageId = pages[0].id;
   } catch { /* page resolution optional for some objectives */ }
-
-  // Set status to publishing
-  await pool.query(
-    "UPDATE campaign_drafts SET status = 'publishing', updated_at = NOW() WHERE id = $1",
-    [draftId]
-  );
 
   try {
     // 1. Create campaign on Meta
@@ -128,7 +132,7 @@ export async function publishCampaignDraft(draftId: number, userId: number): Pro
             // Upload image if media_upload_id provided
             let imageHash: string | undefined;
             if (ad.media_upload_id) {
-              const mediaRes = await pool.query('SELECT * FROM campaign_media_uploads WHERE id = $1', [ad.media_upload_id]);
+              const mediaRes = await pool.query('SELECT * FROM campaign_media_uploads WHERE id = $1 AND user_id = $2', [ad.media_upload_id, userId]);
               if (mediaRes.rows.length > 0) {
                 const media = mediaRes.rows[0];
                 if (media.meta_image_hash) {

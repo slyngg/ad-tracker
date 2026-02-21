@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   fetchCreativeTemplates,
   createCreativeTemplate,
@@ -7,7 +7,8 @@ import {
   duplicateCreativeTemplate,
   CreativeTemplate,
 } from '../../lib/api';
-import { Plus, Pencil, Copy, Trash2, Loader2, LayoutTemplate, Tag } from 'lucide-react';
+import { Plus, Pencil, Copy, Trash2, Loader2, LayoutTemplate, Tag, AlertCircle } from 'lucide-react';
+import PageShell from '../../components/shared/PageShell';
 
 const cardCls = 'bg-ats-card rounded-xl p-4 border border-ats-border';
 
@@ -75,6 +76,7 @@ function TemplateModal({
   onSave,
   onClose,
   saving,
+  saveError,
 }: {
   title: string;
   form: FormState;
@@ -82,13 +84,26 @@ function TemplateModal({
   onSave: () => void;
   onClose: () => void;
   saving: boolean;
+  saveError: string | null;
 }) {
   const inputCls = 'w-full bg-ats-bg border border-ats-border rounded-lg px-3 py-2 text-sm text-ats-text placeholder:text-ats-text-muted focus:outline-none focus:border-ats-accent';
   const labelCls = 'block text-xs font-semibold text-ats-text-muted mb-1';
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !saving) onClose();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = '';
+    };
+  }, [saving, onClose]);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div className="bg-ats-card border border-ats-border rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => { if (!saving) onClose(); }}>
+      <div className="bg-ats-card border border-ats-border rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6" onClick={e => e.stopPropagation()}>
         <h2 className="text-lg font-bold text-ats-text mb-4">{title}</h2>
 
         <div className="space-y-3">
@@ -159,8 +174,8 @@ function TemplateModal({
             <textarea
               value={form.structure}
               onChange={e => setForm({ ...form, structure: e.target.value })}
-              rows={4}
-              className={`${inputCls} font-mono text-xs`}
+              rows={6}
+              className={`${inputCls} font-mono text-xs min-h-[120px]`}
             />
           </div>
 
@@ -169,8 +184,8 @@ function TemplateModal({
             <textarea
               value={form.variable_slots}
               onChange={e => setForm({ ...form, variable_slots: e.target.value })}
-              rows={4}
-              className={`${inputCls} font-mono text-xs`}
+              rows={6}
+              className={`${inputCls} font-mono text-xs min-h-[120px]`}
             />
           </div>
 
@@ -187,6 +202,13 @@ function TemplateModal({
             <span className="text-sm text-ats-text">Shared template</span>
           </div>
         </div>
+
+        {saveError && (
+          <div className="flex items-center gap-2 mt-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-sm text-red-400">
+            <AlertCircle className="w-4 h-4 flex-shrink-0" />
+            {saveError}
+          </div>
+        )}
 
         <div className="flex justify-end gap-2 mt-6">
           <button
@@ -213,6 +235,9 @@ export default function CreativeTemplatesPage() {
   const [templates, setTemplates] = useState<CreativeTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [notification, setNotification] = useState<string | null>(null);
 
   const [modalMode, setModalMode] = useState<'create' | 'edit' | null>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -220,11 +245,12 @@ export default function CreativeTemplatesPage() {
 
   const load = async () => {
     setLoading(true);
+    setError(null);
     try {
       const data = await fetchCreativeTemplates();
       setTemplates(data);
-    } catch {
-      /* empty */
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load templates');
     } finally {
       setLoading(false);
     }
@@ -246,10 +272,11 @@ export default function CreativeTemplatesPage() {
     setModalMode('edit');
   };
 
-  const closeModal = () => {
+  const closeModal = useCallback(() => {
     setModalMode(null);
     setEditingId(null);
-  };
+    setSaveError(null);
+  }, []);
 
   const parseForm = () => {
     const tags = form.tags
@@ -282,6 +309,7 @@ export default function CreativeTemplatesPage() {
 
   const handleSave = async () => {
     setSaving(true);
+    setSaveError(null);
     try {
       const payload = parseForm();
       if (modalMode === 'create') {
@@ -291,19 +319,24 @@ export default function CreativeTemplatesPage() {
       }
       closeModal();
       await load();
-    } catch {
-      /* empty */
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Failed to save template');
     } finally {
       setSaving(false);
     }
+  };
+
+  const showNotification = (msg: string) => {
+    setNotification(msg);
+    setTimeout(() => setNotification(null), 3000);
   };
 
   const handleDuplicate = async (id: number) => {
     try {
       await duplicateCreativeTemplate(id);
       await load();
-    } catch {
-      /* empty */
+    } catch (err) {
+      showNotification(err instanceof Error ? err.message : 'Failed to duplicate template');
     }
   };
 
@@ -312,19 +345,16 @@ export default function CreativeTemplatesPage() {
     try {
       await deleteCreativeTemplate(id);
       await load();
-    } catch {
-      /* empty */
+    } catch (err) {
+      showNotification(err instanceof Error ? err.message : 'Failed to delete template');
     }
   };
 
   return (
-    <div className="min-h-screen bg-ats-bg text-ats-text p-4 md:p-6 max-w-6xl mx-auto">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
-          <LayoutTemplate className="w-6 h-6 text-ats-accent" />
-          <h1 className="text-xl font-bold text-ats-text">Creative Templates</h1>
-        </div>
+    <PageShell
+      title="Creative Templates"
+      subtitle="Reusable ad structure templates"
+      actions={
         <button
           onClick={openCreate}
           className="flex items-center gap-2 px-4 py-2 bg-ats-accent text-white rounded-lg text-sm font-semibold hover:bg-ats-accent/80 transition-colors"
@@ -332,7 +362,29 @@ export default function CreativeTemplatesPage() {
           <Plus className="w-4 h-4" />
           New Template
         </button>
-      </div>
+      }
+    >
+      {/* Notification toast */}
+      {notification && (
+        <div className="fixed top-4 right-4 z-[60] flex items-center gap-2 px-4 py-3 bg-red-500/10 border border-red-500/30 rounded-lg text-sm text-red-400 shadow-lg animate-in fade-in slide-in-from-top-2">
+          <AlertCircle className="w-4 h-4 flex-shrink-0" />
+          {notification}
+        </div>
+      )}
+
+      {/* Error state */}
+      {error && !loading && (
+        <div className={`${cardCls} text-center py-10 mb-4`}>
+          <AlertCircle className="w-10 h-10 text-red-400 mx-auto mb-3" />
+          <p className="text-red-400 text-sm mb-4">{error}</p>
+          <button
+            onClick={load}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-ats-accent text-white rounded-lg text-sm font-semibold hover:bg-ats-accent/80 transition-colors"
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       {/* Loading */}
       {loading && (
@@ -342,7 +394,7 @@ export default function CreativeTemplatesPage() {
       )}
 
       {/* Empty state */}
-      {!loading && templates.length === 0 && (
+      {!loading && !error && templates.length === 0 && (
         <div className={`${cardCls} text-center py-16`}>
           <LayoutTemplate className="w-12 h-12 text-ats-text-muted mx-auto mb-3" />
           <p className="text-ats-text-muted text-sm mb-4">No creative templates yet.</p>
@@ -440,8 +492,9 @@ export default function CreativeTemplatesPage() {
           onSave={handleSave}
           onClose={closeModal}
           saving={saving}
+          saveError={saveError}
         />
       )}
-    </div>
+    </PageShell>
   );
 }
