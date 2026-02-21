@@ -33,6 +33,7 @@ const AccountPage = lazy(() => import('./pages/settings/AccountPage'));
 const RulesEnginePage = lazy(() => import('./pages/rules/RulesEnginePage'));
 const PnLPage = lazy(() => import('./pages/finance/PnLPage'));
 const MemoriesPage = lazy(() => import('./pages/settings/MemoriesPage'));
+const AccountsOffersPage = lazy(() => import('./pages/settings/AccountsOffersPage'));
 const WidgetConfigPage = lazy(() => import('./pages/settings/WidgetConfigPage'));
 
 // New pages — Website Conversion Depth
@@ -187,6 +188,7 @@ export default function App() {
               <Route path="/settings/tracking" element={<TrackingSettingsPage />} />
               <Route path="/settings/account" element={<AccountPage />} />
               <Route path="/settings/memories" element={<MemoriesPage />} />
+              <Route path="/settings/accounts-offers" element={<AccountsOffersPage />} />
               <Route path="/settings/widget" element={<WidgetConfigPage />} />
 
               {/* Website Conversion — new sub-pages */}

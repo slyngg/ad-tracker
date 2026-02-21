@@ -40,7 +40,7 @@ export async function evaluateRules(userId: number): Promise<void> {
       SELECT
         COALESCE(SUM(COALESCE(subtotal, revenue)), 0) AS total_revenue,
         COUNT(DISTINCT order_id) AS total_conversions
-      FROM cc_orders_today WHERE order_status = 'completed' AND user_id = $1
+      FROM cc_orders_today WHERE order_status = 'completed' AND (is_test = false OR is_test IS NULL) AND user_id = $1
     `, [userId]);
 
     const ads = metricsResult.rows[0];

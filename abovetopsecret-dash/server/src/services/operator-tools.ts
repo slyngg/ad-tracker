@@ -7,52 +7,74 @@ import { getRealtime } from '../services/realtime';
 export const operatorTools = [
   {
     name: 'get_campaign_metrics',
-    description: "Get today's campaign-level ad metrics (spend, clicks, impressions, CPC, CTR) grouped by campaign.",
+    description: "Get today's campaign-level ad metrics (spend, clicks, impressions, CPC, CTR) grouped by campaign. Optionally filter by account.",
     input_schema: {
       type: 'object' as const,
-      properties: {},
+      properties: {
+        account_id: { type: 'number', description: 'Filter to a specific account ID' },
+      },
       required: [] as string[],
     },
   },
   {
     name: 'get_adset_metrics',
-    description: "Get today's adset-level breakdown of ad metrics grouped by adset.",
+    description: "Get today's adset-level breakdown of ad metrics grouped by adset. Optionally filter by account.",
     input_schema: {
       type: 'object' as const,
-      properties: {},
+      properties: {
+        account_id: { type: 'number', description: 'Filter to a specific account ID' },
+      },
       required: [] as string[],
     },
   },
   {
     name: 'get_order_stats',
-    description: "Get today's order/revenue summary including total revenue, conversions, and AOV.",
+    description: "Get today's order/revenue summary including total revenue, conversions, and AOV. Optionally filter by account or offer.",
     input_schema: {
       type: 'object' as const,
-      properties: {},
+      properties: {
+        account_id: { type: 'number', description: 'Filter to a specific account ID' },
+        offer_id: { type: 'number', description: 'Filter to a specific offer ID' },
+      },
       required: [] as string[],
     },
   },
   {
     name: 'get_top_offers',
-    description: 'Get top offers ranked by revenue for today.',
+    description: 'Get top offers ranked by revenue for today. Optionally filter by account.',
     input_schema: {
       type: 'object' as const,
-      properties: {},
+      properties: {
+        account_id: { type: 'number', description: 'Filter to a specific account ID' },
+      },
       required: [] as string[],
     },
   },
   {
     name: 'get_roas_by_campaign',
-    description: 'Get ROAS (return on ad spend) per campaign by joining ad spend with order revenue on utm_campaign.',
+    description: 'Get ROAS (return on ad spend) per campaign by joining ad spend with order revenue on utm_campaign. Optionally filter by account.',
     input_schema: {
       type: 'object' as const,
-      properties: {},
+      properties: {
+        account_id: { type: 'number', description: 'Filter to a specific account ID' },
+      },
       required: [] as string[],
     },
   },
   {
     name: 'get_source_medium',
-    description: 'Get traffic source breakdown by UTM source and medium with revenue and conversion data.',
+    description: 'Get traffic source breakdown by UTM source and medium with revenue and conversion data. Optionally filter by account.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        account_id: { type: 'number', description: 'Filter to a specific account ID' },
+      },
+      required: [] as string[],
+    },
+  },
+  {
+    name: 'list_accounts_and_offers',
+    description: "List the user's ad accounts and offers with today's spend and revenue summary per account.",
     input_schema: {
       type: 'object' as const,
       properties: {},
@@ -156,13 +178,14 @@ export const operatorTools = [
   },
   {
     name: 'query_historical',
-    description: 'Query historical ad performance data for a specific date range',
+    description: 'Query historical ad performance data for a specific date range. Optionally filter by account.',
     input_schema: {
       type: 'object' as const,
       properties: {
         start_date: { type: 'string', description: 'Start date in YYYY-MM-DD format' },
         end_date: { type: 'string', description: 'End date in YYYY-MM-DD format' },
         group_by: { type: 'string', description: 'Dimension to group by: day, campaign, or adset' },
+        account_id: { type: 'number', description: 'Filter to a specific account ID' },
       },
       required: ['start_date', 'end_date'],
     },
@@ -300,6 +323,22 @@ function validateAndSanitizeSql(sql: string): { valid: boolean; error?: string; 
   return { valid: true, cleaned };
 }
 
+// Helper: build optional account/offer filter for operator tool queries
+function buildAccountFilter(input: Record<string, any>, startIdx: number): { clause: string; params: any[]; nextIdx: number } {
+  let clause = '';
+  const params: any[] = [];
+  let idx = startIdx;
+  if (input.account_id != null) {
+    clause += ` AND account_id = $${idx++}`;
+    params.push(input.account_id);
+  }
+  if (input.offer_id != null) {
+    clause += ` AND offer_id = $${idx++}`;
+    params.push(input.offer_id);
+  }
+  return { clause, params, nextIdx: idx };
+}
+
 export async function executeTool(
   name: string,
   input: Record<string, any>,
@@ -307,16 +346,17 @@ export async function executeTool(
 ): Promise<{ result: any; summary: string }> {
   switch (name) {
     case 'get_campaign_metrics': {
+      const af = buildAccountFilter(input, 2);
       const result = await pool.query(
         `SELECT campaign_name, campaign_id,
            SUM(spend) AS spend, SUM(clicks) AS clicks,
            SUM(impressions) AS impressions,
            CASE WHEN SUM(impressions) > 0 THEN SUM(clicks)::FLOAT / SUM(impressions) ELSE 0 END AS ctr,
            CASE WHEN SUM(clicks) > 0 THEN SUM(spend) / SUM(clicks) ELSE 0 END AS cpc
-         FROM fb_ads_today WHERE user_id = $1
+         FROM fb_ads_today WHERE user_id = $1 ${af.clause}
          GROUP BY campaign_name, campaign_id
          ORDER BY spend DESC`,
-        [userId]
+        [userId, ...af.params]
       );
       return {
         result: result.rows,
@@ -325,15 +365,16 @@ export async function executeTool(
     }
 
     case 'get_adset_metrics': {
+      const af = buildAccountFilter(input, 2);
       const result = await pool.query(
         `SELECT adset_name, adset_id, campaign_name,
            SUM(spend) AS spend, SUM(clicks) AS clicks,
            SUM(impressions) AS impressions,
            CASE WHEN SUM(clicks) > 0 THEN SUM(spend) / SUM(clicks) ELSE 0 END AS cpc
-         FROM fb_ads_today WHERE user_id = $1
+         FROM fb_ads_today WHERE user_id = $1 ${af.clause}
          GROUP BY adset_name, adset_id, campaign_name
          ORDER BY spend DESC`,
-        [userId]
+        [userId, ...af.params]
       );
       return {
         result: result.rows,
@@ -342,6 +383,7 @@ export async function executeTool(
     }
 
     case 'get_order_stats': {
+      const af = buildAccountFilter(input, 2);
       const result = await pool.query(
         `SELECT
            COALESCE(SUM(COALESCE(subtotal, revenue)), 0) AS total_revenue,
@@ -350,8 +392,8 @@ export async function executeTool(
              THEN COALESCE(SUM(COALESCE(subtotal, revenue)), 0) / COUNT(DISTINCT order_id)
              ELSE 0 END AS aov
          FROM cc_orders_today
-         WHERE order_status = 'completed' AND user_id = $1`,
-        [userId]
+         WHERE order_status = 'completed' AND (is_test = false OR is_test IS NULL) AND user_id = $1 ${af.clause}`,
+        [userId, ...af.params]
       );
       const row = result.rows[0];
       return {
@@ -361,16 +403,17 @@ export async function executeTool(
     }
 
     case 'get_top_offers': {
+      const af = buildAccountFilter(input, 2);
       const result = await pool.query(
         `SELECT offer_name,
            COALESCE(SUM(COALESCE(subtotal, revenue)), 0) AS revenue,
            COUNT(DISTINCT order_id) AS conversions
          FROM cc_orders_today
-         WHERE order_status = 'completed' AND user_id = $1
+         WHERE order_status = 'completed' AND (is_test = false OR is_test IS NULL) AND user_id = $1 ${af.clause}
          GROUP BY offer_name
          ORDER BY revenue DESC
          LIMIT 10`,
-        [userId]
+        [userId, ...af.params]
       );
       return {
         result: result.rows,
@@ -379,6 +422,7 @@ export async function executeTool(
     }
 
     case 'get_roas_by_campaign': {
+      const af = buildAccountFilter(input, 2);
       const result = await pool.query(
         `SELECT
            f.campaign_name,
@@ -387,18 +431,18 @@ export async function executeTool(
            CASE WHEN SUM(f.spend) > 0 THEN COALESCE(SUM(o.revenue), 0) / SUM(f.spend) ELSE 0 END AS roas
          FROM (
            SELECT campaign_name, SUM(spend) AS spend
-           FROM fb_ads_today WHERE user_id = $1
+           FROM fb_ads_today WHERE user_id = $1 ${af.clause}
            GROUP BY campaign_name
          ) f
          LEFT JOIN (
            SELECT utm_campaign, SUM(COALESCE(subtotal, revenue)) AS revenue
            FROM cc_orders_today
-           WHERE order_status = 'completed' AND user_id = $1
+           WHERE order_status = 'completed' AND (is_test = false OR is_test IS NULL) AND user_id = $1 ${af.clause}
            GROUP BY utm_campaign
          ) o ON f.campaign_name = o.utm_campaign
          GROUP BY f.campaign_name
          ORDER BY spend DESC`,
-        [userId]
+        [userId, ...af.params]
       );
       return {
         result: result.rows,
@@ -407,6 +451,7 @@ export async function executeTool(
     }
 
     case 'get_source_medium': {
+      const af = buildAccountFilter(input, 2);
       const result = await pool.query(
         `SELECT
            COALESCE(NULLIF(utm_source, ''), 'direct') AS utm_source,
@@ -415,14 +460,50 @@ export async function executeTool(
            COUNT(DISTINCT order_id) AS conversions,
            COUNT(*) AS orders
          FROM cc_orders_today
-         WHERE order_status = 'completed' AND user_id = $1
+         WHERE order_status = 'completed' AND (is_test = false OR is_test IS NULL) AND user_id = $1 ${af.clause}
          GROUP BY utm_source, utm_medium
          ORDER BY revenue DESC`,
-        [userId]
+        [userId, ...af.params]
       );
       return {
         result: result.rows,
         summary: `${result.rows.length} source/medium combinations`,
+      };
+    }
+
+    case 'list_accounts_and_offers': {
+      const accounts = await pool.query(
+        `SELECT a.id, a.name, a.platform, a.platform_account_id, a.status, a.color,
+           COALESCE(fb.spend, 0) AS today_spend,
+           COALESCE(cc.revenue, 0) AS today_revenue,
+           COALESCE(cc.conversions, 0) AS today_conversions
+         FROM accounts a
+         LEFT JOIN (
+           SELECT account_id, SUM(spend) AS spend FROM fb_ads_today WHERE user_id = $1 GROUP BY account_id
+         ) fb ON fb.account_id = a.id
+         LEFT JOIN (
+           SELECT account_id, SUM(COALESCE(subtotal, revenue)) AS revenue, COUNT(DISTINCT order_id) AS conversions
+           FROM cc_orders_today WHERE user_id = $1 AND order_status = 'completed' AND (is_test = false OR is_test IS NULL)
+           GROUP BY account_id
+         ) cc ON cc.account_id = a.id
+         WHERE a.user_id = $1 AND a.status = 'active'
+         ORDER BY a.name`,
+        [userId]
+      );
+
+      const offers = await pool.query(
+        `SELECT o.id, o.name, o.offer_type, o.identifier, o.status, o.account_id,
+           a.name AS account_name, o.target_cpa, o.target_roas
+         FROM offers o
+         LEFT JOIN accounts a ON a.id = o.account_id
+         WHERE o.user_id = $1 AND o.status = 'active'
+         ORDER BY o.name`,
+        [userId]
+      );
+
+      return {
+        result: { accounts: accounts.rows, offers: offers.rows },
+        summary: `${accounts.rows.length} accounts, ${offers.rows.length} offers`,
       };
     }
 
@@ -579,6 +660,7 @@ export async function executeTool(
         };
       }
 
+      const af = buildAccountFilter(input, 4);
       const result = await pool.query(
         `SELECT ${groupByColumn} AS dimension,
            SUM((ad_data->>'spend')::NUMERIC) AS spend,
@@ -594,9 +676,10 @@ export async function executeTool(
          WHERE user_id = $1
            AND archived_date >= $2::DATE
            AND archived_date <= $3::DATE
+           ${af.clause}
          GROUP BY ${groupByColumn}
          ORDER BY ${groupByColumn}`,
-        [userId, input.start_date, input.end_date]
+        [userId, input.start_date, input.end_date, ...af.params]
       );
       return {
         result: result.rows,

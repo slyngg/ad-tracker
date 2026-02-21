@@ -10,7 +10,7 @@ export async function checkThresholds(userId: number): Promise<void> {
     const ordersResult = await pool.query(
       `SELECT COALESCE(SUM(COALESCE(subtotal, revenue)), 0) AS revenue,
               COUNT(DISTINCT order_id) AS conversions
-       FROM cc_orders_today WHERE order_status = 'completed' AND user_id = $1`,
+       FROM cc_orders_today WHERE order_status = 'completed' AND (is_test = false OR is_test IS NULL) AND user_id = $1`,
       [userId]
     );
 

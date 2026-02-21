@@ -4,6 +4,7 @@ import { useSidebarStore } from '../../stores/sidebarStore';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import Sidebar from './Sidebar';
 import CommandPalette from '../shared/CommandPalette';
+import AccountSwitcher from '../shared/AccountSwitcher';
 
 function ConnectionStatus() {
   const { status } = useWebSocket();
@@ -52,7 +53,8 @@ export default function AppLayout() {
         </button>
         <span className="text-ats-accent font-bold text-sm">Optic</span>
         <span className="text-ats-text font-bold text-sm">Data</span>
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-2">
+          <AccountSwitcher />
           <ConnectionStatus />
         </div>
       </div>

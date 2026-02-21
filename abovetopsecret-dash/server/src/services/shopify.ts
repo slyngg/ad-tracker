@@ -43,7 +43,7 @@ export async function processShopifyOrder(order: ShopifyOrder): Promise<string> 
   await pool.query(
     `INSERT INTO cc_orders_today (order_id, offer_name, revenue, new_customer, utm_campaign, fbclid, subscription_id, quantity, is_core_sku, source)
      VALUES ($1, $2, $3, $4, $5, $6, NULL, $7, true, 'shopify')
-     ON CONFLICT (order_id) DO UPDATE SET
+     ON CONFLICT (order_id) WHERE user_id IS NULL DO UPDATE SET
        revenue = EXCLUDED.revenue,
        new_customer = EXCLUDED.new_customer,
        quantity = EXCLUDED.quantity`,

@@ -150,7 +150,7 @@ export async function pollCheckoutChamp(userId?: number): Promise<{ polled: numb
       await pool.query(
         `INSERT INTO cc_orders_today (order_id, offer_name, revenue, subtotal, tax_amount, order_status, new_customer, utm_campaign, fbclid, subscription_id, quantity, is_core_sku, source, utm_source, utm_medium, utm_content, utm_term, user_id)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, true, 'checkout_champ', $12, $13, $14, $15, $16)
-         ON CONFLICT (order_id) DO UPDATE SET
+         ON CONFLICT (user_id, order_id) DO UPDATE SET
            revenue = EXCLUDED.revenue,
            subtotal = EXCLUDED.subtotal,
            tax_amount = EXCLUDED.tax_amount,
@@ -161,8 +161,7 @@ export async function pollCheckoutChamp(userId?: number): Promise<{ polled: numb
            utm_source = EXCLUDED.utm_source,
            utm_medium = EXCLUDED.utm_medium,
            utm_content = EXCLUDED.utm_content,
-           utm_term = EXCLUDED.utm_term,
-           user_id = EXCLUDED.user_id`,
+           utm_term = EXCLUDED.utm_term`,
         [orderId, offerName, total, subtotal, tax, orderStatus, newCustomer, utmCampaign, fbclid, subscriptionId, quantity, utmSource, utmMedium, utmContent, utmTerm, userId || null]
       );
       inserted++;

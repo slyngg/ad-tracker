@@ -172,8 +172,8 @@ export class RealtimeService {
       this.pool.query(`
         SELECT
           (SELECT COALESCE(SUM(spend), 0) FROM fb_ads_today ${uf ? 'WHERE user_id = $1' : ''}) AS total_spend,
-          (SELECT COALESCE(SUM(COALESCE(subtotal, revenue)), 0) FROM cc_orders_today WHERE order_status = 'completed' ${ufAnd}) AS total_revenue,
-          (SELECT COUNT(DISTINCT order_id) FROM cc_orders_today WHERE order_status = 'completed' ${ufAnd}) AS total_conversions
+          (SELECT COALESCE(SUM(COALESCE(subtotal, revenue)), 0) FROM cc_orders_today WHERE order_status = 'completed' AND (is_test = false OR is_test IS NULL) ${ufAnd}) AS total_revenue,
+          (SELECT COUNT(DISTINCT order_id) FROM cc_orders_today WHERE order_status = 'completed' AND (is_test = false OR is_test IS NULL) ${ufAnd}) AS total_conversions
       `, params),
       this.pool.query(`
         SELECT order_id, offer_name, COALESCE(subtotal, revenue) AS revenue, order_status, conversion_time
@@ -190,8 +190,10 @@ export class RealtimeService {
       this.pool.query(`
         SELECT
           COALESCE(SUM(CASE WHEN order_data->>'order_status' = 'completed'
+            AND COALESCE((order_data->>'is_test')::BOOLEAN, false) = false
             THEN COALESCE((order_data->>'subtotal')::NUMERIC, (order_data->>'revenue')::NUMERIC) ELSE 0 END), 0) AS prev_revenue,
           COUNT(DISTINCT CASE WHEN order_data->>'order_status' = 'completed'
+            AND COALESCE((order_data->>'is_test')::BOOLEAN, false) = false
             THEN order_data->>'order_id' END) AS prev_conversions
         FROM orders_archive
         WHERE archived_date = CURRENT_DATE - INTERVAL '1 day' ${prevUserFilter}
@@ -241,8 +243,8 @@ export class RealtimeService {
       this.pool.query(`
         SELECT
           (SELECT COALESCE(SUM(spend), 0) FROM fb_ads_today ${uf ? 'WHERE user_id = $1' : ''}) AS total_spend,
-          (SELECT COALESCE(SUM(COALESCE(subtotal, revenue)), 0) FROM cc_orders_today WHERE order_status = 'completed' ${ufAnd}) AS total_revenue,
-          (SELECT COUNT(DISTINCT order_id) FROM cc_orders_today WHERE order_status = 'completed' ${ufAnd}) AS total_conversions
+          (SELECT COALESCE(SUM(COALESCE(subtotal, revenue)), 0) FROM cc_orders_today WHERE order_status = 'completed' AND (is_test = false OR is_test IS NULL) ${ufAnd}) AS total_revenue,
+          (SELECT COUNT(DISTINCT order_id) FROM cc_orders_today WHERE order_status = 'completed' AND (is_test = false OR is_test IS NULL) ${ufAnd}) AS total_conversions
       `, params),
       this.pool.query(`
         SELECT COALESCE(SUM((ad_data->>'spend')::NUMERIC), 0) AS prev_spend
@@ -252,8 +254,10 @@ export class RealtimeService {
       this.pool.query(`
         SELECT
           COALESCE(SUM(CASE WHEN order_data->>'order_status' = 'completed'
+            AND COALESCE((order_data->>'is_test')::BOOLEAN, false) = false
             THEN COALESCE((order_data->>'subtotal')::NUMERIC, (order_data->>'revenue')::NUMERIC) ELSE 0 END), 0) AS prev_revenue,
           COUNT(DISTINCT CASE WHEN order_data->>'order_status' = 'completed'
+            AND COALESCE((order_data->>'is_test')::BOOLEAN, false) = false
             THEN order_data->>'order_id' END) AS prev_conversions
         FROM orders_archive
         WHERE archived_date = CURRENT_DATE - INTERVAL '1 day' ${prevUserFilter}
@@ -292,6 +296,7 @@ export class RealtimeService {
     revenue: number;
     status: string;
     newCustomer?: boolean;
+    accountId?: number | null;
   }): Promise<void> {
     // Send the new order event
     this.broadcast(userId, {

@@ -23,7 +23,7 @@ cc_agg AS (
     COUNT(DISTINCT order_id) AS conversions,
     COUNT(DISTINCT CASE WHEN new_customer THEN order_id END) AS new_customers
   FROM cc_orders_today
-  WHERE order_status = 'completed'
+  WHERE order_status = 'completed' AND (is_test = false OR is_test IS NULL)
   GROUP BY utm_campaign, offer_name
 )
 SELECT
@@ -44,6 +44,6 @@ SELECT
     ELSE 0 END AS new_customer_pct,
   CASE WHEN SUM(fb.impressions) > 0 THEN SUM(fb.landing_page_views)::FLOAT / SUM(fb.impressions) ELSE 0 END AS lp_ctr
 FROM fb_agg fb
-LEFT JOIN cc_agg cc ON fb.ad_set_name = cc.utm_campaign
+LEFT JOIN cc_agg cc ON normalize_attribution_key(fb.ad_set_name) = normalize_attribution_key(cc.utm_campaign)
 GROUP BY fb.account_name, cc.offer_name
 ORDER BY spend DESC;

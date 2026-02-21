@@ -4,10 +4,13 @@ import AnimatedNumber from '../shared/AnimatedNumber';
 
 /**
  * Calculates percentage change between current and previous values.
- * Returns null if previous is null/undefined or zero (avoid division by zero).
+ * Returns null if previous is null/undefined (no data).
+ * Returns 'new' if previous is 0 (new metric — avoids division by zero).
+ * Formula: ((current - previous) / previous) * 100
  */
-function calcDelta(current: number, previous: number | undefined | null): number | null {
-  if (previous == null || previous === 0) return null;
+function calcDelta(current: number, previous: number | undefined | null): number | null | 'new' {
+  if (previous == null) return null;
+  if (previous === 0) return current > 0 ? 'new' : null;
   return ((current - previous) / previous) * 100;
 }
 
@@ -16,10 +19,18 @@ function calcDelta(current: number, previous: number | undefined | null): number
  * @param delta - percentage change (positive = increase)
  * @param invertColors - if true, a decrease is green (good for spend/CPA)
  */
-function DeltaBadge({ delta, invertColors = false }: { delta: number | null; invertColors?: boolean }) {
+function DeltaBadge({ delta, invertColors = false }: { delta: number | null | 'new'; invertColors?: boolean }) {
   if (delta == null) {
     return (
       <span className="text-xs font-medium text-gray-500 ml-1">&mdash;</span>
+    );
+  }
+
+  if (delta === 'new') {
+    return (
+      <span className="text-xs font-medium text-blue-400 ml-1.5" title="No previous data">
+        NEW
+      </span>
     );
   }
 
@@ -47,7 +58,7 @@ function SummaryCard({ label, value, format, color, delta, invertColors }: {
   value: number;
   format: (n: number) => string;
   color?: string;
-  delta?: number | null;
+  delta?: number | null | 'new';
   invertColors?: boolean;
 }) {
   return (
@@ -63,7 +74,7 @@ function SummaryCard({ label, value, format, color, delta, invertColors }: {
           <AnimatedNumber value={value} format={format} />
         </div>
         <DeltaBadge delta={delta ?? null} invertColors={invertColors} />
-        {delta != null && <span className="text-[9px] text-gray-600 ml-1">vs yday</span>}
+        {delta != null && delta !== 'new' && <span className="text-[9px] text-gray-600 ml-1">vs yday</span>}
       </div>
     </div>
   );

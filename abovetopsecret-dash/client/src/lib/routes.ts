@@ -7,7 +7,7 @@ import {
   Package, ShoppingCart, BarChart2, Repeat, UserPlus,
   Palette, Clock, Shield, BookOpen, Compass, Layers,
   MessageSquare, FileText, Sparkles, PenTool, PieChart,
-  Library, LayoutList, Radar,
+  Library, LayoutList, Radar, Building2,
 } from 'lucide-react';
 import { NavSectionConfig } from '../types/navigation';
 
@@ -55,6 +55,9 @@ export const ROUTES = {
 
   // Customer Retention — new
   REPEAT_PURCHASES: '/customers/repeat-purchases',
+
+  // Accounts & Offers
+  ACCOUNTS_OFFERS: '/settings/accounts-offers',
 
   // Settings — new
   TEAM: '/settings/team',
@@ -154,6 +157,7 @@ export const NAV_SECTIONS: NavSectionConfig[] = [
     label: 'Settings',
     icon: Settings,
     children: [
+      { label: 'Accounts & Offers', path: ROUTES.ACCOUNTS_OFFERS, icon: Building2 },
       { label: 'Connections', path: ROUTES.CONNECTIONS, icon: Plug },
       { label: 'Overrides', path: ROUTES.OVERRIDES, icon: Edit3 },
       { label: 'General', path: ROUTES.GENERAL_SETTINGS, icon: Sliders },

@@ -29,7 +29,7 @@ router.get('/summary', async (req: Request, res: Response) => {
       WITH customer_orders AS (
         SELECT customer_email, COUNT(DISTINCT order_id) AS order_count
         FROM cc_orders_today
-        WHERE order_status = 'completed' AND customer_email IS NOT NULL ${ufAnd}
+        WHERE order_status = 'completed' AND (is_test = false OR is_test IS NULL) AND customer_email IS NOT NULL ${ufAnd}
         GROUP BY customer_email
       )
       SELECT
@@ -64,7 +64,7 @@ router.post('/compute', async (req: Request, res: Response) => {
           ROW_NUMBER() OVER (PARTITION BY customer_email ORDER BY created_at) AS order_number,
           COALESCE(subtotal, revenue) AS revenue
         FROM cc_orders_today
-        WHERE order_status = 'completed' AND customer_email IS NOT NULL AND user_id = $1
+        WHERE order_status = 'completed' AND (is_test = false OR is_test IS NULL) AND customer_email IS NOT NULL AND user_id = $1
       ) sub
       GROUP BY cohort_month, order_number
       ON CONFLICT (user_id, cohort_month, order_number) DO UPDATE SET

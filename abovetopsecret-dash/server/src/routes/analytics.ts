@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import pool from '../db';
+import { parseAccountFilter } from '../services/account-filter';
 
 const router = Router();
 
@@ -35,8 +36,12 @@ router.get('/timeseries', async (req: Request, res: Response) => {
       order_data AS (
         SELECT
           archived_date AS date,
-          COALESCE(SUM((order_data->>'revenue')::NUMERIC), 0) AS revenue,
-          COUNT(*) AS conversions
+          COALESCE(SUM(CASE WHEN order_data->>'order_status' = 'completed'
+            AND COALESCE((order_data->>'is_test')::BOOLEAN, false) = false
+            THEN COALESCE((order_data->>'subtotal')::NUMERIC, (order_data->>'revenue')::NUMERIC) ELSE 0 END), 0) AS revenue,
+          COUNT(DISTINCT CASE WHEN order_data->>'order_status' = 'completed'
+            AND COALESCE((order_data->>'is_test')::BOOLEAN, false) = false
+            THEN order_data->>'order_id' END) AS conversions
         FROM orders_archive
         WHERE archived_date >= CURRENT_DATE - ($1 || ' days')::INTERVAL ${uf}
         GROUP BY archived_date
@@ -59,8 +64,8 @@ router.get('/timeseries', async (req: Request, res: Response) => {
       ? 'SELECT COALESCE(SUM(spend), 0) AS spend, COALESCE(SUM(clicks), 0) AS clicks, COALESCE(SUM(impressions), 0) AS impressions FROM fb_ads_today WHERE user_id = $1'
       : 'SELECT COALESCE(SUM(spend), 0) AS spend, COALESCE(SUM(clicks), 0) AS clicks, COALESCE(SUM(impressions), 0) AS impressions FROM fb_ads_today';
     const todayOrdersQ = userId
-      ? "SELECT COALESCE(SUM(COALESCE(subtotal, revenue)), 0) AS revenue, COUNT(DISTINCT order_id) AS conversions FROM cc_orders_today WHERE order_status = 'completed' AND user_id = $1"
-      : "SELECT COALESCE(SUM(COALESCE(subtotal, revenue)), 0) AS revenue, COUNT(DISTINCT order_id) AS conversions FROM cc_orders_today WHERE order_status = 'completed'";
+      ? "SELECT COALESCE(SUM(COALESCE(subtotal, revenue)), 0) AS revenue, COUNT(DISTINCT order_id) AS conversions FROM cc_orders_today WHERE order_status = 'completed' AND (is_test = false OR is_test IS NULL) AND user_id = $1"
+      : "SELECT COALESCE(SUM(COALESCE(subtotal, revenue)), 0) AS revenue, COUNT(DISTINCT order_id) AS conversions FROM cc_orders_today WHERE order_status = 'completed' AND (is_test = false OR is_test IS NULL)";
 
     const [todayAds, todayOrders] = await Promise.all([
       pool.query(todayAdsQ, userId ? [userId] : []),
@@ -108,6 +113,11 @@ router.get('/breakdown', async (req: Request, res: Response) => {
     const uf = userId ? 'WHERE user_id = $1' : '';
     const ufAnd = userId ? 'AND user_id = $1' : '';
     const params = userId ? [userId] : [];
+    const baf = parseAccountFilter(req.query as Record<string, any>, params.length + 1);
+    const bAllParams = [...params, ...baf.params];
+    // For WHERE-prefixed queries, convert af.clause (AND ...) to additional WHERE if no userId
+    const ufWithAf = uf ? `${uf} ${baf.clause}` : (baf.clause ? `WHERE 1=1 ${baf.clause}` : '');
+    const ufAndWithAf = `${ufAnd} ${baf.clause}`;
 
     let result;
     if (by === 'account') {
@@ -117,9 +127,9 @@ router.get('/breakdown', async (req: Request, res: Response) => {
           SUM(spend) AS spend,
           SUM(clicks) AS clicks,
           SUM(impressions) AS impressions
-        FROM fb_ads_today ${uf}
+        FROM fb_ads_today ${ufWithAf}
         GROUP BY account_name ORDER BY spend DESC
-      `, params);
+      `, bAllParams);
     } else if (by === 'campaign') {
       result = await pool.query(`
         SELECT
@@ -127,9 +137,9 @@ router.get('/breakdown', async (req: Request, res: Response) => {
           SUM(spend) AS spend,
           SUM(clicks) AS clicks,
           SUM(impressions) AS impressions
-        FROM fb_ads_today ${uf}
+        FROM fb_ads_today ${ufWithAf}
         GROUP BY campaign_name ORDER BY spend DESC LIMIT 20
-      `, params);
+      `, bAllParams);
     } else {
       // by offer
       result = await pool.query(`
@@ -138,9 +148,9 @@ router.get('/breakdown', async (req: Request, res: Response) => {
           SUM(COALESCE(subtotal, revenue)) AS revenue,
           COUNT(DISTINCT order_id) AS conversions
         FROM cc_orders_today
-        WHERE order_status = 'completed' ${ufAnd}
+        WHERE order_status = 'completed' AND (is_test = false OR is_test IS NULL) ${ufAndWithAf}
         GROUP BY offer_name ORDER BY revenue DESC
-      `, params);
+      `, bAllParams);
     }
 
     res.json(result.rows.map(r => ({
@@ -164,6 +174,9 @@ router.get('/funnel', async (req: Request, res: Response) => {
     const uf = userId ? 'WHERE user_id = $1' : '';
     const ufAnd = userId ? 'AND user_id = $1' : '';
     const params = userId ? [userId] : [];
+    const faf = parseAccountFilter(req.query as Record<string, any>, params.length + 1);
+    const fAllParams = [...params, ...faf.params];
+    const ufFunnel = uf ? `${uf} ${faf.clause}` : (faf.clause ? `WHERE 1=1 ${faf.clause}` : '');
 
     const [adsResult, ordersResult, upsellsResult] = await Promise.all([
       pool.query(`
@@ -171,19 +184,19 @@ router.get('/funnel', async (req: Request, res: Response) => {
           COALESCE(SUM(impressions), 0) AS impressions,
           COALESCE(SUM(clicks), 0) AS clicks,
           COALESCE(SUM(landing_page_views), 0) AS lp_views
-        FROM fb_ads_today ${uf}
-      `, params),
+        FROM fb_ads_today ${ufFunnel}
+      `, fAllParams),
       pool.query(`
         SELECT COUNT(DISTINCT order_id) AS orders
         FROM cc_orders_today
-        WHERE order_status = 'completed' ${ufAnd}
-      `, params),
+        WHERE order_status = 'completed' AND (is_test = false OR is_test IS NULL) ${ufAnd} ${faf.clause}
+      `, fAllParams),
       pool.query(`
         SELECT
           COUNT(*) FILTER (WHERE offered) AS upsells_offered,
           COUNT(*) FILTER (WHERE accepted) AS upsells_accepted
-        FROM cc_upsells_today ${uf}
-      `, params),
+        FROM cc_upsells_today ${ufFunnel}
+      `, fAllParams),
     ]);
 
     const ads = adsResult.rows[0];
@@ -211,6 +224,8 @@ router.get('/source-medium', async (req: Request, res: Response) => {
     const dateRange = (req.query.dateRange as string) || 'today';
     const ufAnd = userId ? 'AND user_id = $1' : '';
     const params = userId ? [userId] : [];
+    const smaf = parseAccountFilter(req.query as Record<string, any>, params.length + 1);
+    const smAllParams = [...params, ...smaf.params];
 
     let query: string;
 
@@ -223,7 +238,7 @@ router.get('/source-medium', async (req: Request, res: Response) => {
           COUNT(DISTINCT order_id) AS conversions,
           COUNT(*) AS orders
         FROM cc_orders_today
-        WHERE order_status = 'completed' ${ufAnd}
+        WHERE order_status = 'completed' AND (is_test = false OR is_test IS NULL) ${ufAnd} ${smaf.clause}
         GROUP BY utm_source, utm_medium
         ORDER BY revenue DESC
       `;
@@ -235,15 +250,18 @@ router.get('/source-medium', async (req: Request, res: Response) => {
         WITH combined AS (
           SELECT utm_source, utm_medium, COALESCE(subtotal, revenue) AS revenue, order_id
           FROM cc_orders_today
-          WHERE order_status = 'completed' ${ufAnd}
+          WHERE order_status = 'completed' AND (is_test = false OR is_test IS NULL) ${ufAnd} ${smaf.clause}
           UNION ALL
           SELECT
             order_data->>'utm_source' AS utm_source,
             order_data->>'utm_medium' AS utm_medium,
-            (order_data->>'revenue')::NUMERIC AS revenue,
+            COALESCE((order_data->>'subtotal')::NUMERIC, (order_data->>'revenue')::NUMERIC) AS revenue,
             order_data->>'order_id' AS order_id
           FROM orders_archive
-          WHERE archived_date >= CURRENT_DATE - INTERVAL '${days} days' ${ufArchive}
+          WHERE archived_date >= CURRENT_DATE - INTERVAL '${days} days'
+            AND order_data->>'order_status' = 'completed'
+            AND COALESCE((order_data->>'is_test')::BOOLEAN, false) = false
+            ${ufArchive}
         )
         SELECT
           COALESCE(NULLIF(utm_source, ''), 'direct') AS utm_source,
@@ -257,7 +275,7 @@ router.get('/source-medium', async (req: Request, res: Response) => {
       `;
     }
 
-    const result = await pool.query(query, params);
+    const result = await pool.query(query, smAllParams);
 
     res.json(result.rows.map(r => ({
       utm_source: r.utm_source,
@@ -273,41 +291,120 @@ router.get('/source-medium', async (req: Request, res: Response) => {
 });
 
 // GET /api/analytics/pnl — Profit & Loss summary
+// Uses the full P&L formula:
+//   Gross Revenue - Refunds = Net Revenue
+//   Net Revenue - COGS - Shipping - Handling - Gateway Fees = Gross Profit
+//   Gross Profit - Ad Spend = Net Profit (after ads)
+//   Net Profit - Fixed Costs = True Net Profit
 router.get('/pnl', async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
     const uf = userId ? 'WHERE user_id = $1' : '';
     const ufAnd = userId ? 'AND user_id = $1' : '';
     const params = userId ? [userId] : [];
+    const paf = parseAccountFilter(req.query as Record<string, any>, params.length + 1);
+    const pAllParams = [...params, ...paf.params];
+    const ufPnl = uf ? `${uf} ${paf.clause}` : (paf.clause ? `WHERE 1=1 ${paf.clause}` : '');
 
-    const [adSpendResult, revenueResult, costsResult] = await Promise.all([
+    const [adSpendResult, revenueResult, refundResult, orderCountResult, costsResult] = await Promise.all([
+      // Total ad spend (Meta + TikTok)
       pool.query(`
-        SELECT COALESCE(SUM(spend), 0) AS total_spend
-        FROM fb_ads_today ${uf}
-      `, params),
+        SELECT
+          COALESCE((SELECT SUM(spend) FROM fb_ads_today ${ufPnl}), 0) +
+          COALESCE((SELECT SUM(spend) FROM tiktok_ads_today ${ufPnl}), 0) AS total_spend
+      `, pAllParams),
+      // Gross revenue (completed, non-test orders)
       pool.query(`
-        SELECT COALESCE(SUM(COALESCE(subtotal, revenue)), 0) AS total_revenue
+        SELECT COALESCE(SUM(COALESCE(subtotal, revenue)), 0) AS gross_revenue
         FROM cc_orders_today
-        WHERE order_status = 'completed' ${ufAnd}
-      `, params),
+        WHERE order_status = 'completed' AND (is_test = false OR is_test IS NULL) ${ufAnd} ${paf.clause}
+      `, pAllParams),
+      // Refund revenue
       pool.query(`
-        SELECT COALESCE(SUM(cost_value), 0) AS total_cogs
-        FROM cost_settings ${uf}
-      `, params),
+        SELECT COALESCE(SUM(COALESCE(subtotal, revenue)), 0) AS refund_total
+        FROM cc_orders_today
+        WHERE order_status = 'refunded' AND (is_test = false OR is_test IS NULL) ${ufAnd} ${paf.clause}
+      `, pAllParams),
+      // Order count (for per-order costs)
+      pool.query(`
+        SELECT COUNT(DISTINCT order_id) AS order_count
+        FROM cc_orders_today
+        WHERE order_status = 'completed' AND (is_test = false OR is_test IS NULL) ${ufAnd} ${paf.clause}
+      `, pAllParams),
+      // Cost settings by type
+      pool.query(`
+        SELECT cost_type, cost_unit,
+          COALESCE(SUM(cost_value), 0) AS total_value
+        FROM cost_settings
+        ${ufPnl}
+        GROUP BY cost_type, cost_unit
+      `, pAllParams),
     ]);
 
     const adSpend = parseFloat(adSpendResult.rows[0].total_spend) || 0;
-    const revenue = parseFloat(revenueResult.rows[0].total_revenue) || 0;
-    const cogs = parseFloat(costsResult.rows[0].total_cogs) || 0;
-    const netProfit = revenue - adSpend - cogs;
-    const margin = revenue > 0 ? (netProfit / revenue) * 100 : 0;
+    const grossRevenue = parseFloat(revenueResult.rows[0].gross_revenue) || 0;
+    const refunds = parseFloat(refundResult.rows[0].refund_total) || 0;
+    const netRevenue = grossRevenue - refunds;
+    const orderCount = parseInt(orderCountResult.rows[0].order_count) || 0;
+
+    // Parse cost settings by type
+    let cogs = 0;
+    let shipping = 0;
+    let handling = 0;
+    let gatewayFeePct = 0;
+    let gatewayFeeFlat = 0;
+    let fixedMonthly = 0;
+
+    for (const row of costsResult.rows) {
+      const val = parseFloat(row.total_value) || 0;
+      switch (row.cost_type) {
+        case 'cogs':
+          // COGS: if unit is 'fixed', it's per-unit cost; if 'percentage', it's % of revenue
+          cogs += row.cost_unit === 'percentage' ? (netRevenue * val / 100) : (val * orderCount);
+          break;
+        case 'shipping':
+          shipping += row.cost_unit === 'percentage' ? (netRevenue * val / 100) : (val * orderCount);
+          break;
+        case 'handling':
+          handling += row.cost_unit === 'percentage' ? (netRevenue * val / 100) : (val * orderCount);
+          break;
+        case 'gateway_fee_pct':
+          gatewayFeePct += val;
+          break;
+        case 'gateway_fee_flat':
+          gatewayFeeFlat += val;
+          break;
+        case 'fixed_monthly':
+          fixedMonthly += val;
+          break;
+      }
+    }
+
+    const gatewayFees = (netRevenue * gatewayFeePct / 100) + (orderCount * gatewayFeeFlat);
+    const totalCosts = cogs + shipping + handling + gatewayFees;
+    const grossProfit = netRevenue - totalCosts;
+    const netProfit = grossProfit - adSpend;
+    // Prorate fixed monthly costs to today (1/30 of monthly)
+    const dailyFixedCosts = fixedMonthly / 30;
+    const trueNetProfit = netProfit - dailyFixedCosts;
+    const margin = netRevenue > 0 ? (trueNetProfit / netRevenue) * 100 : 0;
 
     res.json({
-      revenue,
-      adSpend,
+      grossRevenue,
+      refunds,
+      netRevenue,
       cogs,
+      shipping,
+      handling,
+      gatewayFees,
+      totalCosts,
+      grossProfit,
+      adSpend,
       netProfit,
+      fixedCosts: parseFloat(dailyFixedCosts.toFixed(2)),
+      trueNetProfit: parseFloat(trueNetProfit.toFixed(2)),
       margin: parseFloat(margin.toFixed(2)),
+      orderCount,
     });
   } catch (err) {
     console.error('Error fetching P&L:', err);

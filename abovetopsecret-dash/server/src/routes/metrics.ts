@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import pool from '../db';
+import { parseAccountFilter } from '../services/account-filter';
 
 const router = Router();
 
@@ -52,6 +53,8 @@ router.get('/', async (req: Request, res: Response) => {
     const userId = (req as any).user?.id as number | undefined;
     const userFilter = userId ? 'AND user_id = $1' : 'AND user_id IS NULL';
     const userParams = userId ? [userId] : [];
+    const af = parseAccountFilter(req.query as Record<string, any>, userParams.length + 1);
+    const allParams = [...userParams, ...af.params];
 
     // Core metrics — pre-aggregate both sides to eliminate many-to-many fan-out.
     // fb_agg: one row per (ad_set_name, account_name) — collapses multiple ads per ad set.
@@ -67,19 +70,19 @@ router.get('/', async (req: Request, res: Response) => {
           SUM(impressions) AS impressions,
           SUM(landing_page_views) AS landing_page_views
         FROM fb_ads_today
-        WHERE 1=1 ${userFilter}
+        WHERE 1=1 ${userFilter} ${af.clause}
         GROUP BY ad_set_name, account_name
       ),
       cc_agg AS (
         SELECT
-          utm_campaign,
+          normalize_attribution_key(utm_campaign) AS utm_campaign,
           offer_name,
           SUM(COALESCE(subtotal, revenue)) AS revenue,
           COUNT(DISTINCT order_id) AS conversions,
           COUNT(DISTINCT CASE WHEN new_customer THEN order_id END) AS new_customers
         FROM cc_orders_today
-        WHERE order_status = 'completed' ${userFilter}
-        GROUP BY utm_campaign, offer_name
+        WHERE order_status = 'completed' AND (is_test = false OR is_test IS NULL) ${userFilter} ${af.clause}
+        GROUP BY normalize_attribution_key(utm_campaign), offer_name
       )
       SELECT
         fb.account_name,
@@ -99,12 +102,12 @@ router.get('/', async (req: Request, res: Response) => {
           ELSE 0 END AS new_customer_pct,
         CASE WHEN SUM(fb.impressions) > 0 THEN SUM(fb.landing_page_views)::FLOAT / SUM(fb.impressions) ELSE 0 END AS lp_ctr
       FROM fb_agg fb
-      LEFT JOIN cc_agg cc ON fb.ad_set_name = cc.utm_campaign
+      LEFT JOIN cc_agg cc ON normalize_attribution_key(fb.ad_set_name) = cc.utm_campaign
       GROUP BY fb.account_name, cc.offer_name
       ORDER BY spend DESC
     `;
 
-    const coreResult = await pool.query(coreQuery, userParams);
+    const coreResult = await pool.query(coreQuery, allParams);
     let rows: MetricRow[] = coreResult.rows.map((r) => ({
       ...r,
       spend: parseFloat(r.spend) || 0,
@@ -127,16 +130,16 @@ router.get('/', async (req: Request, res: Response) => {
         ROUND((SUM(CASE WHEN quantity = 1 THEN 1 ELSE 0 END)::NUMERIC / NULLIF(COUNT(*), 0) * 100), 1) AS take_rate_1,
         ROUND((SUM(CASE WHEN quantity = 3 THEN 1 ELSE 0 END)::NUMERIC / NULLIF(COUNT(*), 0) * 100), 1) AS take_rate_3,
         ROUND((SUM(CASE WHEN quantity = 5 THEN 1 ELSE 0 END)::NUMERIC / NULLIF(COUNT(*), 0) * 100), 1) AS take_rate_5
-      FROM cc_orders_today WHERE is_core_sku = true ${userFilter} GROUP BY offer_name
-    `, userParams);
+      FROM cc_orders_today WHERE is_core_sku = true AND (is_test = false OR is_test IS NULL) ${userFilter} ${af.clause} GROUP BY offer_name
+    `, allParams);
     const takeRatesMap = new Map(takeRatesResult.rows.map((r) => [r.offer_name, r]));
 
     // Extended: subscription pct
     const subPctResult = await pool.query(`
       SELECT offer_name,
         ROUND((SUM(CASE WHEN subscription_id IS NOT NULL THEN 1 ELSE 0 END)::NUMERIC / NULLIF(COUNT(*), 0) * 100), 1) AS subscription_pct
-      FROM cc_orders_today WHERE 1=1 ${userFilter} GROUP BY offer_name
-    `, userParams);
+      FROM cc_orders_today WHERE (is_test = false OR is_test IS NULL) ${userFilter} ${af.clause} GROUP BY offer_name
+    `, allParams);
     const subPctMap = new Map(subPctResult.rows.map((r) => [r.offer_name, r]));
 
     // Extended: sub take rates
@@ -145,8 +148,8 @@ router.get('/', async (req: Request, res: Response) => {
         ROUND((SUM(CASE WHEN quantity = 1 THEN 1 ELSE 0 END)::NUMERIC / NULLIF(COUNT(*), 0) * 100), 1) AS sub_take_rate_1,
         ROUND((SUM(CASE WHEN quantity = 3 THEN 1 ELSE 0 END)::NUMERIC / NULLIF(COUNT(*), 0) * 100), 1) AS sub_take_rate_3,
         ROUND((SUM(CASE WHEN quantity = 5 THEN 1 ELSE 0 END)::NUMERIC / NULLIF(COUNT(*), 0) * 100), 1) AS sub_take_rate_5
-      FROM cc_orders_today WHERE subscription_id IS NOT NULL ${userFilter} GROUP BY offer_name
-    `, userParams);
+      FROM cc_orders_today WHERE subscription_id IS NOT NULL AND (is_test = false OR is_test IS NULL) ${userFilter} ${af.clause} GROUP BY offer_name
+    `, allParams);
     const subTakeMap = new Map(subTakeResult.rows.map((r) => [r.offer_name, r]));
 
     // Extended: upsell rates
@@ -154,8 +157,8 @@ router.get('/', async (req: Request, res: Response) => {
       SELECT offer_name,
         ROUND((SUM(CASE WHEN accepted THEN 1 ELSE 0 END)::NUMERIC / NULLIF(SUM(CASE WHEN offered THEN 1 ELSE 0 END), 0) * 100), 1) AS upsell_take_rate,
         ROUND(((1 - (SUM(CASE WHEN accepted THEN 1 ELSE 0 END)::NUMERIC / NULLIF(SUM(CASE WHEN offered THEN 1 ELSE 0 END), 0))) * 100), 1) AS upsell_decline_rate
-      FROM cc_upsells_today WHERE 1=1 ${userFilter} GROUP BY offer_name
-    `, userParams);
+      FROM cc_upsells_today WHERE 1=1 ${userFilter} ${af.clause} GROUP BY offer_name
+    `, allParams);
     const upsellMap = new Map(upsellResult.rows.map((r) => [r.offer_name, r]));
 
     // Join extended metrics
@@ -229,18 +232,26 @@ router.get('/summary', async (req: Request, res: Response) => {
     const userFilter = userId ? 'AND user_id = $1' : 'AND user_id IS NULL';
     const userParams = userId ? [userId] : [];
     const prevUserFilter = userId ? 'AND user_id = $1' : '';
+    const saf = parseAccountFilter(req.query as Record<string, any>, userParams.length + 1);
+    const sAllParams = [...userParams, ...saf.params];
 
     // Compute totals from each table independently — no join needed for summary
     const result = await pool.query(`
       SELECT
-        (SELECT COALESCE(SUM(spend), 0) FROM fb_ads_today WHERE 1=1 ${userFilter}) AS total_spend,
-        (SELECT COALESCE(SUM(COALESCE(subtotal, revenue)), 0) FROM cc_orders_today WHERE order_status = 'completed' ${userFilter}) AS total_revenue,
-        (SELECT COUNT(DISTINCT order_id) FROM cc_orders_today WHERE order_status = 'completed' ${userFilter}) AS total_conversions
-    `, userParams);
+        (SELECT COALESCE(SUM(spend), 0) FROM fb_ads_today WHERE 1=1 ${userFilter} ${saf.clause}) AS total_spend,
+        (SELECT COALESCE(SUM(COALESCE(subtotal, revenue)), 0) FROM cc_orders_today WHERE order_status = 'completed' AND (is_test = false OR is_test IS NULL) ${userFilter} ${saf.clause}) AS total_revenue,
+        (SELECT COUNT(DISTINCT order_id) FROM cc_orders_today WHERE order_status = 'completed' AND (is_test = false OR is_test IS NULL) ${userFilter} ${saf.clause}) AS total_conversions
+    `, sAllParams);
 
-    // Fetch previous period (yesterday) from archive tables
+    // Fetch previous period (yesterday) from archive tables.
+    // Time-of-day adjustment: only compare yesterday's data through the same hour
+    // so a partial "today" isn't compared against a full "yesterday".
+    // - Orders: filter by conversion_time <= current time-of-day
+    // - Spend: prorate by fraction of day elapsed (FB reports daily totals, no hourly breakdown)
     const prevSpendResult = await pool.query(`
-      SELECT COALESCE(SUM((ad_data->>'spend')::NUMERIC), 0) AS prev_spend
+      SELECT
+        COALESCE(SUM((ad_data->>'spend')::NUMERIC), 0)
+          * (EXTRACT(EPOCH FROM CURRENT_TIME) / 86400.0) AS prev_spend
       FROM fb_ads_archive
       WHERE archived_date = CURRENT_DATE - INTERVAL '1 day' ${prevUserFilter}
     `, userParams);
@@ -248,11 +259,15 @@ router.get('/summary', async (req: Request, res: Response) => {
     const prevOrdersResult = await pool.query(`
       SELECT
         COALESCE(SUM(CASE WHEN order_data->>'order_status' = 'completed'
+          AND COALESCE((order_data->>'is_test')::BOOLEAN, false) = false
           THEN COALESCE((order_data->>'subtotal')::NUMERIC, (order_data->>'revenue')::NUMERIC) ELSE 0 END), 0) AS prev_revenue,
         COUNT(DISTINCT CASE WHEN order_data->>'order_status' = 'completed'
+          AND COALESCE((order_data->>'is_test')::BOOLEAN, false) = false
           THEN order_data->>'order_id' END) AS prev_conversions
       FROM orders_archive
-      WHERE archived_date = CURRENT_DATE - INTERVAL '1 day' ${prevUserFilter}
+      WHERE archived_date = CURRENT_DATE - INTERVAL '1 day'
+        AND (order_data->>'conversion_time')::TIMESTAMPTZ::TIME <= CURRENT_TIME
+        ${prevUserFilter}
     `, userParams);
 
     const row = result.rows[0];

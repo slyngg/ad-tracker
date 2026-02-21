@@ -92,7 +92,7 @@ router.post('/csv', async (req: Request, res: Response) => {
                 utm_campaign, utm_source, utm_medium, new_customer,
                 quantity, subscription_id, customer_email, user_id
               ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-              ON CONFLICT (order_id) DO NOTHING`,
+              ON CONFLICT (user_id, order_id) DO NOTHING`,
               [
                 data.order_id,
                 data.offer_name || 'Unknown',

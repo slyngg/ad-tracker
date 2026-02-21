@@ -22,6 +22,9 @@ You have access to tools that can:
 - Run weekly creative retrospectives
 - Analyze competitor creative strategies
 - Detect statistically significant winning creative patterns
+- List all ad accounts and offers with today's performance summary
+
+Multi-Account Context: Users may manage multiple ad accounts and offers. Use list_accounts_and_offers to see all their accounts and offers. Most data tools accept an optional account_id parameter to filter results to a specific account, and order tools accept offer_id to filter by offer. When the user asks about a specific client, brand, or account, use list_accounts_and_offers first to find the right account_id, then pass it to subsequent tool calls.
 
 Creative Analysis: Use get_creative_performance to query ad creative metrics, analyze_creative_diversity to review creative diversity, recommend_next_creatives to suggest new ad concepts, analyze_creative_prelaunched to score ads before launch, weekly_creative_retro for weekly performance retrospectives, analyze_competitor_creatives to study competitors, and detect_winning_patterns to find statistically significant creative patterns.
 
@@ -42,11 +45,11 @@ async function getMetricsContext(userId: number | null | undefined): Promise<str
         [userId || null]
       ),
       pool.query(
-        "SELECT COALESCE(SUM(COALESCE(subtotal, revenue)), 0) AS total_revenue, COUNT(DISTINCT order_id) AS total_conversions FROM cc_orders_today WHERE order_status = 'completed' AND user_id = $1",
+        "SELECT COALESCE(SUM(COALESCE(subtotal, revenue)), 0) AS total_revenue, COUNT(DISTINCT order_id) AS total_conversions FROM cc_orders_today WHERE order_status = 'completed' AND (is_test = false OR is_test IS NULL) AND user_id = $1",
         [userId || null]
       ),
       pool.query(
-        "SELECT offer_name, COALESCE(SUM(COALESCE(subtotal, revenue)), 0) AS revenue, COUNT(DISTINCT order_id) AS conversions FROM cc_orders_today WHERE order_status = 'completed' AND user_id = $1 GROUP BY offer_name ORDER BY revenue DESC LIMIT 5",
+        "SELECT offer_name, COALESCE(SUM(COALESCE(subtotal, revenue)), 0) AS revenue, COUNT(DISTINCT order_id) AS conversions FROM cc_orders_today WHERE order_status = 'completed' AND (is_test = false OR is_test IS NULL) AND user_id = $1 GROUP BY offer_name ORDER BY revenue DESC LIMIT 5",
         [userId || null]
       ),
     ]);

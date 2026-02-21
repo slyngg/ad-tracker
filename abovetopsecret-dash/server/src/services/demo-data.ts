@@ -28,7 +28,7 @@ export async function seedDemoData(userId: number): Promise<{ adRows: number; or
       await pool.query(
         `INSERT INTO fb_ads_today (account_name, campaign_name, ad_set_name, ad_set_id, ad_name, spend, clicks, impressions, landing_page_views, synced_at, user_id)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), $10)
-         ON CONFLICT (ad_set_id, ad_name) DO UPDATE SET spend = EXCLUDED.spend, clicks = EXCLUDED.clicks, impressions = EXCLUDED.impressions, landing_page_views = EXCLUDED.landing_page_views, synced_at = NOW()`,
+         ON CONFLICT (user_id, ad_set_id, ad_name) DO UPDATE SET spend = EXCLUDED.spend, clicks = EXCLUDED.clicks, impressions = EXCLUDED.impressions, landing_page_views = EXCLUDED.landing_page_views, synced_at = NOW()`,
         [ACCOUNT, campaign, adSet, `demo_${adSet.replace(/\s+/g, '_').toLowerCase()}_${userId}`, `${adSet} - Creative ${randInt(1, 5)}`, spend.toFixed(2), clicks, impressions, lpViews, userId]
       );
       adRows++;
@@ -42,7 +42,7 @@ export async function seedDemoData(userId: number): Promise<{ adRows: number; or
     await pool.query(
       `INSERT INTO cc_orders_today (order_id, offer_name, revenue, subtotal, tax_amount, order_status, new_customer, utm_campaign, fbclid, subscription_id, quantity, is_core_sku, source, utm_source, utm_medium, user_id)
        VALUES ($1, $2, $3, $4, $5, 'completed', $6, $7, $8, $9, $10, true, $11, $12, $13, $14)
-       ON CONFLICT (order_id) DO NOTHING`,
+       ON CONFLICT (user_id, order_id) DO NOTHING`,
       [`DEMO-${Date.now()}-${randInt(1000, 9999)}-${i}`, pick(PRODUCTS), revenue.toFixed(2), (revenue - tax).toFixed(2), tax.toFixed(2), Math.random() > 0.4,
        pick(Object.values(AD_SETS).flat()), Math.random() > 0.3 ? `fb.1.${Date.now()}.${randInt(100000, 999999)}` : '',
        Math.random() > 0.7 ? `sub_${randInt(1000, 9999)}` : null, randInt(1, 3),

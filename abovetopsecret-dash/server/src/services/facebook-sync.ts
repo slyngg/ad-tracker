@@ -142,13 +142,12 @@ export async function syncFacebook(userId?: number): Promise<{ synced: number; a
         await pool.query(
           `INSERT INTO fb_ads_today (account_name, campaign_name, ad_set_name, ad_set_id, ad_name, spend, clicks, impressions, landing_page_views, synced_at, user_id)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), $10)
-           ON CONFLICT (ad_set_id, ad_name) DO UPDATE SET
+           ON CONFLICT (user_id, ad_set_id, ad_name) DO UPDATE SET
              spend = EXCLUDED.spend,
              clicks = EXCLUDED.clicks,
              impressions = EXCLUDED.impressions,
              landing_page_views = EXCLUDED.landing_page_views,
-             synced_at = NOW(),
-             user_id = EXCLUDED.user_id`,
+             synced_at = NOW()`,
           [
             row.account_name,
             row.campaign_name,
@@ -168,6 +167,60 @@ export async function syncFacebook(userId?: number): Promise<{ synced: number; a
       console.log(`[Meta Sync] Synced ${rows.length} rows from ${accountId}`);
     } catch (err) {
       console.error(`[Meta Sync] Error syncing account ${accountId}:`, err);
+    }
+  }
+
+  // Multi-account sync: iterate accounts table for per-account tokens
+  if (userId) {
+    try {
+      const accountRows = await pool.query(
+        `SELECT id, platform_account_id, access_token_encrypted
+         FROM accounts
+         WHERE user_id = $1 AND platform = 'meta' AND status = 'active'
+           AND platform_account_id IS NOT NULL AND access_token_encrypted IS NOT NULL`,
+        [userId]
+      );
+
+      for (const acct of accountRows.rows) {
+        try {
+          const acctToken = decrypt(acct.access_token_encrypted);
+          const acctId = acct.platform_account_id;
+          const url = `https://graph.facebook.com/v19.0/${acctId}/insights?fields=account_name,campaign_name,adset_name,adset_id,ad_name,spend,clicks,impressions,actions&date_preset=today&level=ad&access_token=${acctToken}`;
+
+          const rows = await fetchAllPages(url);
+
+          for (const row of rows) {
+            const lpViews = row.actions?.find(
+              (a) => a.action_type === 'landing_page_view'
+            )?.value || '0';
+
+            await pool.query(
+              `INSERT INTO fb_ads_today (account_name, campaign_name, ad_set_name, ad_set_id, ad_name, spend, clicks, impressions, landing_page_views, synced_at, user_id, account_id)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), $10, $11)
+               ON CONFLICT (user_id, ad_set_id, ad_name) DO UPDATE SET
+                 spend = EXCLUDED.spend,
+                 clicks = EXCLUDED.clicks,
+                 impressions = EXCLUDED.impressions,
+                 landing_page_views = EXCLUDED.landing_page_views,
+                 synced_at = NOW(),
+                 account_id = EXCLUDED.account_id`,
+              [
+                row.account_name, row.campaign_name, row.adset_name, row.adset_id, row.ad_name,
+                parseFloat(row.spend) || 0, parseInt(row.clicks) || 0, parseInt(row.impressions) || 0,
+                parseInt(lpViews) || 0, userId, acct.id,
+              ]
+            );
+            totalSynced++;
+          }
+
+          console.log(`[Meta Sync] Account ${acct.id}: synced ${rows.length} rows from ${acctId}`);
+        } catch (err) {
+          console.error(`[Meta Sync] Error syncing account ${acct.id}:`, err);
+        }
+      }
+    } catch (err) {
+      // accounts table may not exist yet
+      console.error('[Meta Sync] Error querying accounts table:', err);
     }
   }
 

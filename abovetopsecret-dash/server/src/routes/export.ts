@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import pool from '../db';
+import { parseAccountFilter } from '../services/account-filter';
 
 const router = Router();
 
@@ -18,6 +19,8 @@ router.get('/csv', async (req: Request, res: Response) => {
     const userId = (req as any).user?.id as number | undefined;
     const userFilter = userId ? 'AND user_id = $1' : 'AND user_id IS NULL';
     const userParams = userId ? [userId] : [];
+    const af = parseAccountFilter(req.query as Record<string, any>, userParams.length + 1);
+    const allParams = [...userParams, ...af.params];
 
     const coreResult = await pool.query(`
       WITH fb_agg AS (
@@ -29,19 +32,19 @@ router.get('/csv', async (req: Request, res: Response) => {
           SUM(impressions) AS impressions,
           SUM(landing_page_views) AS landing_page_views
         FROM fb_ads_today
-        WHERE 1=1 ${userFilter}
+        WHERE 1=1 ${userFilter} ${af.clause}
         GROUP BY ad_set_name, account_name
       ),
       cc_agg AS (
         SELECT
-          utm_campaign,
+          normalize_attribution_key(utm_campaign) AS utm_campaign,
           offer_name,
           SUM(COALESCE(subtotal, revenue)) AS revenue,
           COUNT(DISTINCT order_id) AS conversions,
           COUNT(DISTINCT CASE WHEN new_customer THEN order_id END) AS new_customers
         FROM cc_orders_today
-        WHERE order_status = 'completed' ${userFilter}
-        GROUP BY utm_campaign, offer_name
+        WHERE order_status = 'completed' AND (is_test = false OR is_test IS NULL) ${userFilter} ${af.clause}
+        GROUP BY normalize_attribution_key(utm_campaign), offer_name
       )
       SELECT
         fb.account_name,
@@ -61,10 +64,10 @@ router.get('/csv', async (req: Request, res: Response) => {
           ELSE 0 END AS new_customer_pct,
         CASE WHEN SUM(fb.impressions) > 0 THEN SUM(fb.landing_page_views)::FLOAT / SUM(fb.impressions) ELSE 0 END AS lp_ctr
       FROM fb_agg fb
-      LEFT JOIN cc_agg cc ON fb.ad_set_name = cc.utm_campaign
+      LEFT JOIN cc_agg cc ON normalize_attribution_key(fb.ad_set_name) = cc.utm_campaign
       GROUP BY fb.account_name, cc.offer_name
       ORDER BY spend DESC
-    `, userParams);
+    `, allParams);
 
     let rows = coreResult.rows;
 
@@ -74,16 +77,16 @@ router.get('/csv', async (req: Request, res: Response) => {
         ROUND((SUM(CASE WHEN quantity = 1 THEN 1 ELSE 0 END)::NUMERIC / NULLIF(COUNT(*), 0) * 100), 1) AS take_rate_1,
         ROUND((SUM(CASE WHEN quantity = 3 THEN 1 ELSE 0 END)::NUMERIC / NULLIF(COUNT(*), 0) * 100), 1) AS take_rate_3,
         ROUND((SUM(CASE WHEN quantity = 5 THEN 1 ELSE 0 END)::NUMERIC / NULLIF(COUNT(*), 0) * 100), 1) AS take_rate_5
-      FROM cc_orders_today WHERE is_core_sku = true ${userFilter} GROUP BY offer_name
-    `, userParams);
+      FROM cc_orders_today WHERE is_core_sku = true AND (is_test = false OR is_test IS NULL) ${userFilter} ${af.clause} GROUP BY offer_name
+    `, allParams);
     const takeRatesMap = new Map(takeRatesResult.rows.map((r: any) => [r.offer_name, r]));
 
     // Extended: subscription pct
     const subPctResult = await pool.query(`
       SELECT offer_name,
         ROUND((SUM(CASE WHEN subscription_id IS NOT NULL THEN 1 ELSE 0 END)::NUMERIC / NULLIF(COUNT(*), 0) * 100), 1) AS subscription_pct
-      FROM cc_orders_today WHERE 1=1 ${userFilter} GROUP BY offer_name
-    `, userParams);
+      FROM cc_orders_today WHERE (is_test = false OR is_test IS NULL) ${userFilter} ${af.clause} GROUP BY offer_name
+    `, allParams);
     const subPctMap = new Map(subPctResult.rows.map((r: any) => [r.offer_name, r]));
 
     // Extended: sub take rates
@@ -92,8 +95,8 @@ router.get('/csv', async (req: Request, res: Response) => {
         ROUND((SUM(CASE WHEN quantity = 1 THEN 1 ELSE 0 END)::NUMERIC / NULLIF(COUNT(*), 0) * 100), 1) AS sub_take_rate_1,
         ROUND((SUM(CASE WHEN quantity = 3 THEN 1 ELSE 0 END)::NUMERIC / NULLIF(COUNT(*), 0) * 100), 1) AS sub_take_rate_3,
         ROUND((SUM(CASE WHEN quantity = 5 THEN 1 ELSE 0 END)::NUMERIC / NULLIF(COUNT(*), 0) * 100), 1) AS sub_take_rate_5
-      FROM cc_orders_today WHERE subscription_id IS NOT NULL ${userFilter} GROUP BY offer_name
-    `, userParams);
+      FROM cc_orders_today WHERE subscription_id IS NOT NULL AND (is_test = false OR is_test IS NULL) ${userFilter} ${af.clause} GROUP BY offer_name
+    `, allParams);
     const subTakeMap = new Map(subTakeResult.rows.map((r: any) => [r.offer_name, r]));
 
     // Extended: upsell rates
@@ -101,8 +104,8 @@ router.get('/csv', async (req: Request, res: Response) => {
       SELECT offer_name,
         ROUND((SUM(CASE WHEN accepted THEN 1 ELSE 0 END)::NUMERIC / NULLIF(SUM(CASE WHEN offered THEN 1 ELSE 0 END), 0) * 100), 1) AS upsell_take_rate,
         ROUND(((1 - (SUM(CASE WHEN accepted THEN 1 ELSE 0 END)::NUMERIC / NULLIF(SUM(CASE WHEN offered THEN 1 ELSE 0 END), 0))) * 100), 1) AS upsell_decline_rate
-      FROM cc_upsells_today WHERE 1=1 ${userFilter} GROUP BY offer_name
-    `, userParams);
+      FROM cc_upsells_today WHERE 1=1 ${userFilter} ${af.clause} GROUP BY offer_name
+    `, allParams);
     const upsellMap = new Map(upsellResult.rows.map((r: any) => [r.offer_name, r]));
 
     // Join extended metrics to core rows

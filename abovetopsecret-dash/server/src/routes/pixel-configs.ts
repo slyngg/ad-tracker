@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
 import pool from '../db';
+import { parseAccountFilter } from '../services/account-filter';
 
 const router = Router();
 
@@ -8,9 +9,10 @@ const router = Router();
 router.get('/', async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
+    const af = parseAccountFilter(req.query as Record<string, any>, 2);
     const result = await pool.query(
-      `SELECT * FROM pixel_configs WHERE user_id = $1 ORDER BY funnel_page ASC`,
-      [userId]
+      `SELECT * FROM pixel_configs WHERE user_id = $1 ${af.clause} ORDER BY funnel_page ASC`,
+      [userId, ...af.params]
     );
     res.json(result.rows);
   } catch (err) {

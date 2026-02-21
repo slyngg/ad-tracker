@@ -1,4 +1,5 @@
 import { getAuthToken } from '../stores/authStore';
+import { getAccountFilterParams } from '../stores/accountStore';
 
 const BASE_URL = '/api';
 
@@ -275,6 +276,59 @@ export interface PnLData {
   margin: number;
 }
 
+// --- Account & Offer types ---
+export interface Account {
+  id: number;
+  name: string;
+  platform: string;
+  platform_account_id: string | null;
+  currency: string;
+  timezone: string;
+  status: string;
+  color: string;
+  icon: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Offer {
+  id: number;
+  account_id: number | null;
+  user_id: number;
+  name: string;
+  offer_type: string;
+  identifier: string | null;
+  utm_campaign_match: string | null;
+  campaign_name_match: string | null;
+  product_ids: string[];
+  cogs: number;
+  shipping_cost: number;
+  handling_cost: number;
+  gateway_fee_pct: number;
+  gateway_fee_flat: number;
+  target_cpa: number | null;
+  target_roas: number | null;
+  status: string;
+  color: string;
+  notes: string | null;
+  account_name?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AccountSummary {
+  id: number;
+  name: string;
+  platform: string;
+  color: string;
+  status: string;
+  spend: number;
+  revenue: number;
+  conversions: number;
+  roas: number;
+}
+
 // --- OAuth types ---
 export interface OAuthStatus {
   platform: string;
@@ -310,12 +364,17 @@ export function fetchMetrics(offer?: string, account?: string): Promise<MetricRo
   const params = new URLSearchParams();
   if (offer && offer !== 'All') params.set('offer', offer);
   if (account && account !== 'All') params.set('account', account);
+  // Merge account store filters
+  const af = getAccountFilterParams();
+  af.forEach((v, k) => { if (!params.has(k)) params.set(k, v); });
   const qs = params.toString();
   return request<MetricRow[]>(`/metrics${qs ? `?${qs}` : ''}`);
 }
 
 export function fetchSummary(): Promise<SummaryData> {
-  return request<SummaryData>('/metrics/summary');
+  const af = getAccountFilterParams();
+  const qs = af.toString();
+  return request<SummaryData>(`/metrics/summary${qs ? `?${qs}` : ''}`);
 }
 
 export function fetchOverrides(): Promise<OverrideRow[]> {
@@ -375,6 +434,8 @@ export function testCCConnection(): Promise<{ success: boolean; error?: string; 
 export function fetchTimeseries(period?: string): Promise<TimeseriesPoint[]> {
   const params = new URLSearchParams();
   if (period) params.set('period', period);
+  const af = getAccountFilterParams();
+  af.forEach((v, k) => { if (!params.has(k)) params.set(k, v); });
   const qs = params.toString();
   return request<TimeseriesPoint[]>(`/analytics/timeseries${qs ? `?${qs}` : ''}`);
 }
@@ -382,12 +443,16 @@ export function fetchTimeseries(period?: string): Promise<TimeseriesPoint[]> {
 export function fetchBreakdown(by?: string): Promise<BreakdownItem[]> {
   const params = new URLSearchParams();
   if (by) params.set('by', by);
+  const af = getAccountFilterParams();
+  af.forEach((v, k) => { if (!params.has(k)) params.set(k, v); });
   const qs = params.toString();
   return request<BreakdownItem[]>(`/analytics/breakdown${qs ? `?${qs}` : ''}`);
 }
 
 export function fetchFunnel(): Promise<FunnelData> {
-  return request<FunnelData>('/analytics/funnel');
+  const af = getAccountFilterParams();
+  const qs = af.toString();
+  return request<FunnelData>(`/analytics/funnel${qs ? `?${qs}` : ''}`);
 }
 
 // --- Costs API ---
@@ -784,4 +849,41 @@ export function fetchSnapshots(): Promise<Snapshot[]> {
 
 export function deleteSnapshot(id: number): Promise<{ success: boolean }> {
   return request(`/creatives/snapshots/${id}`, { method: 'DELETE' });
+}
+
+// --- Accounts & Offers API ---
+export function fetchAccounts(): Promise<Account[]> {
+  return request<Account[]>('/accounts');
+}
+
+export function createAccount(data: Partial<Account>): Promise<Account> {
+  return request<Account>('/accounts', { method: 'POST', body: JSON.stringify(data) });
+}
+
+export function updateAccount(id: number, data: Partial<Account>): Promise<Account> {
+  return request<Account>(`/accounts/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+}
+
+export function deleteAccount(id: number): Promise<{ success: boolean }> {
+  return request<{ success: boolean }>(`/accounts/${id}`, { method: 'DELETE' });
+}
+
+export function fetchAccountSummary(): Promise<AccountSummary[]> {
+  return request<AccountSummary[]>('/accounts/summary');
+}
+
+export function fetchOffers(): Promise<Offer[]> {
+  return request<Offer[]>('/accounts/offers');
+}
+
+export function createOffer(data: Partial<Offer>): Promise<Offer> {
+  return request<Offer>('/accounts/offers', { method: 'POST', body: JSON.stringify(data) });
+}
+
+export function updateOffer(id: number, data: Partial<Offer>): Promise<Offer> {
+  return request<Offer>(`/accounts/offers/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+}
+
+export function deleteOffer(id: number): Promise<{ success: boolean }> {
+  return request<{ success: boolean }>(`/accounts/offers/${id}`, { method: 'DELETE' });
 }

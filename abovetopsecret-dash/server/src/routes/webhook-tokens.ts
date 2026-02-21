@@ -9,7 +9,7 @@ router.get('/', async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
     const result = await pool.query(
-      `SELECT id, source, label, active, last_used_at, created_at
+      `SELECT id, source, label, account_id, active, last_used_at, created_at
        FROM webhook_tokens
        WHERE user_id = $1
        ORDER BY created_at DESC`,
@@ -26,7 +26,7 @@ router.get('/', async (req: Request, res: Response) => {
 router.post('/', async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
-    const { source, label } = req.body;
+    const { source, label, account_id } = req.body;
 
     if (!source) {
       res.status(400).json({ error: 'source is required (e.g. checkout_champ, shopify)' });
@@ -37,10 +37,10 @@ router.post('/', async (req: Request, res: Response) => {
     const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
 
     const result = await pool.query(
-      `INSERT INTO webhook_tokens (user_id, token, source, label)
-       VALUES ($1, $2, $3, $4)
-       RETURNING id, source, label, active, last_used_at, created_at`,
-      [userId, tokenHash, source, label || null]
+      `INSERT INTO webhook_tokens (user_id, token, source, label, account_id)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, source, label, account_id, active, last_used_at, created_at`,
+      [userId, tokenHash, source, label || null, account_id || null]
     );
 
     // Return the raw token to the user — this is the only time they will see it

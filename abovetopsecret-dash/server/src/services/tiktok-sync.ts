@@ -1,0 +1,171 @@
+import pool from '../db';
+import https from 'https';
+import { getSetting } from './settings';
+import { decrypt } from './oauth-providers';
+
+// ── Auth resolution ────────────────────────────────────────────
+
+async function getTikTokAuth(userId?: number): Promise<{ accessToken: string; advertiserId: string } | null> {
+  if (userId) {
+    try {
+      const result = await pool.query(
+        `SELECT credentials, config FROM integration_configs
+         WHERE user_id = $1 AND platform = 'tiktok' AND status = 'connected'`,
+        [userId]
+      );
+      if (result.rows.length > 0) {
+        const { credentials, config } = result.rows[0];
+        if (credentials?.access_token_encrypted) {
+          const advertiserId = config?.advertiser_id || credentials?.advertiser_id;
+          if (advertiserId) {
+            return {
+              accessToken: decrypt(credentials.access_token_encrypted),
+              advertiserId: String(advertiserId),
+            };
+          }
+        }
+      }
+    } catch {
+      // Fall through to getSetting
+    }
+  }
+
+  const accessToken = await getSetting('tiktok_access_token', userId);
+  const advertiserId = await getSetting('tiktok_advertiser_id', userId);
+  if (accessToken && advertiserId) {
+    return { accessToken, advertiserId };
+  }
+
+  return null;
+}
+
+// ── HTTP helper ────────────────────────────────────────────────
+
+function fetchTikTokJSON(url: string, accessToken: string): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const parsedUrl = new URL(url);
+    const options = {
+      hostname: parsedUrl.hostname,
+      path: parsedUrl.pathname + parsedUrl.search,
+      method: 'GET',
+      headers: {
+        'Access-Token': accessToken,
+        'Accept': 'application/json',
+      },
+    };
+
+    const req = https.request(options, (res) => {
+      let data = '';
+      res.on('data', (chunk: string) => (data += chunk));
+      res.on('end', () => {
+        try {
+          resolve(JSON.parse(data));
+        } catch (e) {
+          reject(e);
+        }
+      });
+      res.on('error', reject);
+    });
+
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+// ── Sync ───────────────────────────────────────────────────────
+
+export async function syncTikTokAds(userId?: number): Promise<{ synced: number; skipped: boolean }> {
+  const auth = await getTikTokAuth(userId);
+  if (!auth) return { synced: 0, skipped: true };
+
+  const { accessToken, advertiserId } = auth;
+  const today = new Date().toISOString().split('T')[0];
+
+  const dimensions = JSON.stringify(['ad_id', 'stat_time_day']);
+  const metrics = JSON.stringify([
+    'spend', 'impressions', 'clicks', 'conversion', 'total_complete_payment',
+    'ctr', 'cpc', 'cpm', 'cost_per_conversion', 'complete_payment_roas',
+    'video_play_actions', 'video_watched_2s', 'video_watched_6s', 'video_views_p100',
+    'campaign_id', 'campaign_name', 'adgroup_id', 'adgroup_name', 'ad_name',
+  ]);
+
+  let synced = 0;
+  let page = 1;
+
+  try {
+    while (true) {
+      const url = `https://business-api.tiktok.com/open_api/v1.3/report/integrated/get/?advertiser_id=${advertiserId}&report_type=BASIC&data_level=AUCTION_AD&dimensions=${encodeURIComponent(dimensions)}&metrics=${encodeURIComponent(metrics)}&start_date=${today}&end_date=${today}&page=${page}&page_size=1000`;
+
+      const response = await fetchTikTokJSON(url, accessToken);
+
+      if (response.code !== 0) {
+        console.error(`[TikTok Sync] API error: ${response.message}`);
+        break;
+      }
+
+      const rows = response.data?.list || [];
+      if (rows.length === 0) break;
+
+      for (const row of rows) {
+        try {
+          const dims = row.dimensions || {};
+          const m = row.metrics || {};
+
+          const adId = dims.ad_id;
+          if (!adId) continue;
+
+          const spend = parseFloat(m.spend || '0') || 0;
+          const impressions = parseInt(m.impressions || '0') || 0;
+          const clicks = parseInt(m.clicks || '0') || 0;
+          const conversions = parseInt(m.conversion || '0') || 0;
+          const conversionValue = parseFloat(m.total_complete_payment || '0') || 0;
+          const ctr = parseFloat(m.ctr || '0') || 0;
+          const cpc = parseFloat(m.cpc || '0') || 0;
+          const cpm = parseFloat(m.cpm || '0') || 0;
+          const cpa = parseFloat(m.cost_per_conversion || '0') || 0;
+          const roas = parseFloat(m.complete_payment_roas || '0') || 0;
+          const videoViews = parseInt(m.video_play_actions || '0') || 0;
+          const videoWatched2s = parseInt(m.video_watched_2s || '0') || 0;
+          const videoWatched6s = parseInt(m.video_watched_6s || '0') || 0;
+          const videoWatched100pct = parseInt(m.video_views_p100 || '0') || 0;
+
+          await pool.query(
+            `INSERT INTO tiktok_ads_today (user_id, advertiser_id, campaign_id, campaign_name, adgroup_id, adgroup_name, ad_id, ad_name, spend, impressions, clicks, conversions, conversion_value, ctr, cpc, cpm, cpa, roas, video_views, video_watched_2s, video_watched_6s, video_watched_100pct, synced_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, NOW())
+             ON CONFLICT (user_id, ad_id) DO UPDATE SET
+               advertiser_id = EXCLUDED.advertiser_id, campaign_id = EXCLUDED.campaign_id,
+               campaign_name = EXCLUDED.campaign_name, adgroup_id = EXCLUDED.adgroup_id,
+               adgroup_name = EXCLUDED.adgroup_name, ad_name = EXCLUDED.ad_name,
+               spend = EXCLUDED.spend, impressions = EXCLUDED.impressions, clicks = EXCLUDED.clicks,
+               conversions = EXCLUDED.conversions, conversion_value = EXCLUDED.conversion_value,
+               ctr = EXCLUDED.ctr, cpc = EXCLUDED.cpc, cpm = EXCLUDED.cpm, cpa = EXCLUDED.cpa,
+               roas = EXCLUDED.roas, video_views = EXCLUDED.video_views,
+               video_watched_2s = EXCLUDED.video_watched_2s, video_watched_6s = EXCLUDED.video_watched_6s,
+               video_watched_100pct = EXCLUDED.video_watched_100pct, synced_at = NOW()`,
+            [
+              userId || null, advertiserId,
+              m.campaign_id || null, m.campaign_name || null,
+              m.adgroup_id || null, m.adgroup_name || null,
+              adId, m.ad_name || null,
+              spend, impressions, clicks, conversions, conversionValue,
+              ctr, cpc, cpm, cpa, roas,
+              videoViews, videoWatched2s, videoWatched6s, videoWatched100pct,
+            ]
+          );
+          synced++;
+        } catch (err) {
+          console.error(`[TikTok Sync] Failed to upsert ad row:`, err);
+        }
+      }
+
+      if (rows.length < 1000) break;
+      page++;
+    }
+
+    console.log(`[TikTok Sync] Synced ${synced} ad rows${userId ? ` for user ${userId}` : ''}`);
+  } catch (err) {
+    console.error(`[TikTok Sync] Fetch failed:`, err);
+  }
+
+  return { synced, skipped: false };
+}

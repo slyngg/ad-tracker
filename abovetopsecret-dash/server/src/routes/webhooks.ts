@@ -3,22 +3,31 @@ import crypto from 'crypto';
 import pool from '../db';
 import { verifyCheckoutChamp, verifyShopify } from '../middleware/webhook-verify';
 import { getRealtime } from '../services/realtime';
+import { matchOffer } from '../services/offer-matcher';
 
 const router = Router();
 
-// Resolve webhook token to userId
-async function resolveWebhookToken(token: string | undefined): Promise<number | null> {
+interface WebhookTokenResult {
+  userId: number;
+  accountId: number | null;
+}
+
+// Resolve webhook token to userId + accountId
+async function resolveWebhookToken(token: string | undefined): Promise<WebhookTokenResult | null> {
   if (!token) return null;
   try {
     const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
     const result = await pool.query(
       `UPDATE webhook_tokens SET last_used_at = NOW()
        WHERE token = $1 AND active = true
-       RETURNING user_id`,
+       RETURNING user_id, account_id`,
       [tokenHash]
     );
     if (result.rows.length > 0) {
-      return result.rows[0].user_id;
+      return {
+        userId: result.rows[0].user_id,
+        accountId: result.rows[0].account_id || null,
+      };
     }
   } catch {
     // Table may not exist yet
@@ -30,7 +39,9 @@ async function resolveWebhookToken(token: string | undefined): Promise<number | 
 async function handleCCWebhook(req: Request, res: Response) {
   try {
     const body = req.body;
-    const userId = await resolveWebhookToken(req.params.webhookToken);
+    const tokenResult = await resolveWebhookToken(req.params.webhookToken);
+    const userId = tokenResult?.userId ?? null;
+    const accountId = tokenResult?.accountId ?? null;
 
     const orderId = body.order_id || body.orderId;
     const offerName = body.offer_name || body.offerName || body.product_name;
@@ -73,10 +84,25 @@ async function handleCCWebhook(req: Request, res: Response) {
     };
     const orderStatus = statusMap[rawStatus] || 'completed';
 
+    // Test order detection: flag orders with very low amounts or test email patterns
+    const email = (body.email || body.customer_email || '').toLowerCase();
+    const isTestOrder = subtotal < 1.00 ||
+      email.startsWith('test@') ||
+      email.includes('+test@') ||
+      email.includes('test+') ||
+      email.endsWith('@example.com');
+
+    // Match offer based on product/UTM data
+    const offerId = userId ? await matchOffer(userId, {
+      product_id: body.product_id || body.productId,
+      utm_campaign: utmCampaign,
+      campaign_name: body.campaign_name || body.campaignName,
+    }) : null;
+
     await pool.query(
-      `INSERT INTO cc_orders_today (order_id, offer_name, revenue, subtotal, tax_amount, order_status, new_customer, utm_campaign, fbclid, subscription_id, quantity, is_core_sku, source, utm_source, utm_medium, utm_content, utm_term, user_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'checkout_champ', $13, $14, $15, $16, $17)
-       ON CONFLICT (order_id) DO UPDATE SET
+      `INSERT INTO cc_orders_today (order_id, offer_name, revenue, subtotal, tax_amount, order_status, new_customer, utm_campaign, fbclid, subscription_id, quantity, is_core_sku, source, utm_source, utm_medium, utm_content, utm_term, user_id, is_test, account_id, offer_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'checkout_champ', $13, $14, $15, $16, $17, $18, $19, $20)
+       ON CONFLICT (user_id, order_id) DO UPDATE SET
          revenue = EXCLUDED.revenue,
          subtotal = EXCLUDED.subtotal,
          tax_amount = EXCLUDED.tax_amount,
@@ -88,8 +114,10 @@ async function handleCCWebhook(req: Request, res: Response) {
          utm_medium = EXCLUDED.utm_medium,
          utm_content = EXCLUDED.utm_content,
          utm_term = EXCLUDED.utm_term,
-         user_id = EXCLUDED.user_id`,
-      [orderId, offerName, total, subtotal, taxAmount, orderStatus, newCustomer, utmCampaign, fbclid, subscriptionId, quantity, isCoreSku, utmSource, utmMedium, utmContent, utmTerm, userId]
+         is_test = EXCLUDED.is_test,
+         account_id = EXCLUDED.account_id,
+         offer_id = EXCLUDED.offer_id`,
+      [orderId, offerName, total, subtotal, taxAmount, orderStatus, newCustomer, utmCampaign, fbclid, subscriptionId, quantity, isCoreSku, utmSource, utmMedium, utmContent, utmTerm, userId, isTestOrder, accountId, offerId]
     );
 
     // Handle upsell data if present
@@ -97,16 +125,19 @@ async function handleCCWebhook(req: Request, res: Response) {
     if (Array.isArray(upsells)) {
       for (const upsell of upsells) {
         await pool.query(
-          `INSERT INTO cc_upsells_today (order_id, offered, accepted, offer_name, user_id)
-           VALUES ($1, $2, $3, $4, $5)`,
-          [orderId, upsell.offered ?? true, upsell.accepted ?? false, upsell.offer_name || offerName, userId]
+          `INSERT INTO cc_upsells_today (order_id, offered, accepted, offer_name, user_id, account_id)
+           VALUES ($1, $2, $3, $4, $5, $6)
+           ON CONFLICT (user_id, order_id, offer_name) DO UPDATE SET
+             offered = EXCLUDED.offered,
+             accepted = EXCLUDED.accepted`,
+          [orderId, upsell.offered ?? true, upsell.accepted ?? false, upsell.offer_name || offerName, userId, accountId]
         );
       }
     }
 
     // Emit real-time new order event
     getRealtime()?.emitNewOrder(userId, {
-      orderId, offerName, revenue: subtotal, status: orderStatus, newCustomer: !!newCustomer,
+      orderId, offerName, revenue: subtotal, status: orderStatus, newCustomer: !!newCustomer, accountId,
     });
 
     res.json({ success: true, order_id: orderId });
@@ -120,7 +151,9 @@ async function handleCCWebhook(req: Request, res: Response) {
 async function handleShopifyWebhook(req: Request, res: Response) {
   try {
     const body = req.body;
-    const userId = await resolveWebhookToken(req.params.webhookToken);
+    const tokenResult = await resolveWebhookToken(req.params.webhookToken);
+    const userId = tokenResult?.userId ?? null;
+    const accountId = tokenResult?.accountId ?? null;
 
     const orderId = `SHOP-${body.id || body.order_number}`;
     const lineItems = body.line_items || [];
@@ -167,10 +200,27 @@ async function handleShopifyWebhook(req: Request, res: Response) {
 
     const quantity = lineItems.reduce((sum: number, item: { quantity?: number }) => sum + (item.quantity || 1), 0);
 
+    // Test order detection
+    const email = (body.email || body.contact_email || '').toLowerCase();
+    const isTestOrder = subtotalPrice < 1.00 ||
+      email.startsWith('test@') ||
+      email.includes('+test@') ||
+      email.includes('test+') ||
+      email.endsWith('@example.com') ||
+      body.test === true;
+
+    // Match offer based on product/UTM data
+    const productId = lineItems.length > 0 ? String(lineItems[0].product_id || '') : undefined;
+    const offerId = userId ? await matchOffer(userId, {
+      product_id: productId,
+      utm_campaign: utmCampaign,
+      campaign_name: utmCampaign,
+    }) : null;
+
     await pool.query(
-      `INSERT INTO cc_orders_today (order_id, offer_name, revenue, subtotal, tax_amount, order_status, new_customer, utm_campaign, fbclid, subscription_id, quantity, is_core_sku, source, utm_source, utm_medium, utm_content, utm_term, user_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NULL, $10, true, 'shopify', $11, $12, $13, $14, $15)
-       ON CONFLICT (order_id) DO UPDATE SET
+      `INSERT INTO cc_orders_today (order_id, offer_name, revenue, subtotal, tax_amount, order_status, new_customer, utm_campaign, fbclid, subscription_id, quantity, is_core_sku, source, utm_source, utm_medium, utm_content, utm_term, user_id, is_test, account_id, offer_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NULL, $10, true, 'shopify', $11, $12, $13, $14, $15, $16, $17, $18)
+       ON CONFLICT (user_id, order_id) DO UPDATE SET
          revenue = EXCLUDED.revenue,
          subtotal = EXCLUDED.subtotal,
          tax_amount = EXCLUDED.tax_amount,
@@ -181,13 +231,15 @@ async function handleShopifyWebhook(req: Request, res: Response) {
          utm_medium = EXCLUDED.utm_medium,
          utm_content = EXCLUDED.utm_content,
          utm_term = EXCLUDED.utm_term,
-         user_id = EXCLUDED.user_id`,
-      [orderId, offerName, totalPrice, subtotalPrice, totalTax, orderStatus, newCustomer, utmCampaign, fbclid, quantity, utmSource, utmMedium, utmContent, utmTerm, userId]
+         is_test = EXCLUDED.is_test,
+         account_id = EXCLUDED.account_id,
+         offer_id = EXCLUDED.offer_id`,
+      [orderId, offerName, totalPrice, subtotalPrice, totalTax, orderStatus, newCustomer, utmCampaign, fbclid, quantity, utmSource, utmMedium, utmContent, utmTerm, userId, isTestOrder, accountId, offerId]
     );
 
     // Emit real-time new order event
     getRealtime()?.emitNewOrder(userId, {
-      orderId, offerName, revenue: subtotalPrice, status: orderStatus, newCustomer: !!newCustomer,
+      orderId, offerName, revenue: subtotalPrice, status: orderStatus, newCustomer: !!newCustomer, accountId,
     });
 
     res.json({ success: true, order_id: orderId });

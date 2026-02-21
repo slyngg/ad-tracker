@@ -44,6 +44,7 @@ services:
       KLAVIYO_CLIENT_ID: ${KLAVIYO_CLIENT_ID:-}
       KLAVIYO_CLIENT_SECRET: ${KLAVIYO_CLIENT_SECRET:-}
       OAUTH_ENCRYPTION_KEY: ${OAUTH_ENCRYPTION_KEY:-}
+      TZ: America/New_York
       NODE_ENV: production
     depends_on:
       db:

@@ -29,6 +29,7 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       CC_API_KEY: ${CC_API_KEY:-}
       CC_API_URL: ${CC_API_URL:-}
+      TZ: America/New_York
       NODE_ENV: production
     ports:
       - "4000:4000"

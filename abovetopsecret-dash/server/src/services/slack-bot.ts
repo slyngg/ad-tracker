@@ -68,7 +68,7 @@ async function fetchFullMetrics(userId: number | null): Promise<FullMetrics> {
     pool.query(`SELECT COALESCE(SUM(COALESCE(subtotal,revenue)),0) AS revenue,
       COUNT(DISTINCT order_id) AS conversions,
       COUNT(DISTINCT CASE WHEN new_customer THEN order_id END) AS new_customers
-      FROM cc_orders_today WHERE order_status='completed' ${ufAnd}`, params),
+      FROM cc_orders_today WHERE order_status='completed' AND (is_test = false OR is_test IS NULL) ${ufAnd}`, params),
   ]);
 
   const a = ads.rows[0]; const o = orders.rows[0];
@@ -106,7 +106,7 @@ async function fetchCampaignDetail(userId: number | null): Promise<DetailRow[]> 
              COALESCE(SUM(COALESCE(subtotal,revenue)),0) AS revenue,
              COUNT(DISTINCT order_id) AS conversions,
              COUNT(DISTINCT CASE WHEN new_customer THEN order_id END) AS new_customers
-      FROM cc_orders_today WHERE order_status='completed' ${ufAnd}
+      FROM cc_orders_today WHERE order_status='completed' AND (is_test = false OR is_test IS NULL) ${ufAnd}
       GROUP BY utm_campaign
     )
     SELECT fb.campaign_name AS label,
@@ -154,7 +154,7 @@ async function fetchOfferDetail(userId: number | null): Promise<DetailRow[]> {
              COUNT(DISTINCT CASE WHEN new_customer THEN order_id END) AS new_customers,
              COALESCE(AVG(quantity),1) AS avg_qty,
              COUNT(DISTINCT utm_source) AS sources
-      FROM cc_orders_today WHERE order_status='completed' ${ufAnd}
+      FROM cc_orders_today WHERE order_status='completed' AND (is_test = false OR is_test IS NULL) ${ufAnd}
       GROUP BY offer_name
     ),
     fb AS (
@@ -218,7 +218,7 @@ async function fetchAccountDetail(userId: number | null): Promise<DetailRow[]> {
       SELECT COALESCE(SUM(COALESCE(subtotal,revenue)),0) AS total_revenue,
              COUNT(DISTINCT order_id) AS total_conversions,
              COUNT(DISTINCT CASE WHEN new_customer THEN order_id END) AS total_new
-      FROM cc_orders_today WHERE order_status='completed' ${ufAnd}
+      FROM cc_orders_today WHERE order_status='completed' AND (is_test = false OR is_test IS NULL) ${ufAnd}
     )
     SELECT fb.account_name AS label,
            fb.spend::float, fb.clicks::int, fb.impressions::int, fb.lp_views::int,

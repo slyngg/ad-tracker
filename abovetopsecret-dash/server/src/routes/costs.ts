@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import pool from '../db';
+import { parseAccountFilter } from '../services/account-filter';
 
 const router = Router();
 
@@ -7,12 +8,13 @@ const router = Router();
 router.get('/', async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
+    const af = parseAccountFilter(req.query as Record<string, any>, 2);
     const result = await pool.query(
       `SELECT id, offer_name, cost_type, cost_value, cost_unit, notes, created_at, updated_at
        FROM cost_settings
-       WHERE user_id = $1
+       WHERE user_id = $1 ${af.clause}
        ORDER BY offer_name ASC, created_at DESC`,
-      [userId]
+      [userId, ...af.params]
     );
     res.json(result.rows);
   } catch (err) {

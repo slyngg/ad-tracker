@@ -1,6 +1,11 @@
 import cron from 'node-cron';
 import { syncFacebook, syncFacebookCreatives } from './facebook-sync';
 import { pollCheckoutChamp } from './cc-polling';
+import { syncAllCCData } from './cc-sync';
+import { syncGA4Data } from './ga4-sync';
+import { syncShopifyProducts, syncShopifyCustomers } from './shopify-sync';
+import { syncTikTokAds } from './tiktok-sync';
+import { syncAllKlaviyoData } from './klaviyo-sync';
 import { getSetting } from './settings';
 import { evaluateRules } from './rules-engine';
 import { checkThresholds } from './notifications';
@@ -23,6 +28,11 @@ async function getActiveUserIds(): Promise<number[]> {
 const LOCK_FB_SYNC = 100001;
 const LOCK_CC_POLL = 100002;
 const LOCK_DAILY_RESET = 100003;
+const LOCK_GA4_SYNC = 100006;
+const LOCK_CC_FULL_SYNC = 100007;
+const LOCK_SHOPIFY_SYNC = 100008;
+const LOCK_TIKTOK_SYNC = 100009;
+const LOCK_KLAVIYO_SYNC = 100010;
 
 async function withAdvisoryLock(lockId: number, label: string, fn: () => Promise<void>): Promise<void> {
   const client = await pool.connect();
@@ -114,18 +124,29 @@ export function startScheduler(): void {
   // Daily reset at midnight
   cron.schedule('0 0 * * *', async () => {
     await withAdvisoryLock(LOCK_DAILY_RESET, 'Daily reset', async () => {
-      console.log('[Scheduler] Running daily reset...');
+      // NOTE: Daily reset runs at midnight UTC. "Today" means UTC day.
+      // If timezone-aware reset is needed, run per-user based on users.timezone.
+      console.log('[Scheduler] Running daily reset (UTC midnight)...');
       try {
+        // Archive with ON CONFLICT DO NOTHING to prevent double-archiving
+        // if this job runs twice (e.g., server restart near midnight)
         await pool.query(`
-          INSERT INTO fb_ads_archive (archived_date, ad_data, user_id)
-          SELECT CURRENT_DATE, row_to_json(fb_ads_today)::jsonb, user_id FROM fb_ads_today;
+          INSERT INTO fb_ads_archive (archived_date, ad_data, user_id, account_id)
+          SELECT CURRENT_DATE, row_to_json(fb_ads_today)::jsonb, user_id, account_id FROM fb_ads_today
+          ON CONFLICT DO NOTHING;
 
-          INSERT INTO orders_archive (archived_date, order_data, user_id)
-          SELECT CURRENT_DATE, row_to_json(cc_orders_today)::jsonb, user_id FROM cc_orders_today;
+          INSERT INTO orders_archive (archived_date, order_data, user_id, account_id, offer_id)
+          SELECT CURRENT_DATE, row_to_json(cc_orders_today)::jsonb, user_id, account_id, offer_id FROM cc_orders_today
+          ON CONFLICT DO NOTHING;
+
+          INSERT INTO tiktok_ads_archive (archived_date, ad_data, user_id, account_id)
+          SELECT CURRENT_DATE, row_to_json(tiktok_ads_today)::jsonb, user_id, account_id FROM tiktok_ads_today
+          ON CONFLICT DO NOTHING;
 
           TRUNCATE fb_ads_today RESTART IDENTITY;
           TRUNCATE cc_orders_today RESTART IDENTITY;
           TRUNCATE cc_upsells_today RESTART IDENTITY;
+          TRUNCATE tiktok_ads_today RESTART IDENTITY;
         `);
         console.log('[Scheduler] Daily reset complete');
       } catch (err) {
@@ -179,5 +200,122 @@ export function startScheduler(): void {
     });
   });
 
-  console.log('[Scheduler] Cron jobs registered: Meta Ads sync (*/10 * * * *), CC poll (* * * * *), Creative sync (5,35 * * * *), Daily reset (0 0 * * *), OAuth refresh (0 */6 * * *)');
+  // GA4 sync every 15 minutes (offset from Meta)
+  cron.schedule('3,18,33,48 * * * *', async () => {
+    await withAdvisoryLock(LOCK_GA4_SYNC, 'GA4 sync', async () => {
+      console.log('[Scheduler] Running GA4 sync...');
+      try {
+        const userIds = await getActiveUserIds();
+        for (const userId of userIds) {
+          try {
+            const result = await syncGA4Data(userId);
+            if (result.synced > 0) {
+              console.log(`[Scheduler] GA4 sync for user ${userId}: ${result.synced} rows`);
+              await evaluateRules(userId);
+            }
+          } catch (err) {
+            console.error(`[Scheduler] GA4 sync failed for user ${userId}:`, err);
+          }
+        }
+      } catch (err) {
+        console.error('[Scheduler] GA4 sync failed:', err);
+      }
+    });
+  });
+
+  // CheckoutChamp full data sync every 4 hours
+  cron.schedule('0 */4 * * *', async () => {
+    await withAdvisoryLock(LOCK_CC_FULL_SYNC, 'CC full data sync', async () => {
+      console.log('[Scheduler] Running CC full data sync...');
+      try {
+        const userIds = await getActiveUserIds();
+        for (const userId of userIds) {
+          try {
+            const result = await syncAllCCData(userId);
+            const total = result.customers + result.transactions + result.purchases + result.products + result.campaigns;
+            if (total > 0) {
+              console.log(`[Scheduler] CC full sync for user ${userId}: ${result.customers} customers, ${result.transactions} transactions, ${result.purchases} purchases, ${result.products} products, ${result.campaigns} campaigns`);
+            }
+          } catch (err) {
+            console.error(`[Scheduler] CC full sync failed for user ${userId}:`, err);
+          }
+        }
+      } catch (err) {
+        console.error('[Scheduler] CC full data sync failed:', err);
+      }
+    });
+  });
+
+  // Shopify products + customers every 6 hours
+  cron.schedule('30 */6 * * *', async () => {
+    await withAdvisoryLock(LOCK_SHOPIFY_SYNC, 'Shopify sync', async () => {
+      console.log('[Scheduler] Running Shopify sync...');
+      try {
+        const userIds = await getActiveUserIds();
+        for (const userId of userIds) {
+          try {
+            const products = await syncShopifyProducts(userId);
+            const customers = await syncShopifyCustomers(userId);
+            if (!products.skipped && (products.synced > 0 || customers.synced > 0)) {
+              console.log(`[Scheduler] Shopify sync for user ${userId}: ${products.synced} products, ${customers.synced} customers`);
+            }
+          } catch (err) {
+            console.error(`[Scheduler] Shopify sync failed for user ${userId}:`, err);
+          }
+        }
+      } catch (err) {
+        console.error('[Scheduler] Shopify sync failed:', err);
+      }
+    });
+  });
+
+  // TikTok Ads sync every 10 minutes (same cadence as Meta)
+  cron.schedule('*/10 * * * *', async () => {
+    await withAdvisoryLock(LOCK_TIKTOK_SYNC, 'TikTok Ads sync', async () => {
+      console.log('[Scheduler] Running TikTok Ads sync...');
+      try {
+        const userIds = await getActiveUserIds();
+        for (const userId of userIds) {
+          try {
+            const result = await syncTikTokAds(userId);
+            if (!result.skipped && result.synced > 0) {
+              console.log(`[Scheduler] TikTok sync for user ${userId}: ${result.synced} ad rows`);
+              await evaluateRules(userId);
+            }
+          } catch (err) {
+            console.error(`[Scheduler] TikTok sync failed for user ${userId}:`, err);
+          }
+        }
+      } catch (err) {
+        console.error('[Scheduler] TikTok Ads sync failed:', err);
+      }
+    });
+  });
+
+  // Klaviyo sync every 2 hours
+  cron.schedule('15 */2 * * *', async () => {
+    await withAdvisoryLock(LOCK_KLAVIYO_SYNC, 'Klaviyo sync', async () => {
+      console.log('[Scheduler] Running Klaviyo sync...');
+      try {
+        const userIds = await getActiveUserIds();
+        for (const userId of userIds) {
+          try {
+            const result = await syncAllKlaviyoData(userId);
+            if (!result.skipped) {
+              const total = result.profiles + result.lists + result.campaigns + result.flowMetrics;
+              if (total > 0) {
+                console.log(`[Scheduler] Klaviyo sync for user ${userId}: ${result.profiles} profiles, ${result.lists} lists, ${result.campaigns} campaigns, ${result.flowMetrics} flow metrics`);
+              }
+            }
+          } catch (err) {
+            console.error(`[Scheduler] Klaviyo sync failed for user ${userId}:`, err);
+          }
+        }
+      } catch (err) {
+        console.error('[Scheduler] Klaviyo sync failed:', err);
+      }
+    });
+  });
+
+  console.log('[Scheduler] Cron jobs registered: Meta Ads (*/10), CC poll (* * *), GA4 (3,18,33,48), CC full (0 */4), Creative (5,35), Daily reset (0 0), OAuth refresh (0 */6), Shopify (30 */6), TikTok (*/10), Klaviyo (15 */2)');
 }

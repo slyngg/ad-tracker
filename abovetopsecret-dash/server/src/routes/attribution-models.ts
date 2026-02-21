@@ -74,7 +74,7 @@ router.get('/data', async (req: Request, res: Response) => {
           SUM(COALESCE(subtotal, revenue)) AS revenue,
           COUNT(DISTINCT CASE WHEN new_customer THEN order_id END) AS new_customer_orders
         FROM cc_orders_today
-        WHERE order_status = 'completed' ${ufAnd}
+        WHERE order_status = 'completed' AND (is_test = false OR is_test IS NULL) ${ufAnd}
         GROUP BY utm_source
       )
       SELECT
@@ -87,7 +87,7 @@ router.get('/data', async (req: Request, res: Response) => {
         CASE WHEN COALESCE(o.purchases, 0) > 0 THEN COALESCE(a.spend, 0) / o.purchases ELSE 0 END AS cpa,
         CASE WHEN COALESCE(o.new_customer_orders, 0) > 0 THEN COALESCE(a.spend, 0) / o.new_customer_orders ELSE 0 END AS nc_cpa,
         CASE WHEN COALESCE(a.spend, 0) > 0 AND COALESCE(o.new_customer_orders, 0) > 0
-          THEN (SELECT SUM(COALESCE(subtotal, revenue)) FROM cc_orders_today WHERE new_customer AND utm_source = COALESCE(a.source, o.source) ${ufAnd}) / a.spend
+          THEN (SELECT SUM(COALESCE(subtotal, revenue)) FROM cc_orders_today WHERE new_customer AND (is_test = false OR is_test IS NULL) AND utm_source = COALESCE(a.source, o.source) ${ufAnd}) / a.spend
           ELSE 0 END AS nc_roas,
         COALESCE(a.clicks, 0) AS clicks,
         COALESCE(a.impressions, 0) AS impressions,
@@ -119,7 +119,7 @@ router.get('/overlap', async (req: Request, res: Response) => {
         COALESCE(NULLIF(utm_source, ''), 'direct') AS channel,
         COUNT(DISTINCT order_id) AS orders
       FROM cc_orders_today
-      WHERE order_status = 'completed' ${uf}
+      WHERE order_status = 'completed' AND (is_test = false OR is_test IS NULL) ${uf}
       GROUP BY utm_source
       ORDER BY orders DESC
     `, params);

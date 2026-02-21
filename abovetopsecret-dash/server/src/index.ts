@@ -39,6 +39,7 @@ import aiAgentsRouter from './routes/ai-agents';
 import reportBuilderRouter from './routes/report-builder';
 import creativeGenRouter from './routes/creative-gen';
 import creativesRouter from './routes/creatives';
+import accountsRouter from './routes/accounts';
 import { authMiddleware } from './middleware/auth';
 import { startScheduler } from './services/scheduler';
 import { initRealtime } from './services/realtime';
@@ -167,6 +168,7 @@ app.use('/api/agents', aiAgentsRouter);
 app.use('/api/reports', reportBuilderRouter);
 app.use('/api/creative-gen', creativeGenRouter);
 app.use('/api/creatives', creativesRouter);
+app.use('/api/accounts', accountsRouter);
 
 const httpServer = createServer(app);
 
