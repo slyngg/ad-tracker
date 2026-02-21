@@ -5,6 +5,8 @@ import { useWebSocket } from '../../hooks/useWebSocket';
 import Sidebar from './Sidebar';
 import CommandPalette from '../shared/CommandPalette';
 import AccountSwitcher from '../shared/AccountSwitcher';
+import TourOverlay from '../tour/TourOverlay';
+import ConnectionBanner from '../shared/ConnectionBanner';
 
 function ConnectionStatus() {
   const { status } = useWebSocket();
@@ -65,8 +67,11 @@ export default function AppLayout() {
           collapsed ? 'lg:ml-sidebar-collapsed' : 'lg:ml-sidebar'
         }`}
       >
+        <ConnectionBanner />
         <Outlet />
       </main>
+
+      <TourOverlay />
     </div>
   );
 }

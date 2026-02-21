@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { getOAuthAuthorizeUrl } from '../../lib/api';
+import { getOAuthAuthorizeUrl, getOAuthStatus } from '../../lib/api';
 
 interface OAuthConnectButtonProps {
   platform: string;
@@ -21,6 +21,7 @@ export default function OAuthConnectButton({
   const [connecting, setConnecting] = useState(false);
   const popupRef = useRef<Window | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const messageReceivedRef = useRef(false);
 
   const cleanup = useCallback(() => {
     if (pollRef.current) {
@@ -35,6 +36,7 @@ export default function OAuthConnectButton({
   useEffect(() => {
     const handler = (event: MessageEvent) => {
       if (event.data?.type !== 'oauth-callback') return;
+      messageReceivedRef.current = true;
       cleanup();
       if (event.data.success) {
         onSuccess();
@@ -74,11 +76,26 @@ export default function OAuthConnectButton({
     }
 
     // Fallback: poll for popup close
+    messageReceivedRef.current = false;
     pollRef.current = setInterval(() => {
       if (!popupRef.current || popupRef.current.closed) {
         cleanup();
-        // Give postMessage a moment, then trigger success check
-        setTimeout(() => onSuccess(), 500);
+        // If postMessage already handled the result, do nothing
+        if (messageReceivedRef.current) return;
+        // No postMessage received — verify server-side
+        setTimeout(async () => {
+          try {
+            const statuses = await getOAuthStatus();
+            const match = statuses.find(s => s.platform === platform);
+            if (match?.status === 'connected') {
+              onSuccess();
+            } else {
+              onError?.(match?.error || 'Connection was not completed');
+            }
+          } catch {
+            onError?.('Failed to verify connection status');
+          }
+        }, 500);
       }
     }, 1000);
   };

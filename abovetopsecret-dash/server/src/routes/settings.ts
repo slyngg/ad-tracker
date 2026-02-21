@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import https from 'https';
 import { getAllSettings, setSetting, deleteSetting, getSetting } from '../services/settings';
+import { CheckoutChampClient } from '../services/checkout-champ-client';
 
 const router = Router();
 
@@ -93,46 +94,18 @@ router.post('/test/facebook', async (req: Request, res: Response) => {
 router.post('/test/checkout-champ', async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user?.id as number | undefined;
-    const apiKey = await getSetting('cc_api_key', userId);
-    const apiUrl = await getSetting('cc_api_url', userId);
+    const client = await CheckoutChampClient.fromSettings(userId);
 
-    if (!apiKey || !apiUrl) {
-      res.json({ success: false, error: 'CC API key or URL not configured' });
+    if (!client) {
+      res.json({ success: false, error: 'CC Login ID or Password not configured' });
       return;
     }
 
-    const url = `${apiUrl.replace(/\/$/, '')}/orders?limit=1`;
-    const parsedUrl = new URL(url);
-
-    const result = await new Promise<{ data?: unknown[]; message?: string; error?: string }>((resolve, reject) => {
-      const options = {
-        hostname: parsedUrl.hostname,
-        port: parsedUrl.port || 443,
-        path: parsedUrl.pathname + parsedUrl.search,
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Accept': 'application/json',
-        },
-      };
-
-      const req = https.request(options, (response) => {
-        let data = '';
-        response.on('data', (chunk) => (data += chunk));
-        response.on('end', () => {
-          try { resolve(JSON.parse(data)); } catch (e) { reject(e); }
-        });
-        response.on('error', reject);
-      });
-
-      req.on('error', reject);
-      req.end();
-    });
-
-    if (result.error) {
-      res.json({ success: false, error: result.error });
-    } else {
+    const result = await client.testConnection();
+    if (result.success) {
       res.json({ success: true, message: 'Connected to CheckoutChamp API' });
+    } else {
+      res.json({ success: false, error: result.error || 'Authentication failed' });
     }
   } catch (err) {
     console.error('Error testing CC connection:', err);

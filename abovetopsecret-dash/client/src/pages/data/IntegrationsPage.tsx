@@ -82,10 +82,10 @@ const INTEGRATIONS: Integration[] = [
     description: 'Sync order data, subscription metrics, take rates, and upsell performance from your CheckoutChamp account.',
     icon: 'C',
     iconBg: 'bg-purple-900/60 text-purple-300',
-    settingsKeys: ['cc_api_key', 'cc_api_url'],
+    settingsKeys: ['cc_login_id', 'cc_password'],
     manualStatusLabel: (s) => {
-      if (s.cc_api_key && s.cc_api_url) return 'connected';
-      if (s.cc_api_key || s.cc_api_url) return 'partial';
+      if (s.cc_login_id && s.cc_password) return 'connected';
+      if (s.cc_login_id || s.cc_password) return 'partial';
       return 'disconnected';
     },
   },

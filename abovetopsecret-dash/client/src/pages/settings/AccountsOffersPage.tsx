@@ -2,9 +2,10 @@ import { useState, useEffect, useCallback } from 'react';
 import { Plus, Edit2, Trash2, Building2, Tag } from 'lucide-react';
 import PageShell from '../../components/shared/PageShell';
 import {
-  Account, Offer,
+  Account, Offer, BrandConfig,
   fetchAccounts, createAccount, updateAccount, deleteAccount,
   fetchOffers, createOffer, updateOffer, deleteOffer,
+  fetchBrandConfigs,
 } from '../../lib/api';
 
 type Tab = 'accounts' | 'offers';
@@ -17,12 +18,13 @@ export default function AccountsOffersPage() {
   const [tab, setTab] = useState<Tab>('accounts');
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [offers, setOffers] = useState<Offer[]>([]);
+  const [brandConfigs, setBrandConfigs] = useState<BrandConfig[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Account modal state
   const [showAccountModal, setShowAccountModal] = useState(false);
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
-  const [acctForm, setAcctForm] = useState({ name: '', platform: 'meta', platform_account_id: '', color: '#3b82f6', timezone: 'UTC', currency: 'USD', notes: '' });
+  const [acctForm, setAcctForm] = useState({ name: '', platform: 'meta', platform_account_id: '', color: '#3b82f6', timezone: 'UTC', currency: 'USD', notes: '', brand_config_id: '' });
 
   // Offer modal state
   const [showOfferModal, setShowOfferModal] = useState(false);
@@ -30,15 +32,16 @@ export default function AccountsOffersPage() {
   const [offerForm, setOfferForm] = useState({
     name: '', account_id: '' as string, offer_type: 'product', identifier: '', utm_campaign_match: '', campaign_name_match: '',
     product_ids: '', cogs: '0', shipping_cost: '0', handling_cost: '0', gateway_fee_pct: '0', gateway_fee_flat: '0',
-    target_cpa: '', target_roas: '', color: '#3b82f6', notes: '',
+    target_cpa: '', target_roas: '', color: '#3b82f6', notes: '', brand_config_id: '',
   });
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [a, o] = await Promise.all([fetchAccounts(), fetchOffers()]);
+      const [a, o, bc] = await Promise.all([fetchAccounts(), fetchOffers(), fetchBrandConfigs()]);
       setAccounts(a);
       setOffers(o);
+      setBrandConfigs(bc);
     } catch {
       // silent
     } finally {
@@ -51,22 +54,23 @@ export default function AccountsOffersPage() {
   // --- Account handlers ---
   function openNewAccount() {
     setEditingAccount(null);
-    setAcctForm({ name: '', platform: 'meta', platform_account_id: '', color: '#3b82f6', timezone: 'UTC', currency: 'USD', notes: '' });
+    setAcctForm({ name: '', platform: 'meta', platform_account_id: '', color: '#3b82f6', timezone: 'UTC', currency: 'USD', notes: '', brand_config_id: '' });
     setShowAccountModal(true);
   }
 
   function openEditAccount(a: Account) {
     setEditingAccount(a);
-    setAcctForm({ name: a.name, platform: a.platform, platform_account_id: a.platform_account_id || '', color: a.color, timezone: a.timezone, currency: a.currency, notes: a.notes || '' });
+    setAcctForm({ name: a.name, platform: a.platform, platform_account_id: a.platform_account_id || '', color: a.color, timezone: a.timezone, currency: a.currency, notes: a.notes || '', brand_config_id: a.brand_config_id ? String(a.brand_config_id) : '' });
     setShowAccountModal(true);
   }
 
   async function saveAccount() {
     try {
+      const payload: any = { ...acctForm, brand_config_id: acctForm.brand_config_id ? Number(acctForm.brand_config_id) : null };
       if (editingAccount) {
-        await updateAccount(editingAccount.id, acctForm);
+        await updateAccount(editingAccount.id, payload);
       } else {
-        await createAccount(acctForm);
+        await createAccount(payload);
       }
       setShowAccountModal(false);
       load();
@@ -91,7 +95,7 @@ export default function AccountsOffersPage() {
     setOfferForm({
       name: '', account_id: '', offer_type: 'product', identifier: '', utm_campaign_match: '', campaign_name_match: '',
       product_ids: '', cogs: '0', shipping_cost: '0', handling_cost: '0', gateway_fee_pct: '0', gateway_fee_flat: '0',
-      target_cpa: '', target_roas: '', color: '#3b82f6', notes: '',
+      target_cpa: '', target_roas: '', color: '#3b82f6', notes: '', brand_config_id: '',
     });
     setShowOfferModal(true);
   }
@@ -104,7 +108,7 @@ export default function AccountsOffersPage() {
       product_ids: (o.product_ids || []).join(', '), cogs: String(o.cogs || 0), shipping_cost: String(o.shipping_cost || 0),
       handling_cost: String(o.handling_cost || 0), gateway_fee_pct: String(o.gateway_fee_pct || 0), gateway_fee_flat: String(o.gateway_fee_flat || 0),
       target_cpa: o.target_cpa ? String(o.target_cpa) : '', target_roas: o.target_roas ? String(o.target_roas) : '',
-      color: o.color || '#3b82f6', notes: o.notes || '',
+      color: o.color || '#3b82f6', notes: o.notes || '', brand_config_id: o.brand_config_id ? String(o.brand_config_id) : '',
     });
     setShowOfferModal(true);
   }
@@ -122,6 +126,7 @@ export default function AccountsOffersPage() {
         gateway_fee_flat: parseFloat(offerForm.gateway_fee_flat) || 0,
         target_cpa: offerForm.target_cpa ? parseFloat(offerForm.target_cpa) : null,
         target_roas: offerForm.target_roas ? parseFloat(offerForm.target_roas) : null,
+        brand_config_id: offerForm.brand_config_id ? Number(offerForm.brand_config_id) : null,
       };
       if (editingOffer) {
         await updateOffer(editingOffer.id, payload);
@@ -274,6 +279,12 @@ export default function AccountsOffersPage() {
                 </div>
               </div>
               <div><label className={labelCls}>Notes</label><textarea value={acctForm.notes} onChange={(e) => setAcctForm({ ...acctForm, notes: e.target.value })} className={`${inputCls} h-16`} /></div>
+              <div><label className={labelCls}>Brand Config</label>
+                <select value={acctForm.brand_config_id} onChange={(e) => setAcctForm({ ...acctForm, brand_config_id: e.target.value })} className={inputCls}>
+                  <option value="">None</option>
+                  {brandConfigs.map((bc) => <option key={bc.id} value={bc.id}>{bc.name}{bc.is_default ? ' (Default)' : ''}</option>)}
+                </select>
+              </div>
             </div>
             <div className="flex justify-end gap-2 mt-6">
               <button onClick={() => setShowAccountModal(false)} className="px-4 py-2 text-sm text-ats-text-muted hover:text-ats-text">Cancel</button>
@@ -325,6 +336,12 @@ export default function AccountsOffersPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div><label className={labelCls}>Target CPA ($)</label><input type="number" value={offerForm.target_cpa} onChange={(e) => setOfferForm({ ...offerForm, target_cpa: e.target.value })} className={inputCls} placeholder="Optional" /></div>
                 <div><label className={labelCls}>Target ROAS (x)</label><input type="number" value={offerForm.target_roas} onChange={(e) => setOfferForm({ ...offerForm, target_roas: e.target.value })} className={inputCls} placeholder="Optional" /></div>
+              </div>
+              <div><label className={labelCls}>Brand Config</label>
+                <select value={offerForm.brand_config_id} onChange={(e) => setOfferForm({ ...offerForm, brand_config_id: e.target.value })} className={inputCls}>
+                  <option value="">None</option>
+                  {brandConfigs.map((bc) => <option key={bc.id} value={bc.id}>{bc.name}{bc.is_default ? ' (Default)' : ''}</option>)}
+                </select>
               </div>
               <div><label className={labelCls}>Notes</label><textarea value={offerForm.notes} onChange={(e) => setOfferForm({ ...offerForm, notes: e.target.value })} className={`${inputCls} h-16`} /></div>
             </div>

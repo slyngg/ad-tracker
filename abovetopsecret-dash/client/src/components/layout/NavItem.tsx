@@ -31,6 +31,7 @@ export default function NavItem({ item, collapsed }: NavItemProps) {
   return (
     <RouterNavLink
       to={item.path}
+      data-tour={item.tourId}
       className={({ isActive }) =>
         `flex items-center gap-3 px-3 py-2 rounded-lg transition-colors text-sm relative ${
           isActive

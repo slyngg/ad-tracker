@@ -2,7 +2,8 @@ import pool from '../db';
 
 const SENSITIVE_KEYS = [
   'fb_access_token',
-  'cc_api_key',
+  'cc_login_id',
+  'cc_password',
   'cc_webhook_secret',
   'shopify_webhook_secret',
   'auth_token',
@@ -12,6 +13,8 @@ const SENSITIVE_KEYS = [
 const ENV_FALLBACKS: Record<string, string> = {
   fb_access_token: 'FB_ACCESS_TOKEN',
   fb_ad_account_ids: 'FB_AD_ACCOUNT_IDS',
+  cc_login_id: 'CC_LOGIN_ID',
+  cc_password: 'CC_PASSWORD',
   cc_webhook_secret: 'CC_WEBHOOK_SECRET',
   shopify_webhook_secret: 'SHOPIFY_WEBHOOK_SECRET',
   auth_token: 'AUTH_TOKEN',
@@ -50,14 +53,14 @@ export async function getSetting(key: string, userId?: number | null): Promise<s
 }
 
 export async function setSetting(key: string, value: string, updatedBy = 'admin', userId?: number | null): Promise<void> {
-  // Use DELETE+INSERT to work with the composite unique index on (key, COALESCE(user_id, -1))
-  await pool.query(
-    'DELETE FROM app_settings WHERE key = $1 AND COALESCE(user_id, -1) = COALESCE($2::int, -1)',
-    [key, userId || null]
-  );
+  // Single UPSERT targeting the expression-based unique index
   await pool.query(
     `INSERT INTO app_settings (key, value, updated_by, updated_at, user_id)
-     VALUES ($1, $2, $3, NOW(), $4)`,
+     VALUES ($1, $2, $3, NOW(), $4)
+     ON CONFLICT (key, COALESCE(user_id, -1)) DO UPDATE SET
+       value = EXCLUDED.value,
+       updated_by = EXCLUDED.updated_by,
+       updated_at = NOW()`,
     [key, value, updatedBy, userId || null]
   );
 }

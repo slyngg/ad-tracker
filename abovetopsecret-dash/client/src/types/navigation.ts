@@ -5,6 +5,7 @@ export interface NavLink {
   path: string;
   icon: LucideIcon;
   disabled?: boolean;
+  tourId?: string;
 }
 
 export interface NavSectionConfig {
@@ -12,4 +13,5 @@ export interface NavSectionConfig {
   icon: LucideIcon;
   path?: string;
   children?: NavLink[];
+  tourId?: string;
 }

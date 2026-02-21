@@ -34,7 +34,7 @@ const WORKSPACES = [
 
 export default function SummaryDashboard() {
   const handleUnauthorized = useAuthStore((s) => s.handleUnauthorized);
-  const { data, summary, refreshing, refresh } = useMetrics(undefined, undefined, handleUnauthorized);
+  const { data, summary, loading, refreshing, error, refresh } = useMetrics(undefined, undefined, handleUnauthorized);
   const navigate = useNavigate();
 
   const [timeseries, setTimeseries] = useState<TimeseriesPoint[]>([]);
@@ -43,6 +43,7 @@ export default function SummaryDashboard() {
   const [ga4, setGa4] = useState<GA4Overview | null>(null);
   const [attrData, setAttrData] = useState<AttrRow[]>([]);
   const [accountSummaries, setAccountSummaries] = useState<AccountSummary[]>([]);
+  const [fetchErrors, setFetchErrors] = useState<string[]>([]);
   const selectedAccountIds = useAccountStore((s) => s.selectedAccountIds);
   const setSelectedAccountIds = useAccountStore((s) => s.setSelectedAccountIds);
 
@@ -51,7 +52,7 @@ export default function SummaryDashboard() {
     setTsLoading(true);
     fetchTimeseries('7d')
       .then((ts) => { if (!cancelled) setTimeseries(ts); })
-      .catch(() => {})
+      .catch((err) => { if (!cancelled) setFetchErrors(prev => [...prev, `Timeseries: ${err.message}`]); })
       .finally(() => { if (!cancelled) setTsLoading(false); });
     return () => { cancelled = true; };
   }, []);
@@ -138,6 +139,18 @@ export default function SummaryDashboard() {
         </button>
       }
     >
+      {/* Error Banner */}
+      {error && (
+        <div className="bg-red-900/30 border border-red-700/50 rounded-lg px-4 py-3 mb-4 flex items-center justify-between">
+          <div className="text-sm text-red-300">
+            <span className="font-semibold">Failed to load metrics:</span> {error}
+          </div>
+          <button onClick={() => refresh()} className="text-xs text-red-400 hover:text-red-300 font-medium px-3 py-1 border border-red-700/50 rounded">
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* Pinned Metrics Row */}
       {pinnedMetrics.length > 0 && (
         <div className="flex gap-2 overflow-x-auto mb-4 pb-1">

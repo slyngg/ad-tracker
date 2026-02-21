@@ -1,3 +1,4 @@
+# Landing page — optic-data.com
 optic-data.com {
     handle /deploy/webhook {
         rewrite * /webhook
@@ -5,6 +6,17 @@ optic-data.com {
             header_up X-Real-IP {remote_host}
         }
     }
+    handle {
+        reverse_proxy landing:80
+    }
+}
+
+www.optic-data.com {
+    redir https://optic-data.com{uri} permanent
+}
+
+# Dashboard app — app.optic-data.com
+app.optic-data.com {
     handle /ws {
         reverse_proxy server:4000
     }
@@ -14,8 +26,4 @@ optic-data.com {
     handle {
         reverse_proxy client:80
     }
-}
-
-www.optic-data.com {
-    redir https://optic-data.com{uri} permanent
 }

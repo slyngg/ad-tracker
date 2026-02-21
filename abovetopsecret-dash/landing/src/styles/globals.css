@@ -1,0 +1,69 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-od-bg text-od-text font-sans;
+  }
+
+  ::selection {
+    @apply bg-od-accent/30 text-white;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply inline-flex items-center justify-center px-6 py-3 rounded-lg
+           bg-od-accent hover:bg-od-accent-hover text-white font-semibold
+           transition-all duration-200 text-sm;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center px-6 py-3 rounded-lg
+           border border-od-border hover:border-od-text-muted text-od-text-secondary
+           hover:text-white transition-all duration-200 text-sm;
+  }
+
+  .section-container {
+    @apply max-w-6xl mx-auto px-4 sm:px-6 lg:px-8;
+  }
+
+  .gradient-text {
+    @apply bg-gradient-to-r from-od-accent to-cyan-400 bg-clip-text text-transparent;
+  }
+
+  .card {
+    @apply bg-od-card border border-od-border rounded-xl p-6;
+  }
+
+  .legal-page h1 {
+    @apply text-3xl font-bold mb-2;
+  }
+
+  .legal-page h2 {
+    @apply text-xl font-semibold mt-10 mb-4 text-od-text;
+  }
+
+  .legal-page h3 {
+    @apply text-lg font-semibold mt-6 mb-3 text-od-text;
+  }
+
+  .legal-page p {
+    @apply text-od-text-secondary leading-relaxed mb-4;
+  }
+
+  .legal-page ul {
+    @apply list-disc list-inside space-y-2 text-od-text-secondary mb-4 ml-2;
+  }
+
+  .legal-page a {
+    @apply text-od-accent hover:underline;
+  }
+}

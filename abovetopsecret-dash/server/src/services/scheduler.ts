@@ -13,6 +13,9 @@ import { tagUntaggedCreatives } from './creative-tagger';
 import { refreshOAuthTokens } from './oauth-refresh';
 import { getUsersAtMidnight } from './timezone';
 import pool from '../db';
+import { createLogger } from '../lib/logger';
+
+const log = createLogger('Scheduler');
 
 async function getActiveUserIds(): Promise<number[]> {
   try {
@@ -35,16 +38,28 @@ const LOCK_SHOPIFY_SYNC = 100008;
 const LOCK_TIKTOK_SYNC = 100009;
 const LOCK_KLAVIYO_SYNC = 100010;
 
-async function withAdvisoryLock(lockId: number, label: string, fn: () => Promise<void>): Promise<void> {
+async function withAdvisoryLock(
+  lockId: number,
+  label: string,
+  fn: () => Promise<void>,
+  timeoutMs = 5 * 60 * 1000,
+): Promise<void> {
   const client = await pool.connect();
   try {
     const lockResult = await client.query('SELECT pg_try_advisory_lock($1) AS acquired', [lockId]);
     if (!lockResult.rows[0].acquired) {
-      console.log(`[Scheduler] ${label}: skipped (another instance holds the lock)`);
+      log.info({ lockId, label }, `${label}: skipped (another instance holds the lock)`);
       return;
     }
     try {
-      await fn();
+      await Promise.race([
+        fn(),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs / 1000}s`)), timeoutMs)
+        ),
+      ]);
+    } catch (err) {
+      log.error({ lockId, label, err }, `${label}: lock released after error`);
     } finally {
       await client.query('SELECT pg_advisory_unlock($1)', [lockId]);
     }
@@ -304,9 +319,9 @@ export function startScheduler(): void {
         for (const userId of userIds) {
           try {
             const result = await syncAllCCData(userId);
-            const total = result.customers + result.transactions + result.purchases + result.products + result.campaigns;
+            const total = result.orders + result.purchases + result.campaigns;
             if (total > 0) {
-              console.log(`[Scheduler] CC full sync for user ${userId}: ${result.customers} customers, ${result.transactions} transactions, ${result.purchases} purchases, ${result.products} products, ${result.campaigns} campaigns`);
+              console.log(`[Scheduler] CC full sync for user ${userId}: ${result.orders} orders, ${result.purchases} purchases, ${result.campaigns} campaigns`);
             }
           } catch (err) {
             console.error(`[Scheduler] CC full sync failed for user ${userId}:`, err);
@@ -389,5 +404,5 @@ export function startScheduler(): void {
     });
   });
 
-  console.log('[Scheduler] Cron jobs registered: Meta Ads (*/10), CC poll (* * *), GA4 (3,18,33,48), CC full (0 */4), Creative (5,35), Daily reset (0 0), OAuth refresh (0 */6), Shopify (30 */6), TikTok (*/10), Klaviyo (15 */2)');
+  console.log('[Scheduler] Cron jobs registered: Meta Ads (*/10), CC poll (* * *), GA4 (3,18,33,48), CC full sync (0 */4), Creative (5,35), Daily reset (0 *), OAuth refresh (0 */6), Shopify (30 */6), TikTok (*/10), Klaviyo (15 */2)');
 }

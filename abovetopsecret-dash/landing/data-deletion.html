@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Data Deletion Instructions — OpticData</title>
+    <meta name="description" content="How to request deletion of your data from OpticData. Meta compliance data deletion instructions." />
+    <link rel="canonical" href="https://optic-data.com/data-deletion" />
+    <meta name="theme-color" content="#030712" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/src/styles/globals.css" />
+    <script type="module" src="/src/scripts/main.ts"></script>
+  </head>
+  <body class="bg-od-bg text-od-text font-sans antialiased">
+
+    <!-- NAV -->
+    <nav id="nav" class="fixed top-0 left-0 right-0 z-50 bg-od-bg/95 backdrop-blur-md border-b border-od-border">
+      <div class="section-container flex items-center justify-between h-16">
+        <a href="/" class="flex items-center gap-1 text-xl font-bold">
+          <span class="text-od-accent">Optic</span><span class="text-white">Data</span>
+        </a>
+        <a href="/" class="text-sm text-od-text-secondary hover:text-white transition-colors">&larr; Back to Home</a>
+      </div>
+    </nav>
+
+    <!-- CONTENT -->
+    <main class="pt-28 pb-20">
+      <div class="section-container max-w-3xl legal-page">
+
+        <h1>Data Deletion Instructions</h1>
+        <p class="text-od-text-muted text-sm mb-8">Last updated: February 21, 2026</p>
+
+        <p>OpticData is committed to protecting your privacy. This page explains what data we store when you connect third-party platforms (including Meta/Facebook) and how you can request its deletion.</p>
+
+        <h2>What Data We Store</h2>
+        <p>When you connect your Meta (Facebook/Instagram) account or other third-party platforms to OpticData, we store:</p>
+        <ul>
+          <li><strong>OAuth Tokens:</strong> Encrypted access tokens used to fetch your advertising data (encrypted at rest using AES-256-GCM)</li>
+          <li><strong>Ad Account Metrics:</strong> Campaign performance data including spend, impressions, clicks, conversions, and ROAS</li>
+          <li><strong>Ad Creative Metadata:</strong> Campaign names, ad set names, ad names, and creative thumbnails</li>
+          <li><strong>User Profile Information:</strong> Your name and email address associated with the connected account</li>
+        </ul>
+        <p>We do <strong>not</strong> store your Meta password, personal messages, friends list, or any data unrelated to advertising.</p>
+
+        <h2>How to Request Data Deletion</h2>
+        <p>You can request deletion of your data through any of the following methods:</p>
+
+        <h3>Option 1: In-App Settings (Recommended)</h3>
+        <p>The fastest way to delete your data:</p>
+        <ul>
+          <li>Log in to your OpticData dashboard at <a href="https://app.optic-data.com">app.optic-data.com</a></li>
+          <li>Navigate to <strong>Settings &rarr; Connections</strong></li>
+          <li>Click <strong>Disconnect</strong> next to the integration you want to remove</li>
+          <li>This immediately revokes our access and queues all associated data for deletion</li>
+        </ul>
+
+        <h3>Option 2: Email Request</h3>
+        <p>Send an email to <a href="mailto:hello@abovetopsecret.io">hello@abovetopsecret.io</a> with:</p>
+        <ul>
+          <li>Subject: "Data Deletion Request"</li>
+          <li>Your account email address</li>
+          <li>Which platform data you want deleted (e.g., "all Meta data" or "all data")</li>
+        </ul>
+        <p>We will confirm receipt and process your request within the timeline below.</p>
+
+        <h3>Option 3: Disconnect via Meta</h3>
+        <p>You can also revoke OpticData's access directly from Meta:</p>
+        <ul>
+          <li>Go to <strong>Facebook Settings &rarr; Security and Login &rarr; Apps and Websites</strong></li>
+          <li>Find "OpticData" and click <strong>Remove</strong></li>
+          <li>This revokes our access tokens; we will detect the disconnection and queue data for deletion</li>
+        </ul>
+
+        <h2>What Gets Deleted</h2>
+        <p>Upon receiving a deletion request, we delete:</p>
+        <ul>
+          <li>All encrypted OAuth access tokens and refresh tokens for the disconnected platform</li>
+          <li>All ad account metrics, campaign data, and creative metadata from that platform</li>
+          <li>All AI Operator conversation history that references data from that platform</li>
+          <li>All automation rules configured for that platform's campaigns</li>
+        </ul>
+        <p>If you request deletion of all data (full account deletion), we also delete your user profile, settings, and all stored data across every connected platform.</p>
+
+        <h2>Processing Timeline</h2>
+        <ul>
+          <li><strong>Access revocation:</strong> Immediate upon disconnection</li>
+          <li><strong>Data deletion:</strong> Completed within <strong>30 days</strong> of the request</li>
+          <li><strong>Confirmation:</strong> We will send a confirmation email once deletion is complete</li>
+        </ul>
+        <p>During the 30-day processing period, your data is marked for deletion and is no longer accessible or used for any purpose.</p>
+
+        <h2>Data That May Be Retained</h2>
+        <p>In certain cases, we may retain limited data as required by law or legitimate business purposes:</p>
+        <ul>
+          <li>Billing records and transaction history (as required by tax law)</li>
+          <li>Aggregated, anonymized analytics that cannot identify you</li>
+          <li>Records required for legal compliance or dispute resolution</li>
+        </ul>
+
+        <h2>Contact Us</h2>
+        <p>For any questions about data deletion, contact us at:</p>
+        <p>
+          Hypergrowth Digital LLC<br />
+          Email: <a href="mailto:hello@abovetopsecret.io">hello@abovetopsecret.io</a>
+        </p>
+
+      </div>
+    </main>
+
+    <!-- FOOTER -->
+    <footer class="py-8 border-t border-od-border">
+      <div class="section-container flex flex-col sm:flex-row items-center justify-between gap-4">
+        <p class="text-xs text-od-text-muted">&copy; 2026 Hypergrowth Digital LLC. All rights reserved.</p>
+        <div class="flex gap-6">
+          <a href="/privacy" class="text-xs text-od-text-muted hover:text-white transition-colors">Privacy</a>
+          <a href="/terms" class="text-xs text-od-text-muted hover:text-white transition-colors">Terms</a>
+          <a href="/data-deletion" class="text-xs text-od-text-muted hover:text-white transition-colors">Data Deletion</a>
+        </div>
+      </div>
+    </footer>
+
+  </body>
+</html>

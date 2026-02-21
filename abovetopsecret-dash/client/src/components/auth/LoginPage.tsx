@@ -6,6 +6,7 @@ export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
+  const [accessCode, setAccessCode] = useState('');
   const [loading, setLoading] = useState(false);
   const { error, login, register } = useAuthStore();
 
@@ -14,7 +15,7 @@ export default function LoginPage() {
     if (!email.trim() || !password.trim()) return;
     setLoading(true);
     if (isRegister) {
-      await register(email.trim(), password, displayName.trim());
+      await register(email.trim(), password, displayName.trim(), accessCode);
     } else {
       await login(email.trim(), password);
     }
@@ -56,6 +57,15 @@ export default function LoginPage() {
             placeholder="Password"
             className="w-full px-4 py-3 bg-ats-bg border border-ats-border rounded-lg text-ats-text text-sm outline-none focus:border-ats-accent"
           />
+          {isRegister && (
+            <input
+              type="password"
+              value={accessCode}
+              onChange={(e) => setAccessCode(e.target.value)}
+              placeholder="Access code"
+              className="w-full px-4 py-3 bg-ats-bg border border-ats-border rounded-lg text-ats-text text-sm outline-none focus:border-ats-accent"
+            />
+          )}
           {error && (
             <div className="text-ats-red text-xs">{error}</div>
           )}

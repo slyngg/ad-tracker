@@ -1,5 +1,39 @@
 import { Router, Request, Response } from 'express';
+import { z } from 'zod';
 import pool from '../db';
+import { validateBody } from '../middleware/validate';
+
+const createAccountSchema = z.object({
+  name: z.string().min(1, 'name is required').max(200),
+  platform: z.enum(['meta', 'google', 'tiktok', 'shopify', 'klaviyo', 'checkoutchamp']).default('meta'),
+  platform_account_id: z.string().max(200).nullish(),
+  currency: z.string().length(3).default('USD'),
+  timezone: z.string().max(100).default('America/New_York'),
+  color: z.string().max(20).default('#3b82f6'),
+  icon: z.string().max(100).nullish(),
+  notes: z.string().max(2000).nullish(),
+  brand_config_id: z.number().int().positive().nullish(),
+});
+
+const createOfferSchema = z.object({
+  account_id: z.number().int().positive('account_id is required'),
+  name: z.string().min(1, 'name is required').max(200),
+  offer_type: z.string().max(50).default('standard'),
+  identifier: z.string().max(200).nullish(),
+  utm_campaign_match: z.string().max(500).nullish(),
+  campaign_name_match: z.string().max(500).nullish(),
+  product_ids: z.array(z.string()).nullish(),
+  cogs: z.number().min(0).default(0),
+  shipping_cost: z.number().min(0).default(0),
+  handling_cost: z.number().min(0).default(0),
+  gateway_fee_pct: z.number().min(0).max(1).default(0),
+  gateway_fee_flat: z.number().min(0).default(0),
+  target_cpa: z.number().min(0).nullish(),
+  target_roas: z.number().min(0).nullish(),
+  color: z.string().max(20).nullish(),
+  notes: z.string().max(2000).nullish(),
+  brand_config_id: z.number().int().positive().nullish(),
+});
 
 const router = Router();
 
@@ -10,7 +44,7 @@ router.get('/', async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
     const result = await pool.query(
-      `SELECT id, name, platform, platform_account_id, currency, timezone, status, color, icon, notes, created_at, updated_at
+      `SELECT id, name, platform, platform_account_id, currency, timezone, status, color, icon, notes, brand_config_id, created_at, updated_at
        FROM accounts
        WHERE user_id = $1
        ORDER BY created_at ASC`,
@@ -64,19 +98,14 @@ router.get('/summary', async (req: Request, res: Response) => {
 });
 
 // POST /api/accounts — create account
-router.post('/', async (req: Request, res: Response) => {
+router.post('/', validateBody(createAccountSchema), async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
-    const { name, platform, platform_account_id, currency, timezone, color, icon, notes } = req.body;
-
-    if (!name) {
-      res.status(400).json({ error: 'name is required' });
-      return;
-    }
+    const { name, platform, platform_account_id, currency, timezone, color, icon, notes, brand_config_id } = req.body;
 
     const result = await pool.query(
-      `INSERT INTO accounts (user_id, name, platform, platform_account_id, currency, timezone, color, icon, notes)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      `INSERT INTO accounts (user_id, name, platform, platform_account_id, currency, timezone, color, icon, notes, brand_config_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        RETURNING *`,
       [
         userId,
@@ -88,6 +117,7 @@ router.post('/', async (req: Request, res: Response) => {
         color || '#3b82f6',
         icon || null,
         notes || null,
+        brand_config_id || null,
       ]
     );
 
@@ -103,7 +133,7 @@ router.put('/:id', async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
     const { id } = req.params;
-    const { name, platform, platform_account_id, currency, timezone, status, color, icon, notes } = req.body;
+    const { name, platform, platform_account_id, currency, timezone, status, color, icon, notes, brand_config_id } = req.body;
 
     const result = await pool.query(
       `UPDATE accounts
@@ -116,10 +146,11 @@ router.put('/:id', async (req: Request, res: Response) => {
            color = COALESCE($7, color),
            icon = $8,
            notes = $9,
+           brand_config_id = $10,
            updated_at = NOW()
-       WHERE id = $10 AND user_id = $11
+       WHERE id = $11 AND user_id = $12
        RETURNING *`,
-      [name, platform, platform_account_id, currency, timezone, status, color, icon ?? null, notes ?? null, id, userId]
+      [name, platform, platform_account_id, currency, timezone, status, color, icon ?? null, notes ?? null, brand_config_id ?? null, id, userId]
     );
 
     if (result.rows.length === 0) {
@@ -213,20 +244,15 @@ router.get('/offers', async (req: Request, res: Response) => {
 });
 
 // POST /api/accounts/offers — create offer
-router.post('/offers', async (req: Request, res: Response) => {
+router.post('/offers', validateBody(createOfferSchema), async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
     const {
       account_id, name, offer_type, identifier,
       utm_campaign_match, campaign_name_match, product_ids,
       cogs, shipping_cost, handling_cost, gateway_fee_pct, gateway_fee_flat,
-      target_cpa, target_roas, color, notes,
+      target_cpa, target_roas, color, notes, brand_config_id,
     } = req.body;
-
-    if (!name) {
-      res.status(400).json({ error: 'name is required' });
-      return;
-    }
 
     // Verify account belongs to user if provided
     if (account_id) {
@@ -244,8 +270,8 @@ router.post('/offers', async (req: Request, res: Response) => {
       `INSERT INTO offers (user_id, account_id, name, offer_type, identifier,
          utm_campaign_match, campaign_name_match, product_ids,
          cogs, shipping_cost, handling_cost, gateway_fee_pct, gateway_fee_flat,
-         target_cpa, target_roas, color, notes)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+         target_cpa, target_roas, color, notes, brand_config_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
        RETURNING *`,
       [
         userId,
@@ -265,6 +291,7 @@ router.post('/offers', async (req: Request, res: Response) => {
         target_roas || null,
         color || '#8b5cf6',
         notes || null,
+        brand_config_id || null,
       ]
     );
 
@@ -284,7 +311,7 @@ router.put('/offers/:id', async (req: Request, res: Response) => {
       account_id, name, offer_type, identifier,
       utm_campaign_match, campaign_name_match, product_ids,
       cogs, shipping_cost, handling_cost, gateway_fee_pct, gateway_fee_flat,
-      target_cpa, target_roas, status, color, notes,
+      target_cpa, target_roas, status, color, notes, brand_config_id,
     } = req.body;
 
     const result = await pool.query(
@@ -306,8 +333,9 @@ router.put('/offers/:id', async (req: Request, res: Response) => {
            status = COALESCE($15, status),
            color = COALESCE($16, color),
            notes = $17,
+           brand_config_id = $18,
            updated_at = NOW()
-       WHERE id = $18 AND user_id = $19
+       WHERE id = $19 AND user_id = $20
        RETURNING *`,
       [
         account_id, name, offer_type,
@@ -316,6 +344,7 @@ router.put('/offers/:id', async (req: Request, res: Response) => {
         cogs, shipping_cost, handling_cost, gateway_fee_pct, gateway_fee_flat,
         target_cpa ?? null, target_roas ?? null,
         status, color, notes ?? null,
+        brand_config_id ?? null,
         id, userId,
       ]
     );

@@ -14,6 +14,7 @@ import {
 } from '../../lib/api';
 import PageShell from '../../components/shared/PageShell';
 import OAuthConnectButton from '../../components/shared/OAuthConnectButton';
+import { useTourStore } from '../../stores/tourStore';
 
 type StatusType = 'idle' | 'testing' | 'success' | 'error';
 
@@ -46,7 +47,8 @@ export default function ConnectionsPage() {
   const [fbAccountIds, setFbAccountIds] = useState('');
   const [ga4PropertyId, setGa4PropertyId] = useState('');
   const [ga4CredentialsJson, setGa4CredentialsJson] = useState('');
-  const [ccApiKey, setCcApiKey] = useState('');
+  const [ccLoginId, setCcLoginId] = useState('');
+  const [ccPassword, setCcPassword] = useState('');
   const [ccApiUrl, setCcApiUrl] = useState('');
   const [ccWebhookSecret, setCcWebhookSecret] = useState('');
   const [ccPollEnabled, setCcPollEnabled] = useState(true);
@@ -100,7 +102,7 @@ export default function ConnectionsPage() {
     if (platform === 'meta') return !!(settings.fb_access_token && settings.fb_ad_account_ids);
     if (platform === 'google') return !!settings.ga4_property_id;
     if (platform === 'shopify') return !!settings.shopify_webhook_secret;
-    if (platform === 'checkoutchamp') return !!(settings.cc_api_key && settings.cc_api_url);
+    if (platform === 'checkoutchamp') return !!(settings.cc_login_id && settings.cc_password);
     return false;
   };
   const toggle = (key: string) => setExpanded(p => ({ ...p, [key]: !p[key] }));
@@ -119,7 +121,8 @@ export default function ConnectionsPage() {
       if (fbAccountIds) data.fb_ad_account_ids = fbAccountIds;
       if (ga4PropertyId) data.ga4_property_id = ga4PropertyId;
       if (ga4CredentialsJson) data.ga4_credentials_json = ga4CredentialsJson;
-      if (ccApiKey) data.cc_api_key = ccApiKey;
+      if (ccLoginId) data.cc_login_id = ccLoginId;
+      if (ccPassword) data.cc_password = ccPassword;
       if (ccApiUrl) data.cc_api_url = ccApiUrl;
       if (ccWebhookSecret) data.cc_webhook_secret = ccWebhookSecret;
       data.cc_poll_enabled = ccPollEnabled ? 'true' : 'false';
@@ -127,7 +130,7 @@ export default function ConnectionsPage() {
       if (shopifyStoreUrl) data.shopify_store_url = shopifyStoreUrl;
       const updated = await updateSettings(data);
       setSettings(updated);
-      setFbToken(''); setCcApiKey(''); setCcWebhookSecret(''); setShopifySecret('');
+      setFbToken(''); setCcLoginId(''); setCcPassword(''); setCcWebhookSecret(''); setShopifySecret('');
       flash('Settings saved', 'success');
     } catch { flash('Failed to save', 'error'); }
     finally { setSaving(false); }
@@ -198,7 +201,7 @@ export default function ConnectionsPage() {
       )}
 
       {/* Summary */}
-      <div className="bg-gradient-to-r from-ats-card to-ats-surface rounded-2xl border border-ats-border p-4 sm:p-5 mb-6">
+      <div data-tour="connection-summary" className="bg-gradient-to-r from-ats-card to-ats-surface rounded-2xl border border-ats-border p-4 sm:p-5 mb-6">
         <div className="flex items-center justify-between mb-3">
           <div>
             <div className="text-lg font-bold text-ats-text">{connectedCount} of {PLATFORMS.length}</div>
@@ -221,7 +224,7 @@ export default function ConnectionsPage() {
 
       {/* Platform Cards */}
       <div className="space-y-3">
-        {PLATFORMS.map((platform) => {
+        {PLATFORMS.map((platform, platformIdx) => {
           const platformKey = platform.oauthPlatform || platform.key;
           const connected = isAnyConnected(platformKey);
           const oauthConnected = platform.oauthPlatform ? isOAuthConnected(platform.oauthPlatform) : false;
@@ -230,7 +233,7 @@ export default function ConnectionsPage() {
           const hasManual = !!platform.manualFields;
 
           return (
-            <div key={platform.key} className={`rounded-2xl border transition-all ${
+            <div key={platform.key} data-tour={platformIdx === 0 ? 'platform-card-first' : undefined} className={`rounded-2xl border transition-all ${
               connected ? 'bg-ats-card border-emerald-800/30' : 'bg-ats-card border-ats-border'
             }`}>
               {/* Card Header — always visible */}
@@ -282,7 +285,7 @@ export default function ConnectionsPage() {
                       {platform.oauthPlatform && (
                         <OAuthConnectButton
                           platform={platform.oauthPlatform}
-                          onSuccess={() => { loadOAuthStatus(); flash('Connected!', 'success'); }}
+                          onSuccess={() => { loadOAuthStatus(); flash('Connected!', 'success'); useTourStore.getState().advanceEvent(); }}
                           onError={(msg) => flash(msg, 'error')}
                           storeUrl={platform.key === 'shopify' ? shopifyStoreUrl : undefined}
                           className="flex-1 sm:flex-none px-5 py-2.5 bg-ats-accent text-white rounded-xl text-sm font-semibold hover:bg-blue-600 active:scale-[0.98] transition-all disabled:opacity-60"
@@ -378,15 +381,21 @@ export default function ConnectionsPage() {
                     <>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
-                          <label className={labelCls}>API Key</label>
-                          <input type="password" value={ccApiKey} onChange={e => setCcApiKey(e.target.value)}
-                            placeholder={settings.cc_api_key || 'Enter API key'} className={inputCls} />
+                          <label className={labelCls}>Login ID</label>
+                          <input type="text" value={ccLoginId} onChange={e => setCcLoginId(e.target.value)}
+                            placeholder={settings.cc_login_id || 'API user login ID'} className={inputCls} />
                         </div>
                         <div>
-                          <label className={labelCls}>API Base URL</label>
-                          <input type="text" value={ccApiUrl} onChange={e => setCcApiUrl(e.target.value)}
-                            placeholder={settings.cc_api_url || 'https://api.checkoutchamp.com/v1'} className={inputCls} />
+                          <label className={labelCls}>Password</label>
+                          <input type="password" value={ccPassword} onChange={e => setCcPassword(e.target.value)}
+                            placeholder={settings.cc_password || 'API user password'} className={inputCls} />
                         </div>
+                      </div>
+                      <div>
+                        <label className={labelCls}>API Base URL</label>
+                        <input type="text" value={ccApiUrl} onChange={e => setCcApiUrl(e.target.value)}
+                          placeholder={settings.cc_api_url || 'https://api.checkoutchamp.com'} className={inputCls} />
+                        <div className="text-[10px] text-ats-text-muted mt-1">Default: https://api.checkoutchamp.com</div>
                       </div>
                       <div>
                         <label className={labelCls}>Webhook Secret</label>

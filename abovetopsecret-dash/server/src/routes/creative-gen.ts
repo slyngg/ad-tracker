@@ -17,13 +17,44 @@ router.get('/', async (req: Request, res: Response) => {
 router.post('/generate', async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
-    const { creative_type, platform, brief, inspiration_ad_id, use_brand_vault } = req.body;
+    const { creative_type, platform, brief, inspiration_ad_id, use_brand_vault, account_id } = req.body;
 
-    // Load brand vault if requested
+    // Load brand context: prefer account-linked brand config → user default → legacy brand_vault
     let brandContext = '';
     if (use_brand_vault) {
-      const vault = await pool.query('SELECT asset_type, asset_key, asset_value FROM brand_vault WHERE user_id = $1', [userId]);
-      brandContext = vault.rows.map(r => `${r.asset_type}: ${r.asset_value}`).join('\n');
+      let config: any = null;
+
+      // 1. Try account-specific brand config
+      if (account_id) {
+        const acctResult = await pool.query(
+          `SELECT bc.* FROM brand_configs bc
+           JOIN accounts a ON a.brand_config_id = bc.id
+           WHERE a.id = $1 AND a.user_id = $2`,
+          [account_id, userId]
+        );
+        if (acctResult.rows.length > 0) config = acctResult.rows[0];
+      }
+
+      // 2. Fall back to user's default brand config
+      if (!config) {
+        const defaultResult = await pool.query(
+          'SELECT * FROM brand_configs WHERE user_id = $1 AND is_default = true LIMIT 1',
+          [userId]
+        );
+        if (defaultResult.rows.length > 0) config = defaultResult.rows[0];
+      }
+
+      // 3. Use brand config if found
+      if (config) {
+        const fields = ['brand_name', 'logo_url', 'brand_colors', 'tone_of_voice', 'target_audience', 'usp', 'guidelines'];
+        brandContext = fields.filter(f => config[f]).map(f => `${f}: ${config[f]}`).join('\n');
+      }
+
+      // 4. Fall back to legacy brand_vault key-value data
+      if (!brandContext) {
+        const vault = await pool.query('SELECT asset_type, asset_value FROM brand_vault WHERE user_id = $1', [userId]);
+        brandContext = vault.rows.map(r => `${r.asset_type}: ${r.asset_value}`).join('\n');
+      }
     }
 
     // Generate variations (template-based for now — can be enhanced with Anthropic API)

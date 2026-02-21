@@ -62,7 +62,7 @@ export default function MetricsTable({ data, sortCol, sortDir, onSort }: Metrics
             <tr key={`${row.offer_name}-${row.account_name}-${i}`} className={i % 2 === 0 ? 'bg-ats-bg' : 'bg-ats-row-alt'}>
               {COLUMNS.map((col) => {
                 const val = (row as unknown as Record<string, unknown>)[col.key];
-                const numVal = typeof val === 'number' ? val : 0;
+                const numVal = typeof val === 'number' ? val : null;
                 const overrideInfo = row._overrides?.[col.key];
 
                 return (
@@ -75,7 +75,7 @@ export default function MetricsTable({ data, sortCol, sortDir, onSort }: Metrics
                         ? `sticky left-0 z-[1] shadow-[2px_0_4px_rgba(0,0,0,0.3)] ${i % 2 === 0 ? 'bg-ats-bg' : 'bg-ats-row-alt'}`
                         : ''
                     }`}
-                    style={{ color: col.color ? col.color(numVal) : '#d1d5db' }}
+                    style={{ color: col.color && numVal != null ? col.color(numVal) : '#d1d5db' }}
                     title={overrideInfo ? `Original: ${col.format(overrideInfo.original)} → Override: ${col.format(overrideInfo.override)} by ${overrideInfo.set_by}` : undefined}
                   >
                     {overrideInfo && (

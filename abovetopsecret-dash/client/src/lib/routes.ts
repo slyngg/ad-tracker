@@ -90,6 +90,7 @@ export const NAV_SECTIONS: NavSectionConfig[] = [
     label: 'Summary',
     icon: LayoutDashboard,
     path: ROUTES.SUMMARY,
+    tourId: 'nav-summary',
   },
   {
     label: 'Marketing Acquisition',
@@ -156,9 +157,10 @@ export const NAV_SECTIONS: NavSectionConfig[] = [
   {
     label: 'Settings',
     icon: Settings,
+    tourId: 'nav-settings',
     children: [
       { label: 'Accounts & Offers', path: ROUTES.ACCOUNTS_OFFERS, icon: Building2 },
-      { label: 'Connections', path: ROUTES.CONNECTIONS, icon: Plug },
+      { label: 'Connections', path: ROUTES.CONNECTIONS, icon: Plug, tourId: 'nav-connections' },
       { label: 'Overrides', path: ROUTES.OVERRIDES, icon: Edit3 },
       { label: 'General', path: ROUTES.GENERAL_SETTINGS, icon: Sliders },
       { label: 'Costs', path: ROUTES.COST_SETTINGS, icon: CreditCard },

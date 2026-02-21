@@ -40,8 +40,11 @@ import reportBuilderRouter from './routes/report-builder';
 import creativeGenRouter from './routes/creative-gen';
 import creativesRouter from './routes/creatives';
 import accountsRouter from './routes/accounts';
+import brandConfigsRouter from './routes/brand-configs';
+import healthRouter from './routes/health';
 import { authMiddleware } from './middleware/auth';
 import { startScheduler } from './services/scheduler';
+import { initJobQueue, shutdownJobQueue, registerRepeatableJobs, startSyncWorker } from './services/job-queue';
 import { initRealtime } from './services/realtime';
 import { initSlackBot } from './services/slack-bot';
 import pool from './db';
@@ -92,10 +95,8 @@ app.use('/api/webhooks', webhookLimiter);
 app.use('/api/auth', authLimiter);
 app.use('/api', apiLimiter);
 
-// Health check (no auth)
-app.get('/api/health', (_req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
-});
+// Health check (no auth for basic, auth for data checks)
+app.use('/api/health', healthRouter);
 
 // Auth routes (no auth middleware needed - they handle their own auth)
 app.use('/api/auth', authRouter);
@@ -169,14 +170,29 @@ app.use('/api/reports', reportBuilderRouter);
 app.use('/api/creative-gen', creativeGenRouter);
 app.use('/api/creatives', creativesRouter);
 app.use('/api/accounts', accountsRouter);
+app.use('/api/brand-configs', brandConfigsRouter);
 
 const httpServer = createServer(app);
 
 // Initialize WebSocket realtime layer
 initRealtime(httpServer, pool);
 
-const server = httpServer.listen(PORT, '0.0.0.0', () => {
+const server = httpServer.listen(PORT, '0.0.0.0', async () => {
   console.log(`[ATS Server] Running on port ${PORT}`);
+
+  // Try BullMQ first; fall back to cron scheduler if Redis is unavailable
+  const bullmqReady = await initJobQueue();
+  if (bullmqReady) {
+    await registerRepeatableJobs();
+    startSyncWorker(async (_jobName, _data) => {
+      // Job handler delegates to the same sync functions as the cron scheduler.
+      // Full handler mapping will be wired once BullMQ is the primary scheduler.
+      // For now, repeatable jobs are registered so the queue is ready for manual enqueue.
+    });
+    console.log('[ATS Server] BullMQ job queue active');
+  }
+
+  // Always start the cron scheduler (primary scheduler until BullMQ migration is complete)
   startScheduler();
   initSlackBot();
 });
@@ -184,6 +200,7 @@ const server = httpServer.listen(PORT, '0.0.0.0', () => {
 // Graceful shutdown
 function shutdown(signal: string) {
   console.log(`[ATS Server] ${signal} received, shutting down gracefully...`);
+  shutdownJobQueue().catch(() => {}); // Best-effort BullMQ cleanup
   server.close(() => {
     console.log('[ATS Server] HTTP server closed');
     process.exit(0);

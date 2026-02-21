@@ -17,7 +17,7 @@ interface AuthState {
   isAuthenticated: boolean;
   checking: boolean;
   error: string | null;
-  register: (email: string, password: string, displayName: string) => Promise<boolean>;
+  register: (email: string, password: string, displayName: string, accessCode: string) => Promise<boolean>;
   login: (email: string, password: string) => Promise<boolean>;
   logout: () => void;
   fetchProfile: () => Promise<void>;
@@ -39,13 +39,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   checking: true,
   error: null,
 
-  register: async (email: string, password: string, displayName: string) => {
+  register: async (email: string, password: string, displayName: string, accessCode: string) => {
     try {
       set({ error: null });
       const res = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password, displayName }),
+        body: JSON.stringify({ email, password, displayName, accessCode }),
       });
       const data = await res.json();
       if (!res.ok) {

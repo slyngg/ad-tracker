@@ -1,7 +1,42 @@
+import { z } from 'zod';
 import { getAuthToken } from '../stores/authStore';
 import { getAccountFilterParams } from '../stores/accountStore';
 
 const BASE_URL = '/api';
+
+// ── Response schemas (runtime validation for critical data) ───
+
+const summarySchema = z.object({
+  total_spend: z.number(),
+  total_revenue: z.number(),
+  total_roi: z.number(),
+  total_conversions: z.number(),
+  previous: z.object({
+    total_spend: z.number(),
+    total_revenue: z.number(),
+    total_roi: z.number(),
+    total_conversions: z.number(),
+  }).nullable().optional(),
+});
+
+const metricRowSchema = z.object({
+  offer_name: z.string(),
+  account_name: z.string(),
+  spend: z.number(),
+  revenue: z.number(),
+  roi: z.number(),
+  cpa: z.number(),
+  conversions: z.number(),
+}).passthrough();
+
+/** Validate response data against a zod schema. Logs warning but does not throw. */
+function validateResponse<T>(data: T, schema: z.ZodSchema, label: string): T {
+  const result = schema.safeParse(data);
+  if (!result.success) {
+    console.warn(`[API] ${label} response validation failed:`, result.error.issues);
+  }
+  return data;
+}
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = getAuthToken();
@@ -17,6 +52,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, {
     ...options,
     headers,
+    signal: AbortSignal.timeout(30_000),
   });
 
   if (res.status === 401) {
@@ -288,6 +324,7 @@ export interface Account {
   color: string;
   icon: string | null;
   notes: string | null;
+  brand_config_id: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -312,6 +349,7 @@ export interface Offer {
   status: string;
   color: string;
   notes: string | null;
+  brand_config_id: number | null;
   account_name?: string;
   created_at: string;
   updated_at: string;
@@ -368,13 +406,17 @@ export function fetchMetrics(offer?: string, account?: string): Promise<MetricRo
   const af = getAccountFilterParams();
   af.forEach((v, k) => { if (!params.has(k)) params.set(k, v); });
   const qs = params.toString();
-  return request<MetricRow[]>(`/metrics${qs ? `?${qs}` : ''}`);
+  return request<MetricRow[]>(`/metrics${qs ? `?${qs}` : ''}`).then(
+    (data) => validateResponse(data, z.array(metricRowSchema), 'fetchMetrics')
+  );
 }
 
 export function fetchSummary(): Promise<SummaryData> {
   const af = getAccountFilterParams();
   const qs = af.toString();
-  return request<SummaryData>(`/metrics/summary${qs ? `?${qs}` : ''}`);
+  return request<SummaryData>(`/metrics/summary${qs ? `?${qs}` : ''}`).then(
+    (data) => validateResponse(data, summarySchema, 'fetchSummary')
+  );
 }
 
 export function fetchOverrides(): Promise<OverrideRow[]> {
@@ -890,4 +932,40 @@ export function updateOffer(id: number, data: Partial<Offer>): Promise<Offer> {
 
 export function deleteOffer(id: number): Promise<{ success: boolean }> {
   return request<{ success: boolean }>(`/accounts/offers/${id}`, { method: 'DELETE' });
+}
+
+// --- Brand Configs API ---
+export interface BrandConfig {
+  id: number;
+  name: string;
+  brand_name: string;
+  logo_url: string;
+  brand_colors: string;
+  tone_of_voice: string;
+  target_audience: string;
+  usp: string;
+  guidelines: string;
+  is_default: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export function fetchBrandConfigs(): Promise<BrandConfig[]> {
+  return request<BrandConfig[]>('/brand-configs');
+}
+
+export function createBrandConfig(data: Partial<BrandConfig>): Promise<BrandConfig> {
+  return request<BrandConfig>('/brand-configs', { method: 'POST', body: JSON.stringify(data) });
+}
+
+export function updateBrandConfig(id: number, data: Partial<BrandConfig>): Promise<BrandConfig> {
+  return request<BrandConfig>(`/brand-configs/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+}
+
+export function deleteBrandConfig(id: number): Promise<{ success: boolean }> {
+  return request<{ success: boolean }>(`/brand-configs/${id}`, { method: 'DELETE' });
+}
+
+export function setDefaultBrandConfig(id: number): Promise<{ success: boolean }> {
+  return request<{ success: boolean }>(`/brand-configs/${id}/set-default`, { method: 'POST' });
 }

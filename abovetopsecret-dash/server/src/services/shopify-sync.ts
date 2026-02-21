@@ -73,6 +73,7 @@ function fetchShopifyJSON(url: string, accessToken: string): Promise<any> {
       res.on('error', reject);
     });
 
+    req.setTimeout(30_000, () => req.destroy(new Error('Request timeout after 30s')));
     req.on('error', reject);
     req.end();
   });
@@ -88,7 +89,10 @@ export async function syncShopifyProducts(userId?: number): Promise<{ synced: nu
   let synced = 0;
   let url: string | null = `https://${storeUrl.replace(/^https?:\/\//, '')}/admin/api/2024-01/products.json?limit=250`;
 
+  const dbClient = await pool.connect();
   try {
+    await dbClient.query('BEGIN');
+
     while (url) {
       const { body, nextUrl } = await fetchShopifyJSON(url, accessToken);
       const products = body.products || [];
@@ -100,7 +104,8 @@ export async function syncShopifyProducts(userId?: number): Promise<{ synced: nu
           const totalInventory = variants.reduce((sum: number, v: any) => sum + (v.inventory_quantity || 0), 0);
           const imageUrl = p.image?.src || p.images?.[0]?.src || null;
 
-          await pool.query(
+          await dbClient.query('SAVEPOINT row_insert');
+          await dbClient.query(
             `INSERT INTO shopify_products (user_id, shopify_product_id, title, vendor, product_type, handle, status, tags, variants, total_inventory, image_url, raw_data, synced_at)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
              ON CONFLICT (user_id, shopify_product_id) DO UPDATE SET
@@ -123,8 +128,10 @@ export async function syncShopifyProducts(userId?: number): Promise<{ synced: nu
               JSON.stringify(p),
             ]
           );
+          await dbClient.query('RELEASE SAVEPOINT row_insert');
           synced++;
         } catch (err) {
+          await dbClient.query('ROLLBACK TO SAVEPOINT row_insert');
           console.error(`[Shopify Sync] Failed to upsert product ${p.id}:`, err);
         }
       }
@@ -132,9 +139,13 @@ export async function syncShopifyProducts(userId?: number): Promise<{ synced: nu
       url = nextUrl;
     }
 
+    await dbClient.query('COMMIT');
     console.log(`[Shopify Sync] Products: synced ${synced}${userId ? ` for user ${userId}` : ''}`);
   } catch (err) {
+    await dbClient.query('ROLLBACK');
     console.error(`[Shopify Sync] Products fetch failed:`, err);
+  } finally {
+    dbClient.release();
   }
 
   return { synced, skipped: false };
@@ -150,7 +161,10 @@ export async function syncShopifyCustomers(userId?: number): Promise<{ synced: n
   let synced = 0;
   let url: string | null = `https://${storeUrl.replace(/^https?:\/\//, '')}/admin/api/2024-01/customers.json?limit=250`;
 
+  const dbClient = await pool.connect();
   try {
+    await dbClient.query('BEGIN');
+
     while (url) {
       const { body, nextUrl } = await fetchShopifyJSON(url, accessToken);
       const customers = body.customers || [];
@@ -161,7 +175,8 @@ export async function syncShopifyCustomers(userId?: number): Promise<{ synced: n
           const name = `${c.first_name || ''} ${c.last_name || ''}`.trim() || null;
           const defaultAddr = c.default_address || {};
 
-          await pool.query(
+          await dbClient.query('SAVEPOINT row_insert');
+          await dbClient.query(
             `INSERT INTO shopify_customers (user_id, shopify_customer_id, email, name, phone, orders_count, total_spent, city, province, country, tags, accepts_marketing, raw_data, synced_at)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW())
              ON CONFLICT (user_id, shopify_customer_id) DO UPDATE SET
@@ -186,8 +201,10 @@ export async function syncShopifyCustomers(userId?: number): Promise<{ synced: n
               JSON.stringify(c),
             ]
           );
+          await dbClient.query('RELEASE SAVEPOINT row_insert');
           synced++;
         } catch (err) {
+          await dbClient.query('ROLLBACK TO SAVEPOINT row_insert');
           console.error(`[Shopify Sync] Failed to upsert customer ${c.id}:`, err);
         }
       }
@@ -195,9 +212,13 @@ export async function syncShopifyCustomers(userId?: number): Promise<{ synced: n
       url = nextUrl;
     }
 
+    await dbClient.query('COMMIT');
     console.log(`[Shopify Sync] Customers: synced ${synced}${userId ? ` for user ${userId}` : ''}`);
   } catch (err) {
+    await dbClient.query('ROLLBACK');
     console.error(`[Shopify Sync] Customers fetch failed:`, err);
+  } finally {
+    dbClient.release();
   }
 
   return { synced, skipped: false };

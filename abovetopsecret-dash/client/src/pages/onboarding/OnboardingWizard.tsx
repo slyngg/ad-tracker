@@ -52,7 +52,8 @@ export default function OnboardingWizard() {
   const [shopifySecret, setShopifySecret] = useState('');
   const [shopifyStore, setShopifyStore] = useState('');
   // CheckoutChamp
-  const [ccApiKey, setCcApiKey] = useState('');
+  const [ccLoginId, setCcLoginId] = useState('');
+  const [ccPassword, setCcPassword] = useState('');
   const [ccApiUrl, setCcApiUrl] = useState('');
   const [ccWebhookSecret, setCcWebhookSecret] = useState('');
   // Meta
@@ -142,7 +143,8 @@ export default function OnboardingWizard() {
       const data: Record<string, string> = {};
       if (fbToken) data.fb_access_token = fbToken;
       if (fbAccounts) data.fb_ad_account_ids = fbAccounts;
-      if (ccApiKey) data.cc_api_key = ccApiKey;
+      if (ccLoginId) data.cc_login_id = ccLoginId;
+      if (ccPassword) data.cc_password = ccPassword;
       if (ccApiUrl) data.cc_api_url = ccApiUrl;
       if (ccWebhookSecret) data.cc_webhook_secret = ccWebhookSecret;
       if (shopifySecret) data.shopify_webhook_secret = shopifySecret;
@@ -176,7 +178,7 @@ export default function OnboardingWizard() {
   const testCC = async () => {
     setStatus(prev => ({ ...prev, checkoutChamp: 'testing' }));
     try {
-      if (ccApiKey) await apiFetch('/settings', { method: 'POST', body: JSON.stringify({ cc_api_key: ccApiKey, ...(ccApiUrl ? { cc_api_url: ccApiUrl } : {}), ...(ccWebhookSecret ? { cc_webhook_secret: ccWebhookSecret } : {}) }) });
+      if (ccLoginId) await apiFetch('/settings', { method: 'POST', body: JSON.stringify({ cc_login_id: ccLoginId, ...(ccPassword ? { cc_password: ccPassword } : {}), ...(ccApiUrl ? { cc_api_url: ccApiUrl } : {}), ...(ccWebhookSecret ? { cc_webhook_secret: ccWebhookSecret } : {}) }) });
       const r = await apiFetch<{ success: boolean; error?: string }>('/settings/test/checkout-champ', { method: 'POST' });
       if (r.success) { setStatus(prev => ({ ...prev, checkoutChamp: 'connected' })); setHasAnyData(true); }
       else { setStatus(prev => ({ ...prev, checkoutChamp: 'error' })); }
@@ -395,11 +397,14 @@ export default function OnboardingWizard() {
             <button onClick={() => copyUrl(`${webhookBase}/checkout-champ/YOUR_TOKEN`)} className="px-3 sm:px-4 py-3 bg-ats-accent text-white rounded-lg text-xs font-semibold shrink-0">Copy</button>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
-            <div><label className={labelCls}>API Key</label><input type="password" value={ccApiKey} onChange={e => setCcApiKey(e.target.value)} placeholder="cc_api_..." className={inputCls} /></div>
-            <div><label className={labelCls}>API Base URL</label><input value={ccApiUrl} onChange={e => setCcApiUrl(e.target.value)} placeholder="https://api.checkoutchamp.com/v1" className={inputCls} /></div>
+            <div><label className={labelCls}>Login ID</label><input type="text" value={ccLoginId} onChange={e => setCcLoginId(e.target.value)} placeholder="API user login ID" className={inputCls} /></div>
+            <div><label className={labelCls}>Password</label><input type="password" value={ccPassword} onChange={e => setCcPassword(e.target.value)} placeholder="API user password" className={inputCls} /></div>
           </div>
-          <div className="mb-3"><label className={labelCls}>Webhook Secret</label><input type="password" value={ccWebhookSecret} onChange={e => setCcWebhookSecret(e.target.value)} placeholder="whsec_..." className={inputCls} /></div>
-          <button onClick={testCC} disabled={!ccApiKey && status.checkoutChamp !== 'connected'} className="w-full sm:w-auto px-4 py-2.5 sm:py-2 bg-ats-surface border border-ats-border rounded-lg text-xs text-ats-text font-semibold disabled:opacity-40 hover:bg-ats-hover transition-colors">Test API Connection</button>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+            <div><label className={labelCls}>API Base URL</label><input value={ccApiUrl} onChange={e => setCcApiUrl(e.target.value)} placeholder="https://api.checkoutchamp.com" className={inputCls} /></div>
+            <div><label className={labelCls}>Webhook Secret</label><input type="password" value={ccWebhookSecret} onChange={e => setCcWebhookSecret(e.target.value)} placeholder="whsec_..." className={inputCls} /></div>
+          </div>
+          <button onClick={testCC} disabled={!ccLoginId && status.checkoutChamp !== 'connected'} className="w-full sm:w-auto px-4 py-2.5 sm:py-2 bg-ats-surface border border-ats-border rounded-lg text-xs text-ats-text font-semibold disabled:opacity-40 hover:bg-ats-hover transition-colors">Test API Connection</button>
         </div>
 
         {/* ── Action buttons ───────────────────────── */}

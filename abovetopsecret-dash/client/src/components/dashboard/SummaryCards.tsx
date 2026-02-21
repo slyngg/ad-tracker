@@ -92,7 +92,7 @@ export default function SummaryCards({ summary }: { summary: SummaryData | null 
   const ordersDelta = calcDelta(summary.total_conversions, prev?.total_conversions);
 
   return (
-    <div className="px-4 py-3 flex gap-2 overflow-x-auto">
+    <div data-tour="summary-cards" className="px-4 py-3 flex gap-2 overflow-x-auto">
       <SummaryCard label="Spend" value={summary.total_spend} format={fmt.currency} delta={spendDelta} invertColors />
       <SummaryCard label="Revenue" value={summary.total_revenue} format={fmt.currency} color="#10b981" delta={revenueDelta} />
       <SummaryCard label="ROI" value={summary.total_roi} format={fmt.ratio} color={roiColor} delta={roiDelta} />

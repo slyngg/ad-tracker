@@ -1,9 +1,10 @@
-import { Suspense, lazy, Component, ReactNode } from 'react';
+import { Suspense, lazy, Component, ReactNode, useEffect } from 'react';
 import { Routes, Route, Navigate, Link } from 'react-router-dom';
 import AuthGate from './components/auth/AuthGate';
 import LoadingSpinner from './components/shared/LoadingSpinner';
 import AppLayout from './components/layout/AppLayout';
 import { useAuthStore } from './stores/authStore';
+import { useTourStore } from './stores/tourStore';
 
 // Lazy-loaded pages
 const SummaryDashboard = lazy(() => import('./pages/SummaryDashboard'));
@@ -61,8 +62,7 @@ const GDPRPage = lazy(() => import('./pages/settings/GDPRPage'));
 // Data additions
 const DataDictionaryPage = lazy(() => import('./pages/data/DataDictionaryPage'));
 
-// Onboarding
-const OnboardingWizard = lazy(() => import('./pages/onboarding/OnboardingWizard'));
+// Onboarding (legacy — now handled by guided tour)
 
 // Workspaces
 const WorkspacesListPage = lazy(() => import('./pages/workspaces/WorkspacesListPage'));
@@ -133,10 +133,19 @@ function NotFoundPage() {
 
 function OnboardingGate({ children }: { children: ReactNode }) {
   const user = useAuthStore(s => s.user);
-  // Force onboarding if no data provider is connected — even for existing users
-  if (user && (!user.onboardingCompleted || !user.hasConnectedProvider)) {
-    return <Navigate to="/onboarding" replace />;
-  }
+  const { active, start } = useTourStore();
+
+  useEffect(() => {
+    // Start tour for new users who haven't completed onboarding
+    if (user && !user.onboardingCompleted && !active) {
+      // Only start if tour hasn't been skipped or completed before
+      const raw = localStorage.getItem('optic_tour_state');
+      if (!raw) {
+        start();
+      }
+    }
+  }, [user, active, start]);
+
   return <>{children}</>;
 }
 
@@ -146,8 +155,8 @@ export default function App() {
       <AuthGate>
         <Suspense fallback={<LoadingSpinner />}>
           <Routes>
-            {/* Onboarding — full-screen, no sidebar */}
-            <Route path="/onboarding" element={<OnboardingWizard />} />
+            {/* Onboarding — redirect to summary (tour handles onboarding now) */}
+            <Route path="/onboarding" element={<Navigate to="/summary" replace />} />
 
             <Route element={<OnboardingGate><AppLayout /></OnboardingGate>}>
               <Route index element={<Navigate to="/summary" replace />} />

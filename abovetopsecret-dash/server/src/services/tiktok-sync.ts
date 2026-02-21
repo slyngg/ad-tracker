@@ -67,6 +67,7 @@ function fetchTikTokJSON(url: string, accessToken: string): Promise<any> {
       res.on('error', reject);
     });
 
+    req.setTimeout(30_000, () => req.destroy(new Error('Request timeout after 30s')));
     req.on('error', reject);
     req.end();
   });
@@ -92,7 +93,10 @@ export async function syncTikTokAds(userId?: number): Promise<{ synced: number; 
   let synced = 0;
   let page = 1;
 
+  const dbClient = await pool.connect();
   try {
+    await dbClient.query('BEGIN');
+
     while (true) {
       const url = `https://business-api.tiktok.com/open_api/v1.3/report/integrated/get/?advertiser_id=${advertiserId}&report_type=BASIC&data_level=AUCTION_AD&dimensions=${encodeURIComponent(dimensions)}&metrics=${encodeURIComponent(metrics)}&start_date=${today}&end_date=${today}&page=${page}&page_size=1000`;
 
@@ -129,7 +133,8 @@ export async function syncTikTokAds(userId?: number): Promise<{ synced: number; 
           const videoWatched6s = parseInt(m.video_watched_6s || '0') || 0;
           const videoWatched100pct = parseInt(m.video_views_p100 || '0') || 0;
 
-          await pool.query(
+          await dbClient.query('SAVEPOINT row_insert');
+          await dbClient.query(
             `INSERT INTO tiktok_ads_today (user_id, advertiser_id, campaign_id, campaign_name, adgroup_id, adgroup_name, ad_id, ad_name, spend, impressions, clicks, conversions, conversion_value, ctr, cpc, cpm, cpa, roas, video_views, video_watched_2s, video_watched_6s, video_watched_100pct, synced_at)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, NOW())
              ON CONFLICT (user_id, ad_id) DO UPDATE SET
@@ -152,8 +157,10 @@ export async function syncTikTokAds(userId?: number): Promise<{ synced: number; 
               videoViews, videoWatched2s, videoWatched6s, videoWatched100pct,
             ]
           );
+          await dbClient.query('RELEASE SAVEPOINT row_insert');
           synced++;
         } catch (err) {
+          await dbClient.query('ROLLBACK TO SAVEPOINT row_insert');
           console.error(`[TikTok Sync] Failed to upsert ad row:`, err);
         }
       }
@@ -162,9 +169,13 @@ export async function syncTikTokAds(userId?: number): Promise<{ synced: number; 
       page++;
     }
 
+    await dbClient.query('COMMIT');
     console.log(`[TikTok Sync] Synced ${synced} ad rows${userId ? ` for user ${userId}` : ''}`);
   } catch (err) {
+    await dbClient.query('ROLLBACK');
     console.error(`[TikTok Sync] Fetch failed:`, err);
+  } finally {
+    dbClient.release();
   }
 
   return { synced, skipped: false };

@@ -1,46 +1,8 @@
 import pool from '../db';
-import https from 'https';
 import { getSetting, setSetting } from './settings';
-
-// ── HTTP helper (mirrors cc-polling.ts) ────────────────────────
-
-function fetchJSON(url: string, apiKey: string): Promise<any> {
-  return new Promise((resolve, reject) => {
-    const parsedUrl = new URL(url);
-    const options = {
-      hostname: parsedUrl.hostname,
-      port: parsedUrl.port || 443,
-      path: parsedUrl.pathname + parsedUrl.search,
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Accept': 'application/json',
-      },
-    };
-
-    const req = https.request(options, (res) => {
-      let data = '';
-      res.on('data', (chunk: string) => (data += chunk));
-      res.on('end', () => {
-        try {
-          resolve(JSON.parse(data));
-        } catch (e) {
-          reject(e);
-        }
-      });
-      res.on('error', reject);
-    });
-
-    req.on('error', reject);
-    req.end();
-  });
-}
+import { CheckoutChampClient, formatCCDate } from './checkout-champ-client';
 
 // ── Date helpers ───────────────────────────────────────────────
-
-function formatDate(d: Date): string {
-  return d.toISOString().replace('T', ' ').slice(0, 19);
-}
 
 async function getLastSyncTime(key: string, userId?: number): Promise<Date> {
   const val = await getSetting(key, userId);
@@ -56,209 +18,171 @@ async function setLastSyncTime(key: string, now: Date, userId?: number): Promise
   await setSetting(key, now.toISOString(), 'system', userId);
 }
 
-// ── Paginated fetch helper ─────────────────────────────────────
+// ── Orders (full sync — all statuses, not just completed) ──────
 
-async function fetchAllPages(
-  baseUrl: string,
-  apiKey: string,
-  useDateRange: boolean,
-  startDate?: Date,
-  endDate?: Date,
-): Promise<any[]> {
-  const allData: any[] = [];
-  let page = 1;
+export async function syncCCOrders(userId?: number): Promise<{ synced: number }> {
+  const client = await CheckoutChampClient.fromSettings(userId);
+  if (!client) return { synced: 0 };
 
-  while (true) {
-    let url = `${baseUrl}?resultsPerPage=500&page=${page}`;
-    if (useDateRange && startDate && endDate) {
-      url += `&startDate=${encodeURIComponent(formatDate(startDate))}&endDate=${encodeURIComponent(formatDate(endDate))}`;
-    }
-
-    const response = await fetchJSON(url, apiKey);
-    const data = response.data || response.Data || [];
-
-    if (!Array.isArray(data) || data.length === 0) break;
-
-    allData.push(...data);
-
-    if (data.length < 500) break;
-    page++;
-  }
-
-  return allData;
-}
-
-// ── Customers ──────────────────────────────────────────────────
-
-export async function syncCCCustomers(userId?: number): Promise<{ synced: number }> {
-  const apiKey = await getSetting('cc_api_key', userId);
-  const apiUrl = await getSetting('cc_api_url', userId);
-  if (!apiKey || !apiUrl) return { synced: 0 };
-
-  const baseUrl = `${apiUrl.replace(/\/$/, '')}/customers/query`;
   const now = new Date();
-  const since = await getLastSyncTime('cc_last_customers_sync', userId);
+  const since = await getLastSyncTime('cc_last_orders_sync', userId);
 
   let synced = 0;
   try {
-    const customers = await fetchAllPages(baseUrl, apiKey, true, since, now);
+    const orders = await client.queryAllOrders({
+      startDate: formatCCDate(since),
+      endDate: formatCCDate(now),
+      dateRangeType: 'dateUpdated',
+    });
 
-    for (const c of customers) {
-      try {
-        const customerId = c.customerId || c.customer_id || c.id;
-        if (!customerId) continue;
+    const dbClient = await pool.connect();
+    try {
+      await dbClient.query('BEGIN');
 
-        await pool.query(
-          `INSERT INTO cc_customers (user_id, customer_id, email, name, phone, address, total_orders, total_revenue, first_order_date, last_order_date, customer_type, raw_data, synced_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
-           ON CONFLICT (user_id, customer_id) DO UPDATE SET
-             email = EXCLUDED.email, name = EXCLUDED.name, phone = EXCLUDED.phone,
-             address = EXCLUDED.address, total_orders = EXCLUDED.total_orders,
-             total_revenue = EXCLUDED.total_revenue, first_order_date = EXCLUDED.first_order_date,
-             last_order_date = EXCLUDED.last_order_date, customer_type = EXCLUDED.customer_type,
-             raw_data = EXCLUDED.raw_data, synced_at = NOW()`,
-          [
-            userId || null,
-            String(customerId),
-            c.email || c.emailAddress || c.email_address || null,
-            c.name || c.firstName || c.first_name
-              ? `${c.firstName || c.first_name || ''} ${c.lastName || c.last_name || ''}`.trim() || c.name
-              : null,
-            c.phone || c.phoneNumber || c.phone_number || null,
-            c.address || c.shippingAddress || c.shipping_address || null,
-            parseInt(c.totalOrders || c.total_orders || c.orderCount || c.order_count || '0') || 0,
-            parseFloat(c.totalRevenue || c.total_revenue || c.lifetimeValue || c.lifetime_value || '0') || 0,
-            c.firstOrderDate || c.first_order_date || c.dateCreated || c.date_created || null,
-            c.lastOrderDate || c.last_order_date || c.lastOrder || c.last_order || null,
-            c.customerType || c.customer_type || c.type || null,
-            JSON.stringify(c),
-          ]
-        );
-        synced++;
-      } catch (err) {
-        console.error(`[CC Sync] Failed to upsert customer:`, err);
+      for (const o of orders) {
+        try {
+          const orderId = o.orderId || (o as any).order_id;
+          if (!orderId) continue;
+
+          const rawStatus = (o.orderStatus || (o as any).order_status || 'completed').toLowerCase();
+          const statusMap: Record<string, string> = {
+            complete: 'completed', completed: 'completed', paid: 'completed', success: 'completed',
+            partial: 'partial', pending: 'pending', processing: 'pending',
+            failed: 'failed', declined: 'failed',
+            refunded: 'refunded', void: 'refunded', cancelled: 'refunded',
+          };
+          const orderStatus = statusMap[rawStatus] || 'completed';
+
+          const total = parseFloat(o.totalAmount || (o as any).orderTotal || '0');
+          const tax = parseFloat(o.salesTax || (o as any).tax || '0');
+          const shipping = parseFloat(o.totalShipping || (o as any).shippingPrice || '0');
+          const subtotal = total - tax;
+
+          // Extract product/offer name from items or fields
+          const items = o.items || (o as any).orderItems || [];
+          const offerName = items.length > 0
+            ? (items[0].name || items[0].productName || 'Unknown')
+            : ((o as any).campaignName || 'Unknown');
+
+          const email = (o.emailAddress || (o as any).email || '').toLowerCase();
+          const isTest = subtotal < 1.00 ||
+            email.startsWith('test@') ||
+            email.includes('+test@') ||
+            email.endsWith('@example.com');
+
+          // UTM sources from CC's sourceValue fields
+          const utmCampaign = (o as any).sourceValue1 || (o as any).utm_campaign || '';
+          const utmSource = (o as any).sourceValue2 || (o as any).utm_source || '';
+          const utmMedium = (o as any).sourceValue3 || (o as any).utm_medium || '';
+          const utmContent = (o as any).sourceValue4 || (o as any).utm_content || '';
+          const utmTerm = (o as any).sourceValue5 || (o as any).utm_term || '';
+          const fbclid = (o as any).fbclid || '';
+
+          const newCustomer = (o as any).isNewCustomer ?? false;
+          const quantity = items.reduce((sum: number, i: any) => sum + (parseInt(i.qty || '1') || 1), 0) || 1;
+
+          await dbClient.query('SAVEPOINT row_insert');
+          await dbClient.query(
+            `INSERT INTO cc_orders_today (order_id, offer_name, revenue, subtotal, tax_amount, order_status, new_customer, utm_campaign, fbclid, subscription_id, quantity, is_core_sku, source, utm_source, utm_medium, utm_content, utm_term, user_id, is_test)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NULL, $10, true, 'checkout_champ', $11, $12, $13, $14, $15, $16)
+             ON CONFLICT (user_id, order_id) DO UPDATE SET
+               revenue = EXCLUDED.revenue, subtotal = EXCLUDED.subtotal, tax_amount = EXCLUDED.tax_amount,
+               order_status = EXCLUDED.order_status, new_customer = EXCLUDED.new_customer,
+               quantity = EXCLUDED.quantity, utm_source = EXCLUDED.utm_source,
+               utm_medium = EXCLUDED.utm_medium, utm_content = EXCLUDED.utm_content,
+               utm_term = EXCLUDED.utm_term, is_test = EXCLUDED.is_test`,
+            [orderId, offerName, total, subtotal, tax, orderStatus, newCustomer, utmCampaign, fbclid, quantity, utmSource, utmMedium, utmContent, utmTerm, userId || null, isTest],
+          );
+          await dbClient.query('RELEASE SAVEPOINT row_insert');
+          synced++;
+        } catch (err) {
+          await dbClient.query('ROLLBACK TO SAVEPOINT row_insert');
+          console.error(`[CC Sync] Failed to upsert order:`, err);
+        }
       }
+
+      await dbClient.query('COMMIT');
+    } catch (err) {
+      await dbClient.query('ROLLBACK');
+      console.error(`[CC Sync] Orders transaction failed:`, err);
+    } finally {
+      dbClient.release();
     }
 
-    await setLastSyncTime('cc_last_customers_sync', now, userId);
-    console.log(`[CC Sync] Customers: synced ${synced}${userId ? ` for user ${userId}` : ''}`);
+    await setLastSyncTime('cc_last_orders_sync', now, userId);
+    console.log(`[CC Sync] Orders: synced ${synced}${userId ? ` for user ${userId}` : ''}`);
   } catch (err) {
-    console.error(`[CC Sync] Customers fetch failed:`, err);
+    console.error(`[CC Sync] Orders fetch failed:`, err);
   }
 
   return { synced };
 }
 
-// ── Transactions ───────────────────────────────────────────────
-
-export async function syncCCTransactions(userId?: number): Promise<{ synced: number }> {
-  const apiKey = await getSetting('cc_api_key', userId);
-  const apiUrl = await getSetting('cc_api_url', userId);
-  if (!apiKey || !apiUrl) return { synced: 0 };
-
-  const baseUrl = `${apiUrl.replace(/\/$/, '')}/transactions/query`;
-  const now = new Date();
-  const since = await getLastSyncTime('cc_last_transactions_sync', userId);
-
-  let synced = 0;
-  try {
-    const transactions = await fetchAllPages(baseUrl, apiKey, true, since, now);
-
-    for (const t of transactions) {
-      try {
-        const transactionId = t.transactionId || t.transaction_id || t.id;
-        if (!transactionId) continue;
-
-        const rawType = (t.transactionType || t.transaction_type || t.type || 'sale').toLowerCase();
-        const isChargeback = rawType === 'chargeback' || t.isChargeback || t.is_chargeback || false;
-
-        await pool.query(
-          `INSERT INTO cc_transactions (user_id, transaction_id, order_id, customer_id, type, amount, payment_method, processor, response, is_chargeback, transaction_date, raw_data, synced_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
-           ON CONFLICT (user_id, transaction_id) DO UPDATE SET
-             order_id = EXCLUDED.order_id, customer_id = EXCLUDED.customer_id,
-             type = EXCLUDED.type, amount = EXCLUDED.amount,
-             payment_method = EXCLUDED.payment_method, processor = EXCLUDED.processor,
-             response = EXCLUDED.response, is_chargeback = EXCLUDED.is_chargeback,
-             transaction_date = EXCLUDED.transaction_date, raw_data = EXCLUDED.raw_data, synced_at = NOW()`,
-          [
-            userId || null,
-            String(transactionId),
-            t.orderId || t.order_id || null,
-            t.customerId || t.customer_id || null,
-            rawType,
-            parseFloat(t.amount || t.totalAmount || t.total_amount || '0') || 0,
-            t.paymentMethod || t.payment_method || t.cardType || t.card_type || null,
-            t.processor || t.gateway || null,
-            t.response || t.responseMessage || t.response_message || null,
-            isChargeback,
-            t.transactionDate || t.transaction_date || t.dateCreated || t.date_created || null,
-            JSON.stringify(t),
-          ]
-        );
-        synced++;
-      } catch (err) {
-        console.error(`[CC Sync] Failed to upsert transaction:`, err);
-      }
-    }
-
-    await setLastSyncTime('cc_last_transactions_sync', now, userId);
-    console.log(`[CC Sync] Transactions: synced ${synced}${userId ? ` for user ${userId}` : ''}`);
-  } catch (err) {
-    console.error(`[CC Sync] Transactions fetch failed:`, err);
-  }
-
-  return { synced };
-}
-
-// ── Purchases ──────────────────────────────────────────────────
+// ── Purchases (Subscriptions / LTV) ─────────────────────────────
 
 export async function syncCCPurchases(userId?: number): Promise<{ synced: number }> {
-  const apiKey = await getSetting('cc_api_key', userId);
-  const apiUrl = await getSetting('cc_api_url', userId);
-  if (!apiKey || !apiUrl) return { synced: 0 };
+  const client = await CheckoutChampClient.fromSettings(userId);
+  if (!client) return { synced: 0 };
 
-  const baseUrl = `${apiUrl.replace(/\/$/, '')}/purchases/query`;
   const now = new Date();
   const since = await getLastSyncTime('cc_last_purchases_sync', userId);
 
   let synced = 0;
   try {
-    const purchases = await fetchAllPages(baseUrl, apiKey, true, since, now);
+    const purchases = await client.queryAllPurchases({
+      startDate: formatCCDate(since),
+      endDate: formatCCDate(now),
+      dateRangeType: 'dateUpdated',
+    });
 
-    for (const p of purchases) {
-      try {
-        const purchaseId = p.purchaseId || p.purchase_id || p.id;
-        if (!purchaseId) continue;
+    const dbClient = await pool.connect();
+    try {
+      await dbClient.query('BEGIN');
 
-        await pool.query(
-          `INSERT INTO cc_purchases (user_id, purchase_id, order_id, customer_id, product_id, purchase_type, amount, quantity, subscription_id, billing_cycle, purchase_date, raw_data, synced_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
-           ON CONFLICT (user_id, purchase_id) DO UPDATE SET
-             order_id = EXCLUDED.order_id, customer_id = EXCLUDED.customer_id,
-             product_id = EXCLUDED.product_id, purchase_type = EXCLUDED.purchase_type,
-             amount = EXCLUDED.amount, quantity = EXCLUDED.quantity,
-             subscription_id = EXCLUDED.subscription_id, billing_cycle = EXCLUDED.billing_cycle,
-             purchase_date = EXCLUDED.purchase_date, raw_data = EXCLUDED.raw_data, synced_at = NOW()`,
-          [
-            userId || null,
-            String(purchaseId),
-            p.orderId || p.order_id || null,
-            p.customerId || p.customer_id || null,
-            p.productId || p.product_id || null,
-            (p.purchaseType || p.purchase_type || p.type || 'initial').toLowerCase(),
-            parseFloat(p.amount || p.price || p.totalAmount || p.total_amount || '0') || 0,
-            parseInt(p.quantity || '1') || 1,
-            p.subscriptionId || p.subscription_id || null,
-            parseInt(p.billingCycle || p.billing_cycle || '0') || null,
-            p.purchaseDate || p.purchase_date || p.dateCreated || p.date_created || null,
-            JSON.stringify(p),
-          ]
-        );
-        synced++;
-      } catch (err) {
-        console.error(`[CC Sync] Failed to upsert purchase:`, err);
+      for (const p of purchases) {
+        try {
+          const purchaseId = p.purchaseId || (p as any).purchase_id || (p as any).id;
+          if (!purchaseId) continue;
+
+          await dbClient.query('SAVEPOINT row_insert');
+          await dbClient.query(
+            `INSERT INTO cc_purchases (user_id, purchase_id, order_id, customer_id, product_id, purchase_type, amount, quantity, subscription_id, billing_cycle, purchase_date, raw_data, synced_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
+             ON CONFLICT (user_id, purchase_id) DO UPDATE SET
+               order_id = EXCLUDED.order_id, customer_id = EXCLUDED.customer_id,
+               product_id = EXCLUDED.product_id, purchase_type = EXCLUDED.purchase_type,
+               amount = EXCLUDED.amount, quantity = EXCLUDED.quantity,
+               subscription_id = EXCLUDED.subscription_id, billing_cycle = EXCLUDED.billing_cycle,
+               purchase_date = EXCLUDED.purchase_date, raw_data = EXCLUDED.raw_data, synced_at = NOW()`,
+            [
+              userId || null,
+              String(purchaseId),
+              p.orderId || (p as any).order_id || null,
+              p.customerId || (p as any).customer_id || null,
+              p.productId || (p as any).product_id || null,
+              (p.status || (p as any).purchaseType || (p as any).type || 'initial').toLowerCase(),
+              parseFloat(p.price || (p as any).amount || (p as any).totalAmount || '0') || 0,
+              parseInt(p.qty || (p as any).quantity || '1') || 1,
+              (p as any).subscriptionId || (p as any).subscription_id || null,
+              parseInt(p.billingCycleNumber || p.billingIntervalDays || (p as any).billing_cycle || '0') || null,
+              p.dateCreated || (p as any).purchaseDate || null,
+              JSON.stringify(p),
+            ]
+          );
+          await dbClient.query('RELEASE SAVEPOINT row_insert');
+          synced++;
+        } catch (err) {
+          await dbClient.query('ROLLBACK TO SAVEPOINT row_insert');
+          console.error(`[CC Sync] Failed to upsert purchase:`, err);
+        }
       }
+
+      await dbClient.query('COMMIT');
+    } catch (err) {
+      await dbClient.query('ROLLBACK');
+      console.error(`[CC Sync] Purchases transaction failed:`, err);
+    } finally {
+      dbClient.release();
     }
 
     await setLastSyncTime('cc_last_purchases_sync', now, userId);
@@ -273,100 +197,56 @@ export async function syncCCPurchases(userId?: number): Promise<{ synced: number
 // ── Products (no date filter — full catalog) ───────────────────
 
 export async function syncCCProducts(userId?: number): Promise<{ synced: number }> {
-  const apiKey = await getSetting('cc_api_key', userId);
-  const apiUrl = await getSetting('cc_api_url', userId);
-  if (!apiKey || !apiUrl) return { synced: 0 };
-
-  const baseUrl = `${apiUrl.replace(/\/$/, '')}/products/query`;
+  const client = await CheckoutChampClient.fromSettings(userId);
+  if (!client) return { synced: 0 };
 
   let synced = 0;
   try {
-    const products = await fetchAllPages(baseUrl, apiKey, false);
+    const campaigns = await client.queryAllCampaigns();
 
-    for (const p of products) {
-      try {
-        const productId = p.productId || p.product_id || p.id;
-        if (!productId) continue;
+    const dbClient = await pool.connect();
+    try {
+      await dbClient.query('BEGIN');
 
-        await pool.query(
-          `INSERT INTO cc_products (user_id, product_id, name, sku, price, cost, category, is_subscription, rebill_days, trial_days, status, raw_data, synced_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
-           ON CONFLICT (user_id, product_id) DO UPDATE SET
-             name = EXCLUDED.name, sku = EXCLUDED.sku, price = EXCLUDED.price,
-             cost = EXCLUDED.cost, category = EXCLUDED.category,
-             is_subscription = EXCLUDED.is_subscription, rebill_days = EXCLUDED.rebill_days,
-             trial_days = EXCLUDED.trial_days, status = EXCLUDED.status,
-             raw_data = EXCLUDED.raw_data, synced_at = NOW()`,
-          [
-            userId || null,
-            String(productId),
-            p.name || p.productName || p.product_name || null,
-            p.sku || p.SKU || null,
-            parseFloat(p.price || p.basePrice || p.base_price || '0') || 0,
-            parseFloat(p.cost || p.productCost || p.product_cost || '0') || 0,
-            p.category || p.productCategory || p.product_category || null,
-            p.isSubscription || p.is_subscription || p.recurring || false,
-            parseInt(p.rebillDays || p.rebill_days || '0') || null,
-            parseInt(p.trialDays || p.trial_days || '0') || null,
-            p.status || p.productStatus || p.product_status || 'active',
-            JSON.stringify(p),
-          ]
-        );
-        synced++;
-      } catch (err) {
-        console.error(`[CC Sync] Failed to upsert product:`, err);
+      for (const c of campaigns) {
+        try {
+          const campaignId = c.campaignId || (c as any).campaign_id || (c as any).id;
+          if (!campaignId) continue;
+
+          await dbClient.query('SAVEPOINT row_insert');
+          await dbClient.query(
+            `INSERT INTO cc_campaigns (user_id, campaign_id, name, type, funnel_url, offer_name, product_ids, is_active, raw_data, synced_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+             ON CONFLICT (user_id, campaign_id) DO UPDATE SET
+               name = EXCLUDED.name, type = EXCLUDED.type, funnel_url = EXCLUDED.funnel_url,
+               offer_name = EXCLUDED.offer_name, product_ids = EXCLUDED.product_ids,
+               is_active = EXCLUDED.is_active, raw_data = EXCLUDED.raw_data, synced_at = NOW()`,
+            [
+              userId || null,
+              String(campaignId),
+              c.campaignName || (c as any).name || null,
+              c.campaignType || (c as any).type || null,
+              (c as any).funnelUrl || (c as any).url || null,
+              (c as any).offerName || null,
+              JSON.stringify((c as any).productIds || (c as any).products || []),
+              c.campaignStatus === 'ACTIVE' || (c as any).isActive !== false,
+              JSON.stringify(c),
+            ]
+          );
+          await dbClient.query('RELEASE SAVEPOINT row_insert');
+          synced++;
+        } catch (err) {
+          await dbClient.query('ROLLBACK TO SAVEPOINT row_insert');
+          console.error(`[CC Sync] Failed to upsert campaign:`, err);
+        }
       }
-    }
 
-    console.log(`[CC Sync] Products: synced ${synced}${userId ? ` for user ${userId}` : ''}`);
-  } catch (err) {
-    console.error(`[CC Sync] Products fetch failed:`, err);
-  }
-
-  return { synced };
-}
-
-// ── Campaigns (no date filter — full catalog) ──────────────────
-
-export async function syncCCCampaigns(userId?: number): Promise<{ synced: number }> {
-  const apiKey = await getSetting('cc_api_key', userId);
-  const apiUrl = await getSetting('cc_api_url', userId);
-  if (!apiKey || !apiUrl) return { synced: 0 };
-
-  const baseUrl = `${apiUrl.replace(/\/$/, '')}/campaigns/query`;
-
-  let synced = 0;
-  try {
-    const campaigns = await fetchAllPages(baseUrl, apiKey, false);
-
-    for (const c of campaigns) {
-      try {
-        const campaignId = c.campaignId || c.campaign_id || c.id;
-        if (!campaignId) continue;
-
-        await pool.query(
-          `INSERT INTO cc_campaigns (user_id, campaign_id, name, type, funnel_url, offer_name, product_ids, is_active, raw_data, synced_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
-           ON CONFLICT (user_id, campaign_id) DO UPDATE SET
-             name = EXCLUDED.name, type = EXCLUDED.type, funnel_url = EXCLUDED.funnel_url,
-             offer_name = EXCLUDED.offer_name, product_ids = EXCLUDED.product_ids,
-             is_active = EXCLUDED.is_active, raw_data = EXCLUDED.raw_data, synced_at = NOW()`,
-          [
-            userId || null,
-            String(campaignId),
-            c.name || c.campaignName || c.campaign_name || null,
-            c.type || c.campaignType || c.campaign_type || null,
-            c.funnelUrl || c.funnel_url || c.url || null,
-            c.offerName || c.offer_name || null,
-            JSON.stringify(c.productIds || c.product_ids || c.products || []),
-            c.isActive !== undefined ? c.isActive : (c.is_active !== undefined ? c.is_active : (c.status === 'active' || c.status === 'Active' || true)),
-            JSON.stringify(c),
-          ]
-        );
-        synced++;
-      } catch (err) {
-        console.error(`[CC Sync] Failed to upsert campaign:`, err);
-      }
+      await dbClient.query('COMMIT');
+    } catch (err) {
+      await dbClient.query('ROLLBACK');
+      console.error(`[CC Sync] Campaigns transaction failed:`, err);
+    } finally {
+      dbClient.release();
     }
 
     console.log(`[CC Sync] Campaigns: synced ${synced}${userId ? ` for user ${userId}` : ''}`);
@@ -377,26 +257,27 @@ export async function syncCCCampaigns(userId?: number): Promise<{ synced: number
   return { synced };
 }
 
+// ── Campaigns ──────────────────────────────────────────────────
+
+export async function syncCCCampaigns(userId?: number): Promise<{ synced: number }> {
+  // Alias to syncCCProducts since they share the campaign query
+  return syncCCProducts(userId);
+}
+
 // ── Full sync orchestrator ─────────────────────────────────────
 
 export async function syncAllCCData(userId?: number): Promise<{
-  customers: number;
-  transactions: number;
+  orders: number;
   purchases: number;
-  products: number;
   campaigns: number;
 }> {
-  const customers = await syncCCCustomers(userId);
-  const transactions = await syncCCTransactions(userId);
+  const orders = await syncCCOrders(userId);
   const purchases = await syncCCPurchases(userId);
-  const products = await syncCCProducts(userId);
-  const campaigns = await syncCCCampaigns(userId);
+  const campaigns = await syncCCProducts(userId);
 
   return {
-    customers: customers.synced,
-    transactions: transactions.synced,
+    orders: orders.synced,
     purchases: purchases.synced,
-    products: products.synced,
     campaigns: campaigns.synced,
   };
 }

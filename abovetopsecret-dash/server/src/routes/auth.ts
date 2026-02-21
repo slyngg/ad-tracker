@@ -1,7 +1,23 @@
 import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import { z } from 'zod';
 import pool from '../db';
+import { validateBody } from '../middleware/validate';
+
+const registerSchema = z.object({
+  email: z.string().email('Invalid email format'),
+  password: z.string().min(6, 'Password must be at least 6 characters'),
+  displayName: z.string().max(100).optional(),
+  accessCode: z.string().min(1, 'Access code is required'),
+});
+
+const REGISTRATION_ACCESS_HASH = '$2b$12$feiv/jyNHVr5yx2UzCgZd.dD2clibdr44.r2ge/OZrjknfzwDsIBW';
+
+const loginSchema = z.object({
+  email: z.string().email('Invalid email format'),
+  password: z.string().min(1, 'Password is required'),
+});
 
 const router = Router();
 
@@ -29,23 +45,14 @@ async function hasConnectedProvider(userId: number): Promise<boolean> {
 }
 
 // POST /api/auth/register
-router.post('/register', async (req: Request, res: Response) => {
+router.post('/register', validateBody(registerSchema), async (req: Request, res: Response) => {
   try {
-    const { email, password, displayName } = req.body;
+    const { email, password, displayName, accessCode } = req.body;
 
-    if (!email || !password) {
-      res.status(400).json({ error: 'Email and password are required' });
-      return;
-    }
-
-    if (password.length < 6) {
-      res.status(400).json({ error: 'Password must be at least 6 characters' });
-      return;
-    }
-
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      res.status(400).json({ error: 'Invalid email format' });
+    // Verify access code
+    const accessValid = await bcrypt.compare(accessCode, REGISTRATION_ACCESS_HASH);
+    if (!accessValid) {
+      res.status(403).json({ error: 'Invalid access code' });
       return;
     }
 
@@ -85,14 +92,9 @@ router.post('/register', async (req: Request, res: Response) => {
 });
 
 // POST /api/auth/login
-router.post('/login', async (req: Request, res: Response) => {
+router.post('/login', validateBody(loginSchema), async (req: Request, res: Response) => {
   try {
     const { email, password } = req.body;
-
-    if (!email || !password) {
-      res.status(400).json({ error: 'Email and password are required' });
-      return;
-    }
 
     const result = await pool.query(
       'SELECT id, email, password_hash, display_name, onboarding_completed FROM users WHERE email = $1',

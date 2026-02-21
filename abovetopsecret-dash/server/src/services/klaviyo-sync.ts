@@ -63,6 +63,7 @@ function klaviyoGet(path: string, apiKey: string): Promise<any> {
       res.on('error', reject);
     });
 
+    req.setTimeout(30_000, () => req.destroy(new Error('Request timeout after 30s')));
     req.on('error', reject);
     req.end();
   });
@@ -99,6 +100,7 @@ function klaviyoPost(path: string, apiKey: string, body: any): Promise<any> {
       res.on('error', reject);
     });
 
+    req.setTimeout(30_000, () => req.destroy(new Error('Request timeout after 30s')));
     req.on('error', reject);
     req.write(bodyStr);
     req.end();
@@ -111,7 +113,10 @@ async function syncProfiles(apiKey: string, userId?: number): Promise<number> {
   let synced = 0;
   let url: string | null = '/profiles/';
 
+  const dbClient = await pool.connect();
   try {
+    await dbClient.query('BEGIN');
+
     while (url) {
       const response = await klaviyoGet(url, apiKey);
       const profiles = response.data || [];
@@ -125,7 +130,8 @@ async function syncProfiles(apiKey: string, userId?: number): Promise<number> {
           const loc = attrs.location || {};
           const name = `${attrs.first_name || ''} ${attrs.last_name || ''}`.trim() || null;
 
-          await pool.query(
+          await dbClient.query('SAVEPOINT row_insert');
+          await dbClient.query(
             `INSERT INTO klaviyo_profiles (user_id, klaviyo_id, email, phone, name, location, total_clv, total_orders, last_event_date, properties, synced_at)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
              ON CONFLICT (user_id, klaviyo_id) DO UPDATE SET
@@ -146,16 +152,23 @@ async function syncProfiles(apiKey: string, userId?: number): Promise<number> {
               JSON.stringify(attrs.properties || {}),
             ]
           );
+          await dbClient.query('RELEASE SAVEPOINT row_insert');
           synced++;
         } catch (err) {
+          await dbClient.query('ROLLBACK TO SAVEPOINT row_insert');
           console.error(`[Klaviyo Sync] Failed to upsert profile:`, err);
         }
       }
 
       url = response.links?.next || null;
     }
+
+    await dbClient.query('COMMIT');
   } catch (err) {
+    await dbClient.query('ROLLBACK');
     console.error(`[Klaviyo Sync] Profiles fetch failed:`, err);
+  } finally {
+    dbClient.release();
   }
 
   return synced;
@@ -167,7 +180,10 @@ async function syncLists(apiKey: string, userId?: number): Promise<number> {
   let synced = 0;
   let url: string | null = '/lists/';
 
+  const dbClient = await pool.connect();
   try {
+    await dbClient.query('BEGIN');
+
     while (url) {
       const response = await klaviyoGet(url, apiKey);
       const lists = response.data || [];
@@ -179,7 +195,8 @@ async function syncLists(apiKey: string, userId?: number): Promise<number> {
 
           const attrs = l.attributes || {};
 
-          await pool.query(
+          await dbClient.query('SAVEPOINT row_insert');
+          await dbClient.query(
             `INSERT INTO klaviyo_lists (user_id, list_id, name, type, profile_count, synced_at)
              VALUES ($1, $2, $3, $4, $5, NOW())
              ON CONFLICT (user_id, list_id) DO UPDATE SET
@@ -193,16 +210,23 @@ async function syncLists(apiKey: string, userId?: number): Promise<number> {
               attrs.profile_count || 0,
             ]
           );
+          await dbClient.query('RELEASE SAVEPOINT row_insert');
           synced++;
         } catch (err) {
+          await dbClient.query('ROLLBACK TO SAVEPOINT row_insert');
           console.error(`[Klaviyo Sync] Failed to upsert list:`, err);
         }
       }
 
       url = response.links?.next || null;
     }
+
+    await dbClient.query('COMMIT');
   } catch (err) {
+    await dbClient.query('ROLLBACK');
     console.error(`[Klaviyo Sync] Lists fetch failed:`, err);
+  } finally {
+    dbClient.release();
   }
 
   return synced;
@@ -214,7 +238,10 @@ async function syncCampaigns(apiKey: string, userId?: number): Promise<number> {
   let synced = 0;
   let url: string | null = '/campaigns/';
 
+  const dbClient = await pool.connect();
   try {
+    await dbClient.query('BEGIN');
+
     while (url) {
       const response = await klaviyoGet(url, apiKey);
       const campaigns = response.data || [];
@@ -228,7 +255,8 @@ async function syncCampaigns(apiKey: string, userId?: number): Promise<number> {
           const sendOpts = attrs.send_options || {};
           const stats = attrs.statistics || {};
 
-          await pool.query(
+          await dbClient.query('SAVEPOINT row_insert');
+          await dbClient.query(
             `INSERT INTO klaviyo_campaigns (user_id, campaign_id, name, type, status, subject_line, send_time, sent_count, open_count, click_count, bounce_count, unsub_count, revenue, open_rate, click_rate, synced_at)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW())
              ON CONFLICT (user_id, campaign_id) DO UPDATE SET
@@ -256,16 +284,23 @@ async function syncCampaigns(apiKey: string, userId?: number): Promise<number> {
               parseFloat(stats.click_rate || '0') || 0,
             ]
           );
+          await dbClient.query('RELEASE SAVEPOINT row_insert');
           synced++;
         } catch (err) {
+          await dbClient.query('ROLLBACK TO SAVEPOINT row_insert');
           console.error(`[Klaviyo Sync] Failed to upsert campaign:`, err);
         }
       }
 
       url = response.links?.next || null;
     }
+
+    await dbClient.query('COMMIT');
   } catch (err) {
+    await dbClient.query('ROLLBACK');
     console.error(`[Klaviyo Sync] Campaigns fetch failed:`, err);
+  } finally {
+    dbClient.release();
   }
 
   return synced;
@@ -285,54 +320,69 @@ async function syncFlowMetrics(apiKey: string, userId?: number): Promise<number>
     'Placed Order', 'Ordered Product',
   ];
 
-  for (const metricName of metricNames) {
-    try {
-      const response = await klaviyoPost('/metric-aggregates/', apiKey, {
-        data: {
-          type: 'metric-aggregate',
-          attributes: {
-            metric_id: metricName,
-            measurements: ['count', 'unique', 'sum_value'],
-            interval: 'day',
-            filter: [`greater-or-equal(datetime,${startDate}T00:00:00)`, `less-than(datetime,${endDate}T23:59:59)`],
-            by: [],
+  const dbClient = await pool.connect();
+  try {
+    await dbClient.query('BEGIN');
+
+    for (const metricName of metricNames) {
+      try {
+        const response = await klaviyoPost('/metric-aggregates/', apiKey, {
+          data: {
+            type: 'metric-aggregate',
+            attributes: {
+              metric_id: metricName,
+              measurements: ['count', 'unique', 'sum_value'],
+              interval: 'day',
+              filter: [`greater-or-equal(datetime,${startDate}T00:00:00)`, `less-than(datetime,${endDate}T23:59:59)`],
+              by: [],
+            },
           },
-        },
-      });
+        });
 
-      const results = response.data?.attributes?.dates || [];
-      const counts = response.data?.attributes?.data?.[0]?.measurements?.count || [];
-      const uniques = response.data?.attributes?.data?.[0]?.measurements?.unique || [];
-      const sums = response.data?.attributes?.data?.[0]?.measurements?.sum_value || [];
+        const results = response.data?.attributes?.dates || [];
+        const counts = response.data?.attributes?.data?.[0]?.measurements?.count || [];
+        const uniques = response.data?.attributes?.data?.[0]?.measurements?.unique || [];
+        const sums = response.data?.attributes?.data?.[0]?.measurements?.sum_value || [];
 
-      for (let i = 0; i < results.length; i++) {
-        try {
-          const date = results[i]?.split('T')?.[0];
-          if (!date) continue;
+        for (let i = 0; i < results.length; i++) {
+          try {
+            const date = results[i]?.split('T')?.[0];
+            if (!date) continue;
 
-          await pool.query(
-            `INSERT INTO klaviyo_flow_metrics (user_id, date, metric_name, event_count, unique_profiles, revenue, synced_at)
-             VALUES ($1, $2, $3, $4, $5, $6, NOW())
-             ON CONFLICT (user_id, date, metric_name) DO UPDATE SET
-               event_count = EXCLUDED.event_count, unique_profiles = EXCLUDED.unique_profiles,
-               revenue = EXCLUDED.revenue, synced_at = NOW()`,
-            [
-              userId || null,
-              date,
-              metricName,
-              counts[i] || 0,
-              uniques[i] || 0,
-              parseFloat(sums[i] || '0') || 0,
-            ]
-          );
-          synced++;
-        } catch (err) {
-          console.error(`[Klaviyo Sync] Failed to upsert flow metric:`, err);
+            await dbClient.query('SAVEPOINT row_insert');
+            await dbClient.query(
+              `INSERT INTO klaviyo_flow_metrics (user_id, date, metric_name, event_count, unique_profiles, revenue, synced_at)
+               VALUES ($1, $2, $3, $4, $5, $6, NOW())
+               ON CONFLICT (user_id, date, metric_name) DO UPDATE SET
+                 event_count = EXCLUDED.event_count, unique_profiles = EXCLUDED.unique_profiles,
+                 revenue = EXCLUDED.revenue, synced_at = NOW()`,
+              [
+                userId || null,
+                date,
+                metricName,
+                counts[i] || 0,
+                uniques[i] || 0,
+                parseFloat(sums[i] || '0') || 0,
+              ]
+            );
+            await dbClient.query('RELEASE SAVEPOINT row_insert');
+            synced++;
+          } catch (err) {
+            await dbClient.query('ROLLBACK TO SAVEPOINT row_insert');
+            console.error(`[Klaviyo Sync] Failed to upsert flow metric:`, err);
+          }
         }
+      } catch (err) {
+        console.error(`[Klaviyo Sync] Flow metric ${metricName} fetch failed:`, err);
       }
-    } catch (err) {
-      console.error(`[Klaviyo Sync] Flow metric ${metricName} fetch failed:`, err);
     }
+
+    await dbClient.query('COMMIT');
+  } catch (err) {
+    await dbClient.query('ROLLBACK');
+    console.error(`[Klaviyo Sync] Flow metrics transaction failed:`, err);
+  } finally {
+    dbClient.release();
   }
 
   return synced;
