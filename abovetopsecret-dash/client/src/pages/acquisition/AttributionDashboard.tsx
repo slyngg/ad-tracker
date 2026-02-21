@@ -9,6 +9,7 @@ import ExportButton from '../../components/dashboard/ExportButton';
 import LiveOrderFeed from '../../components/dashboard/LiveOrderFeed';
 import PageShell from '../../components/shared/PageShell';
 import { fmt } from '../../lib/formatters';
+import { useLiveRefresh } from '../../hooks/useLiveRefresh';
 
 async function apiFetch<T>(path: string): Promise<T> {
   const token = getAuthToken();
@@ -51,10 +52,13 @@ export default function AttributionDashboard() {
   );
 
   // Load attribution model data
-  useEffect(() => {
+  const loadAttr = useCallback(() => {
     apiFetch<AttrRow[]>(`/attribution-models/data?model=${model}`).then(setAttrData).catch(() => {});
     apiFetch<OverlapRow[]>('/attribution-models/overlap').then(setOverlap).catch(() => {});
   }, [model]);
+
+  useEffect(() => { loadAttr(); }, [loadAttr]);
+  useLiveRefresh(loadAttr);
 
   const offers = useMemo(() => {
     const set = new Set(data.map((d) => d.offer_name));

@@ -13,6 +13,7 @@ import { fmt } from '../../lib/formatters';
 import PageShell from '../../components/shared/PageShell';
 import PieBreakdown from '../../components/charts/PieBreakdown';
 import AnimatedNumber from '../../components/shared/AnimatedNumber';
+import { useLiveRefresh } from '../../hooks/useLiveRefresh';
 
 interface SourceMediumGroup {
   source: string;
@@ -30,24 +31,21 @@ export default function SourceMediumPage() {
   const [sortCol, setSortCol] = useState<keyof SourceMediumGroup>('revenue');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
-  useEffect(() => {
-    let cancelled = false;
+  const loadData = useCallback(async () => {
     setLoading(true);
-    fetchSourceMedium()
-      .then((rows) => {
-        if (!cancelled) {
-          setData(rows);
-          setError(null);
-        }
-      })
-      .catch((err) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load source/medium data');
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => { cancelled = true; };
+    try {
+      const rows = await fetchSourceMedium();
+      setData(rows);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load source/medium data');
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => { loadData(); }, [loadData]);
+  useLiveRefresh(loadData);
 
   const grouped: SourceMediumGroup[] = useMemo(() => {
     return data.map((row) => ({

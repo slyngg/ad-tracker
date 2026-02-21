@@ -6,6 +6,7 @@ import {
   CreativeItem, ComparativeRow, createSnapshot,
 } from '../../lib/api';
 import { getAuthToken } from '../../stores/authStore';
+import { useLiveRefresh } from '../../hooks/useLiveRefresh';
 
 const TAG_DIMENSIONS = [
   'asset_type', 'visual_format', 'hook_type', 'creative_angle',
@@ -124,6 +125,7 @@ export default function CreativeAnalyticsPage() {
   }, [tab, dateFrom, dateTo, sortBy, platform, compDimension, compMetric]);
 
   useEffect(() => { load(); }, [load]);
+  useLiveRefresh(load);
 
   const filtered = creatives.filter(c => !search || (c.ad_name || '').toLowerCase().includes(search.toLowerCase()));
 

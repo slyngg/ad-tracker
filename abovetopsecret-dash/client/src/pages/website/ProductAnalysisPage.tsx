@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import PageShell from '../../components/shared/PageShell';
 import { getAuthToken } from '../../stores/authStore';
+import { useLiveRefresh } from '../../hooks/useLiveRefresh';
 
 async function apiFetch<T>(path: string): Promise<T> {
   const token = getAuthToken();
@@ -25,6 +26,7 @@ export default function ProductAnalysisPage() {
   }, [sort]);
 
   useEffect(() => { load(); }, [load]);
+  useLiveRefresh(load);
 
   const filtered = products.filter(p => !search || p.product_name.toLowerCase().includes(search.toLowerCase()));
   const cardCls = 'bg-ats-card rounded-xl p-4 border border-ats-border';

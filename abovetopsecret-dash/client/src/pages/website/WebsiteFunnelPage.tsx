@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import PageShell from '../../components/shared/PageShell';
 import { getAuthToken } from '../../stores/authStore';
+import { useLiveRefresh } from '../../hooks/useLiveRefresh';
 
 async function apiFetch<T>(path: string): Promise<T> {
   const token = getAuthToken();
@@ -34,6 +35,7 @@ export default function WebsiteFunnelPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+  useLiveRefresh(load);
 
   const ordered = FUNNEL_ORDER.map(name => funnel.find(f => f.event_name === name) || { event_name: name, total_events: 0, unique_users: 0 });
   const maxEvents = Math.max(...ordered.map(f => f.total_events), 1);

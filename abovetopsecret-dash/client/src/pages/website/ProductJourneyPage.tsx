@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import PageShell from '../../components/shared/PageShell';
 import { getAuthToken } from '../../stores/authStore';
+import { useLiveRefresh } from '../../hooks/useLiveRefresh';
 
 async function apiFetch<T>(path: string): Promise<T> {
   const token = getAuthToken();
@@ -24,6 +25,7 @@ export default function ProductJourneyPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+  useLiveRefresh(load);
 
   const cardCls = 'bg-ats-card rounded-xl p-4 border border-ats-border';
   const selectedProduct = products.find(p => p.product_id === selected);

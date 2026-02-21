@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from 'recharts';
 import PageShell from '../../components/shared/PageShell';
 import { getAuthToken } from '../../stores/authStore';
+import { useLiveRefresh } from '../../hooks/useLiveRefresh';
 
 async function apiFetch<T>(path: string): Promise<T> {
   const token = getAuthToken();
@@ -29,6 +30,7 @@ export default function CustomerSegmentsPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+  useLiveRefresh(load);
 
   const loadCustomers = useCallback(async (segId: number) => {
     setSelected(segId);

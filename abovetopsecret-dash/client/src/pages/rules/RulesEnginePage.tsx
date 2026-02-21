@@ -10,6 +10,7 @@ import {
   RuleLog,
 } from '../../lib/api';
 import PageShell from '../../components/shared/PageShell';
+import { useLiveRefresh } from '../../hooks/useLiveRefresh';
 
 const METRICS = ['spend', 'revenue', 'roas', 'cpa', 'conversions'];
 const OPERATORS = ['>', '<', '>=', '<=', '='];
@@ -78,6 +79,7 @@ export default function RulesEnginePage() {
   useEffect(() => {
     loadRules();
   }, [loadRules]);
+  useLiveRefresh(loadRules);
 
   const handleToggle = async (id: number) => {
     try {

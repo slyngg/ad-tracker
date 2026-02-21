@@ -7,6 +7,7 @@ import CommandPalette from '../shared/CommandPalette';
 import AccountSwitcher from '../shared/AccountSwitcher';
 import TourOverlay from '../tour/TourOverlay';
 import ConnectionBanner from '../shared/ConnectionBanner';
+import SyncBanner from '../shared/SyncBanner';
 
 function ConnectionStatus() {
   const { status } = useWebSocket();
@@ -67,6 +68,7 @@ export default function AppLayout() {
           collapsed ? 'lg:ml-sidebar-collapsed' : 'lg:ml-sidebar'
         }`}
       >
+        <SyncBanner />
         <ConnectionBanner />
         <Outlet />
       </main>

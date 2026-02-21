@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import pool from '../db';
 import { checkAllSetupStatus, checkWebhookStatus, checkFacebookStatus } from '../services/setup-checker';
 import { seedDemoData, clearDemoData } from '../services/demo-data';
+import { triggerAllConnectedSyncs } from '../services/immediate-sync';
 
 const STEPS = ['welcome', 'connect_store', 'connect_ads', 'set_costs', 'configure_tracking', 'complete'];
 
@@ -80,6 +81,11 @@ router.post('/complete', async (req: Request, res: Response) => {
     await pool.query(`INSERT INTO onboarding_progress (user_id, step, completed, completed_at, updated_at) VALUES ($1, 'complete', true, NOW(), NOW()) ON CONFLICT (user_id, step) DO UPDATE SET completed = true, completed_at = NOW(), updated_at = NOW()`, [userId]);
     await pool.query('UPDATE users SET onboarding_completed = true WHERE id = $1', [userId]);
     res.json({ success: true });
+
+    // Trigger immediate data sync for all connected platforms (fire-and-forget)
+    if (userId) {
+      triggerAllConnectedSyncs(userId);
+    }
   } catch (err) {
     console.error('Error completing onboarding:', err);
     res.status(500).json({ error: 'Failed to complete' });

@@ -11,6 +11,7 @@ import SpendRevenueChart from '../components/charts/SpendRevenueChart';
 import MetricSparkline from '../components/charts/MetricSparkline';
 import AnimatedNumber from '../components/shared/AnimatedNumber';
 import LiveOrderFeed from '../components/dashboard/LiveOrderFeed';
+import SyncPreloader from '../components/shared/SyncPreloader';
 
 async function apiFetch<T>(path: string): Promise<T> {
   const token = getAuthToken();
@@ -129,6 +130,8 @@ export default function SummaryDashboard() {
 
   const cardCls = 'bg-ats-card rounded-xl p-4 border border-ats-border';
 
+  const hasRealData = !!(summary && (summary.total_spend > 0 || summary.total_revenue > 0 || summary.total_conversions > 0));
+
   return (
     <PageShell
       title="Command Center"
@@ -139,6 +142,7 @@ export default function SummaryDashboard() {
         </button>
       }
     >
+      <SyncPreloader hasData={hasRealData} loading={loading}>
       {/* Error Banner */}
       {error && (
         <div className="bg-red-900/30 border border-red-700/50 rounded-lg px-4 py-3 mb-4 flex items-center justify-between">
@@ -330,6 +334,7 @@ export default function SummaryDashboard() {
           <LiveOrderFeed />
         </div>
       </div>
+      </SyncPreloader>
     </PageShell>
   );
 }

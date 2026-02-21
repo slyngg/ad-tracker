@@ -7,7 +7,8 @@ import {
   Package, ShoppingCart, BarChart2, Repeat, UserPlus,
   Palette, Clock, Shield, BookOpen, Compass, Layers,
   MessageSquare, FileText, Sparkles, PenTool, PieChart,
-  Library, LayoutList, Radar, Building2,
+  Library, LayoutList, Radar, Building2, Megaphone, Send,
+  Wand2, Binoculars,
 } from 'lucide-react';
 import { NavSectionConfig } from '../types/navigation';
 
@@ -78,6 +79,16 @@ export const ROUTES = {
   AI_AGENTS: '/ai/agents',
   AI_REPORTS: '/ai/reports',
   AI_CREATIVE: '/ai/creative',
+
+  // Campaign Manager
+  CAMPAIGN_LIST: '/campaigns',
+  CAMPAIGN_BUILDER: '/campaigns/builder',
+
+  // Creative Templates
+  CREATIVE_TEMPLATES: '/creative/templates',
+
+  // Ad Library (Spy)
+  AD_LIBRARY: '/creative/ad-library',
 } as const;
 
 export const NAV_SECTIONS: NavSectionConfig[] = [
@@ -113,14 +124,24 @@ export const NAV_SECTIONS: NavSectionConfig[] = [
     ],
   },
   {
+    label: 'Campaign Manager',
+    icon: Megaphone,
+    children: [
+      { label: 'Campaigns', path: ROUTES.CAMPAIGN_LIST, icon: Send },
+      { label: 'Builder', path: ROUTES.CAMPAIGN_BUILDER, icon: Wand2 },
+    ],
+  },
+  {
     label: 'Creative',
     icon: PenTool,
     children: [
       { label: 'Analytics', path: ROUTES.CREATIVE_ANALYTICS, icon: BarChart3 },
       { label: 'Diversity', path: ROUTES.CREATIVE_DIVERSITY, icon: PieChart },
+      { label: 'Ad Library', path: ROUTES.AD_LIBRARY, icon: Binoculars },
       { label: 'Inspo', path: ROUTES.CREATIVE_INSPO, icon: Library },
       { label: 'Boards', path: ROUTES.CREATIVE_BOARDS, icon: LayoutList },
       { label: 'Research', path: ROUTES.CREATIVE_RESEARCH, icon: Radar },
+      { label: 'Templates', path: ROUTES.CREATIVE_TEMPLATES, icon: LayoutGrid },
       { label: 'Generator', path: ROUTES.AI_CREATIVE, icon: Sparkles },
     ],
   },

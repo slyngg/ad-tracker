@@ -6,12 +6,14 @@ import { syncGA4Data } from './ga4-sync';
 import { syncShopifyProducts, syncShopifyCustomers } from './shopify-sync';
 import { syncTikTokAds } from './tiktok-sync';
 import { syncAllKlaviyoData } from './klaviyo-sync';
+import { syncFollowedBrands } from './ad-library';
 import { getSetting } from './settings';
 import { evaluateRules } from './rules-engine';
 import { checkThresholds } from './notifications';
 import { tagUntaggedCreatives } from './creative-tagger';
 import { refreshOAuthTokens } from './oauth-refresh';
 import { getUsersAtMidnight } from './timezone';
+import { getRealtime } from './realtime';
 import pool from '../db';
 import { createLogger } from '../lib/logger';
 
@@ -87,9 +89,9 @@ export function startScheduler(): void {
             const result = await syncFacebook(userId);
             if (!result.skipped && result.synced > 0) {
               console.log(`[Scheduler] Meta sync for user ${userId}: ${result.synced} rows`);
-              // Run rules after successful sync
               await evaluateRules(userId);
               await checkThresholds(userId);
+              getRealtime()?.emitMetricsUpdate(userId);
             }
           } catch (err) {
             console.error(`[Scheduler] Meta sync failed for user ${userId}:`, err);
@@ -126,6 +128,7 @@ export function startScheduler(): void {
               console.log(`[Scheduler] CC poll for user ${userId}: ${result.inserted} orders inserted (${result.polled} total)`);
               await evaluateRules(userId);
               await checkThresholds(userId);
+              getRealtime()?.emitMetricsUpdate(userId);
             }
           } catch (err) {
             console.error(`[Scheduler] CC poll failed for user ${userId}:`, err);
@@ -254,12 +257,12 @@ export function startScheduler(): void {
             const result = await syncFacebookCreatives(userId);
             if (!result.skipped && result.synced > 0) {
               console.log(`[Scheduler] Creative sync for user ${userId}: ${result.synced} creatives, ${result.metrics} metrics`);
-              // Run AI tagging after sync
               try {
                 await tagUntaggedCreatives(userId);
               } catch (err) {
                 console.error(`[Scheduler] Creative tagging failed for user ${userId}:`, err);
               }
+              getRealtime()?.emitMetricsUpdate(userId);
             }
           } catch (err) {
             console.error(`[Scheduler] Creative sync failed for user ${userId}:`, err);
@@ -299,6 +302,7 @@ export function startScheduler(): void {
             if (result.synced > 0) {
               console.log(`[Scheduler] GA4 sync for user ${userId}: ${result.synced} rows`);
               await evaluateRules(userId);
+              getRealtime()?.emitMetricsUpdate(userId);
             }
           } catch (err) {
             console.error(`[Scheduler] GA4 sync failed for user ${userId}:`, err);
@@ -322,6 +326,7 @@ export function startScheduler(): void {
             const total = result.orders + result.purchases + result.campaigns;
             if (total > 0) {
               console.log(`[Scheduler] CC full sync for user ${userId}: ${result.orders} orders, ${result.purchases} purchases, ${result.campaigns} campaigns`);
+              getRealtime()?.emitMetricsUpdate(userId);
             }
           } catch (err) {
             console.error(`[Scheduler] CC full sync failed for user ${userId}:`, err);
@@ -345,6 +350,7 @@ export function startScheduler(): void {
             const customers = await syncShopifyCustomers(userId);
             if (!products.skipped && (products.synced > 0 || customers.synced > 0)) {
               console.log(`[Scheduler] Shopify sync for user ${userId}: ${products.synced} products, ${customers.synced} customers`);
+              getRealtime()?.emitMetricsUpdate(userId);
             }
           } catch (err) {
             console.error(`[Scheduler] Shopify sync failed for user ${userId}:`, err);
@@ -368,6 +374,7 @@ export function startScheduler(): void {
             if (!result.skipped && result.synced > 0) {
               console.log(`[Scheduler] TikTok sync for user ${userId}: ${result.synced} ad rows`);
               await evaluateRules(userId);
+              getRealtime()?.emitMetricsUpdate(userId);
             }
           } catch (err) {
             console.error(`[Scheduler] TikTok sync failed for user ${userId}:`, err);
@@ -392,6 +399,7 @@ export function startScheduler(): void {
               const total = result.profiles + result.lists + result.campaigns + result.flowMetrics;
               if (total > 0) {
                 console.log(`[Scheduler] Klaviyo sync for user ${userId}: ${result.profiles} profiles, ${result.lists} lists, ${result.campaigns} campaigns, ${result.flowMetrics} flow metrics`);
+                getRealtime()?.emitMetricsUpdate(userId);
               }
             }
           } catch (err) {
@@ -404,5 +412,28 @@ export function startScheduler(): void {
     });
   });
 
-  console.log('[Scheduler] Cron jobs registered: Meta Ads (*/10), CC poll (* * *), GA4 (3,18,33,48), CC full sync (0 */4), Creative (5,35), Daily reset (0 *), OAuth refresh (0 */6), Shopify (30 */6), TikTok (*/10), Klaviyo (15 */2)');
+  // Ad Library brand sync every 2 hours (offset from other syncs)
+  const LOCK_AD_LIBRARY_SYNC = 100011;
+  cron.schedule('45 */2 * * *', async () => {
+    await withAdvisoryLock(LOCK_AD_LIBRARY_SYNC, 'Ad Library sync', async () => {
+      console.log('[Scheduler] Running Ad Library brand sync...');
+      try {
+        const userIds = await getActiveUserIds();
+        for (const userId of userIds) {
+          try {
+            const result = await syncFollowedBrands(userId);
+            if (result.synced > 0) {
+              console.log(`[Scheduler] Ad Library sync for user ${userId}: ${result.synced} ads cached`);
+            }
+          } catch (err) {
+            console.error(`[Scheduler] Ad Library sync failed for user ${userId}:`, err);
+          }
+        }
+      } catch (err) {
+        console.error('[Scheduler] Ad Library sync failed:', err);
+      }
+    });
+  });
+
+  console.log('[Scheduler] Cron jobs registered: Meta Ads (*/10), CC poll (* * *), GA4 (3,18,33,48), CC full sync (0 */4), Creative (5,35), Daily reset (0 *), OAuth refresh (0 */6), Shopify (30 */6), TikTok (*/10), Klaviyo (15 */2), Ad Library (45 */2)');
 }

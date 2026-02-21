@@ -74,6 +74,14 @@ const AgentChatPage = lazy(() => import('./pages/ai/AgentChatPage'));
 const ReportBuilderPage = lazy(() => import('./pages/ai/ReportBuilderPage'));
 const CreativeGeneratorPage = lazy(() => import('./pages/ai/CreativeGeneratorPage'));
 
+// Campaign Manager
+const CampaignListPage = lazy(() => import('./pages/campaigns/CampaignListPage'));
+const CampaignBuilderPage = lazy(() => import('./pages/campaigns/CampaignBuilderPage'));
+
+// Creative Templates + Ad Library
+const CreativeTemplatesPage = lazy(() => import('./pages/creative/CreativeTemplatesPage'));
+const AdLibraryPage = lazy(() => import('./pages/creative/AdLibraryPage'));
+
 // Error boundary
 interface ErrorBoundaryState {
   hasError: boolean;
@@ -240,6 +248,14 @@ export default function App() {
               <Route path="/ai/agents/:agentId/chat" element={<AgentChatPage />} />
               <Route path="/ai/reports" element={<ReportBuilderPage />} />
               <Route path="/ai/creative" element={<CreativeGeneratorPage />} />
+
+              {/* Campaign Manager */}
+              <Route path="/campaigns" element={<CampaignListPage />} />
+              <Route path="/campaigns/builder" element={<CampaignBuilderPage />} />
+
+              {/* Creative Templates + Ad Library */}
+              <Route path="/creative/templates" element={<CreativeTemplatesPage />} />
+              <Route path="/creative/ad-library" element={<AdLibraryPage />} />
 
               {/* 404 */}
               <Route path="*" element={<NotFoundPage />} />

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { fetchMetrics, MetricRow } from '../../lib/api';
 import { fmt } from '../../lib/formatters';
 import PageShell from '../../components/shared/PageShell';
+import { useLiveRefresh } from '../../hooks/useLiveRefresh';
 
 interface KeywordData {
   keyword: string;
@@ -89,6 +90,7 @@ export default function KeywordIntelligencePage() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+  useLiveRefresh(loadData);
 
   const keywords = useMemo(() => extractKeywords(metrics), [metrics]);
 

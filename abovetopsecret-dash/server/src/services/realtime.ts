@@ -19,6 +19,7 @@ type WsEventType =
   | 'override_change'
   | 'notification'
   | 'rule_execution'
+  | 'sync_status'
   | 'error';
 
 interface WsMessage {
@@ -384,6 +385,17 @@ export class RealtimeService {
     this.broadcast(userId, {
       type: 'rule_execution',
       data: execution,
+      ts: new Date().toISOString(),
+    });
+  }
+
+  emitSyncStatus(userId: number | null, syncStatus: {
+    status: 'syncing' | 'complete';
+    platforms: { platform: string; status: 'syncing' | 'done' | 'error' }[];
+  }): void {
+    this.broadcast(userId, {
+      type: 'sync_status',
+      data: syncStatus,
       ts: new Date().toISOString(),
     });
   }

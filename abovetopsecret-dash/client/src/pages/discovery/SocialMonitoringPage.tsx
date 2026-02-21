@@ -3,6 +3,7 @@ import { fetchMetrics, fetchBreakdown, MetricRow, BreakdownItem } from '../../li
 import { fmt } from '../../lib/formatters';
 import PageShell from '../../components/shared/PageShell';
 import PieBreakdown from '../../components/charts/PieBreakdown';
+import { useLiveRefresh } from '../../hooks/useLiveRefresh';
 
 type SortKey = 'label' | 'spend' | 'revenue' | 'conversions' | 'roas';
 type SortDir = 'asc' | 'desc';
@@ -33,6 +34,7 @@ export default function SocialMonitoringPage() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+  useLiveRefresh(loadData);
 
   // Compute summary stats
   const totalSpend = breakdown.reduce((sum, b) => sum + b.spend, 0);

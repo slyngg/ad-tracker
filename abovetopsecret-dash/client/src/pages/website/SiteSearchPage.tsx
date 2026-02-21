@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import PageShell from '../../components/shared/PageShell';
 import { getAuthToken } from '../../stores/authStore';
+import { useLiveRefresh } from '../../hooks/useLiveRefresh';
 
 async function apiFetch<T>(path: string): Promise<T> {
   const token = getAuthToken();
@@ -29,6 +30,7 @@ export default function SiteSearchPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+  useLiveRefresh(load);
   const cardCls = 'bg-ats-card rounded-xl p-4 border border-ats-border';
   const lowCvr = queries.filter(q => q.total_searches > 5 && parseFloat(String(q.conversion_rate)) < 0.02);
 

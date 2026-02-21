@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import PageShell from '../../components/shared/PageShell';
 import { getAuthToken } from '../../stores/authStore';
+import { useLiveRefresh } from '../../hooks/useLiveRefresh';
 
 async function apiFetch<T>(path: string): Promise<T> {
   const token = getAuthToken();
@@ -22,6 +23,7 @@ export default function RepeatPurchaseRatePage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+  useLiveRefresh(load);
   const cardCls = 'bg-ats-card rounded-xl p-4 border border-ats-border';
 
   if (loading) return <PageShell title="Repeat Purchase Rate" subtitle="Customer retention metrics"><div className="h-20 bg-ats-card rounded-xl animate-pulse" /></PageShell>;

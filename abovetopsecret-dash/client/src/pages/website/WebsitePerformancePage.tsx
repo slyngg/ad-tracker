@@ -4,6 +4,7 @@ import PageShell from '../../components/shared/PageShell';
 import AnimatedNumber from '../../components/shared/AnimatedNumber';
 import { fmt } from '../../lib/formatters';
 import { getAuthToken } from '../../stores/authStore';
+import { useLiveRefresh } from '../../hooks/useLiveRefresh';
 
 const BASE = '/api';
 async function apiFetch<T>(path: string): Promise<T> {
@@ -56,6 +57,7 @@ export default function WebsitePerformancePage() {
   }, [period]);
 
   useEffect(() => { load(); }, [load]);
+  useLiveRefresh(load);
 
   const newVsReturning = useMemo(() => {
     if (!overview) return [];

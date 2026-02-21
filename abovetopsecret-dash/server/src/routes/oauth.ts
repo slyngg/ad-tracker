@@ -10,6 +10,7 @@ import {
   decrypt,
   OAUTH_PLATFORMS,
 } from '../services/oauth-providers';
+import { triggerPlatformSync, SyncPlatform } from '../services/immediate-sync';
 
 const router = Router();
 
@@ -131,6 +132,11 @@ router.get('/:platform/callback', async (req: Request, res: Response) => {
     ]);
 
     res.send(callbackHtml(true, 'Connected successfully!'));
+
+    // Trigger immediate data sync (fire-and-forget, don't block callback)
+    if (userId) {
+      triggerPlatformSync(userId, platform as SyncPlatform);
+    }
   } catch (err: any) {
     console.error('[OAuth] callback error:', err);
     res.status(500).send(callbackHtml(false, err.message || 'Token exchange failed'));

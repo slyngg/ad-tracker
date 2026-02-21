@@ -969,3 +969,381 @@ export function deleteBrandConfig(id: number): Promise<{ success: boolean }> {
 export function setDefaultBrandConfig(id: number): Promise<{ success: boolean }> {
   return request<{ success: boolean }>(`/brand-configs/${id}/set-default`, { method: 'POST' });
 }
+
+// --- Campaign Builder types ---
+export interface CampaignDraft {
+  id: number;
+  user_id: number;
+  account_id: number | null;
+  name: string;
+  objective: string;
+  status: 'draft' | 'validating' | 'publishing' | 'published' | 'failed' | 'archived';
+  special_ad_categories: string[];
+  config: Record<string, any>;
+  meta_campaign_id: string | null;
+  last_error: string | null;
+  account_name?: string;
+  platform?: string;
+  platform_account_id?: string;
+  adsets?: CampaignAdSet[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CampaignAdSet {
+  id: number;
+  draft_id: number;
+  name: string;
+  targeting: Record<string, any>;
+  budget_type: 'daily' | 'lifetime';
+  budget_cents: number;
+  bid_strategy: string;
+  schedule_start: string | null;
+  schedule_end: string | null;
+  status: string;
+  meta_adset_id: string | null;
+  last_error: string | null;
+  ads?: CampaignAd[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CampaignAd {
+  id: number;
+  adset_id: number;
+  name: string;
+  creative_config: Record<string, any>;
+  generated_creative_id: number | null;
+  media_upload_id: number | null;
+  status: string;
+  meta_ad_id: string | null;
+  meta_creative_id: string | null;
+  last_error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CampaignTemplate {
+  id: number;
+  user_id: number;
+  name: string;
+  description: string | null;
+  objective: string | null;
+  targeting: Record<string, any>;
+  budget_config: Record<string, any>;
+  creative_config: Record<string, any>;
+  config: Record<string, any>;
+  is_shared: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MediaUpload {
+  id: number;
+  user_id: number;
+  account_id: number | null;
+  filename: string;
+  mime_type: string;
+  file_size: number;
+  file_path: string;
+  meta_image_hash: string | null;
+  status: string;
+  created_at: string;
+}
+
+export interface PublishResult {
+  success: boolean;
+  meta_campaign_id?: string;
+  adsets: { local_id: number; meta_id?: string; error?: string }[];
+  ads: { local_id: number; meta_id?: string; error?: string }[];
+  error?: string;
+}
+
+export interface ValidationResult {
+  valid: boolean;
+  errors: string[];
+}
+
+// --- Campaign Builder API ---
+export function fetchCampaignDrafts(): Promise<CampaignDraft[]> {
+  return request<CampaignDraft[]>('/campaigns/drafts');
+}
+
+export function fetchCampaignDraft(id: number): Promise<CampaignDraft> {
+  return request<CampaignDraft>(`/campaigns/drafts/${id}`);
+}
+
+export function createCampaignDraft(data: { account_id: number; name: string; objective?: string; special_ad_categories?: string[] }): Promise<CampaignDraft> {
+  return request<CampaignDraft>('/campaigns/drafts', { method: 'POST', body: JSON.stringify(data) });
+}
+
+export function updateCampaignDraft(id: number, data: Partial<CampaignDraft>): Promise<CampaignDraft> {
+  return request<CampaignDraft>(`/campaigns/drafts/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+}
+
+export function deleteCampaignDraft(id: number): Promise<{ success: boolean }> {
+  return request<{ success: boolean }>(`/campaigns/drafts/${id}`, { method: 'DELETE' });
+}
+
+export function publishCampaignDraft(id: number): Promise<PublishResult> {
+  return request<PublishResult>(`/campaigns/drafts/${id}/publish`, { method: 'POST' });
+}
+
+export function activateCampaign(id: number): Promise<{ success: boolean }> {
+  return request<{ success: boolean }>(`/campaigns/drafts/${id}/activate`, { method: 'POST' });
+}
+
+export function validateCampaignDraft(id: number): Promise<ValidationResult> {
+  return request<ValidationResult>(`/campaigns/drafts/${id}/validate`);
+}
+
+// Ad Set API
+export function createCampaignAdSet(draftId: number, data: Partial<CampaignAdSet>): Promise<CampaignAdSet> {
+  return request<CampaignAdSet>(`/campaigns/drafts/${draftId}/adsets`, { method: 'POST', body: JSON.stringify(data) });
+}
+
+export function updateCampaignAdSet(id: number, data: Partial<CampaignAdSet>): Promise<CampaignAdSet> {
+  return request<CampaignAdSet>(`/campaigns/adsets/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+}
+
+export function deleteCampaignAdSet(id: number): Promise<{ success: boolean }> {
+  return request<{ success: boolean }>(`/campaigns/adsets/${id}`, { method: 'DELETE' });
+}
+
+// Ad API
+export function createCampaignAd(adsetId: number, data: Partial<CampaignAd>): Promise<CampaignAd> {
+  return request<CampaignAd>(`/campaigns/adsets/${adsetId}/ads`, { method: 'POST', body: JSON.stringify(data) });
+}
+
+export function updateCampaignAd(id: number, data: Partial<CampaignAd>): Promise<CampaignAd> {
+  return request<CampaignAd>(`/campaigns/ads/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+}
+
+export function deleteCampaignAd(id: number): Promise<{ success: boolean }> {
+  return request<{ success: boolean }>(`/campaigns/ads/${id}`, { method: 'DELETE' });
+}
+
+// Media Upload
+export async function uploadCampaignMedia(file: File, accountId?: number): Promise<MediaUpload> {
+  const token = getAuthToken();
+  const formData = new FormData();
+  formData.append('file', file);
+  if (accountId) formData.append('account_id', String(accountId));
+
+  const res = await fetch(`${BASE_URL}/campaigns/media/upload`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: formData,
+  });
+  if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
+  return res.json();
+}
+
+// Targeting helpers
+export function searchTargetingInterests(q: string): Promise<any[]> {
+  return request<any[]>(`/campaigns/targeting/interests?q=${encodeURIComponent(q)}`);
+}
+
+export function fetchCustomAudiences(accountId: number): Promise<any[]> {
+  return request<any[]>(`/campaigns/targeting/audiences?account_id=${accountId}`);
+}
+
+export function fetchAccountPages(accountId: number): Promise<any[]> {
+  return request<any[]>(`/campaigns/account-pages?account_id=${accountId}`);
+}
+
+// Campaign Templates
+export function fetchCampaignTemplates(): Promise<CampaignTemplate[]> {
+  return request<CampaignTemplate[]>('/campaigns/templates');
+}
+
+export function createCampaignTemplate(data: Partial<CampaignTemplate>): Promise<CampaignTemplate> {
+  return request<CampaignTemplate>('/campaigns/templates', { method: 'POST', body: JSON.stringify(data) });
+}
+
+export function useCampaignTemplate(id: number, accountId?: number): Promise<CampaignDraft> {
+  return request<CampaignDraft>(`/campaigns/templates/${id}/use`, { method: 'POST', body: JSON.stringify({ account_id: accountId }) });
+}
+
+export function updateCampaignTemplate(id: number, data: Partial<CampaignTemplate>): Promise<CampaignTemplate> {
+  return request<CampaignTemplate>(`/campaigns/templates/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+}
+
+export function deleteCampaignTemplate(id: number): Promise<{ success: boolean }> {
+  return request<{ success: boolean }>(`/campaigns/templates/${id}`, { method: 'DELETE' });
+}
+
+// --- Creative Templates types (Phase 2) ---
+export interface CreativeTemplate {
+  id: number;
+  user_id: number;
+  name: string;
+  description: string | null;
+  structure: Record<string, any>;
+  variable_slots: Record<string, any>[];
+  source_creative_id: number | null;
+  platform: string;
+  creative_type: string;
+  tags: string[];
+  is_shared: boolean;
+  usage_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface GenerationJob {
+  id: number;
+  user_id: number;
+  job_type: string;
+  status: string;
+  input_params: Record<string, any>;
+  output: Record<string, any> | null;
+  model_used: string | null;
+  tokens_used: number;
+  error: string | null;
+  created_at: string;
+  completed_at: string | null;
+}
+
+// --- Creative Templates API (Phase 2) ---
+export function fetchCreativeTemplates(): Promise<CreativeTemplate[]> {
+  return request<CreativeTemplate[]>('/templates');
+}
+
+export function createCreativeTemplate(data: Partial<CreativeTemplate>): Promise<CreativeTemplate> {
+  return request<CreativeTemplate>('/templates', { method: 'POST', body: JSON.stringify(data) });
+}
+
+export function updateCreativeTemplate(id: number, data: Partial<CreativeTemplate>): Promise<CreativeTemplate> {
+  return request<CreativeTemplate>(`/templates/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+}
+
+export function deleteCreativeTemplate(id: number): Promise<{ success: boolean }> {
+  return request<{ success: boolean }>(`/templates/${id}`, { method: 'DELETE' });
+}
+
+export function duplicateCreativeTemplate(id: number): Promise<CreativeTemplate> {
+  return request<CreativeTemplate>(`/templates/${id}/duplicate`, { method: 'POST' });
+}
+
+// --- AI Creative Generation API (Phase 2) ---
+export function generateAdCopy(params: {
+  creative_type: string;
+  platform: string;
+  brief: string;
+  brand_config_id?: number;
+  template_id?: number;
+  inspiration_ad_id?: number;
+  account_id?: number;
+  variation_count?: number;
+}): Promise<any> {
+  return request('/creative-gen/generate', { method: 'POST', body: JSON.stringify(params) });
+}
+
+export function generateAdCopyStream(params: any): { url: string; body: string } {
+  return {
+    url: `${BASE_URL}/creative-gen/generate/stream`,
+    body: JSON.stringify(params),
+  };
+}
+
+export function generateVariations(creativeId: number, count?: number): Promise<any> {
+  return request(`/creative-gen/variations`, { method: 'POST', body: JSON.stringify({ creative_id: creativeId, count }) });
+}
+
+export function generateABTestSuggestions(creativeId: number): Promise<any> {
+  return request(`/creative-gen/ab-test`, { method: 'POST', body: JSON.stringify({ creative_id: creativeId }) });
+}
+
+export function extractCreativeTemplate(creativeId: number): Promise<CreativeTemplate> {
+  return request<CreativeTemplate>(`/creative-gen/extract-template`, { method: 'POST', body: JSON.stringify({ creative_id: creativeId }) });
+}
+
+// --- Ad Library API (Phase 3) ---
+export interface AdLibraryResult {
+  id: number;
+  meta_ad_id: string;
+  page_id: string;
+  page_name: string;
+  ad_creative_bodies: string[];
+  ad_creative_link_titles: string[];
+  ad_creative_link_descriptions: string[];
+  ad_snapshot_url: string | null;
+  impressions_lower: number | null;
+  impressions_upper: number | null;
+  spend_lower: number | null;
+  spend_upper: number | null;
+  currency: string | null;
+  ad_delivery_start: string | null;
+  ad_delivery_stop: string | null;
+  publisher_platforms: string[];
+  created_at: string;
+}
+
+export interface AdLibrarySearchParams {
+  search_terms?: string;
+  page_id?: string;
+  country: string;
+  ad_active_status?: string;
+  ad_type?: string;
+  limit?: number;
+  after?: string;
+}
+
+export interface AdLibraryTrend {
+  id: number;
+  page_id: string;
+  page_name: string;
+  date: string;
+  active_ad_count: number;
+  new_ads: number;
+  stopped_ads: number;
+  themes: string[];
+}
+
+export function searchAdLibrary(params: AdLibrarySearchParams): Promise<{ data: AdLibraryResult[]; paging?: { after?: string } }> {
+  return request('/ad-library/search', { method: 'POST', body: JSON.stringify(params) });
+}
+
+export function fetchAdLibraryResults(params?: { page_id?: string; search?: string }): Promise<AdLibraryResult[]> {
+  const qs = new URLSearchParams();
+  if (params?.page_id) qs.set('page_id', params.page_id);
+  if (params?.search) qs.set('search', params.search);
+  const q = qs.toString();
+  return request<AdLibraryResult[]>(`/ad-library/results${q ? `?${q}` : ''}`);
+}
+
+export function fetchAdLibraryResult(id: number): Promise<AdLibraryResult> {
+  return request<AdLibraryResult>(`/ad-library/results/${id}`);
+}
+
+export function saveAdToInspo(adLibraryId: number): Promise<{ success: boolean }> {
+  return request('/ad-library/save-to-inspo', { method: 'POST', body: JSON.stringify({ ad_library_id: adLibraryId }) });
+}
+
+export function extractTemplateFromAd(adLibraryId: number): Promise<CreativeTemplate> {
+  return request<CreativeTemplate>('/ad-library/extract-template', { method: 'POST', body: JSON.stringify({ ad_library_id: adLibraryId }) });
+}
+
+export function fetchAdLibraryRateStatus(): Promise<{ calls_used: number; limit: number; reset_at: string }> {
+  return request('/ad-library/rate-status');
+}
+
+export function syncAdLibraryBrands(): Promise<{ success: boolean }> {
+  return request('/ad-library/sync-brands', { method: 'POST' });
+}
+
+export function fetchAdLibraryTrends(pageId: string): Promise<AdLibraryTrend[]> {
+  return request<AdLibraryTrend[]>(`/ad-library/trends/${pageId}`);
+}
+
+export function computeAdLibraryTrends(pageId: string): Promise<AdLibraryTrend> {
+  return request<AdLibraryTrend>(`/ad-library/trends/${pageId}/compute`, { method: 'POST' });
+}
+
+export function analyzeCompetitorStrategy(pageId: string): { url: string; body: string } {
+  return {
+    url: `${BASE_URL}/ad-library/ai/analyze`,
+    body: JSON.stringify({ page_id: pageId }),
+  };
+}

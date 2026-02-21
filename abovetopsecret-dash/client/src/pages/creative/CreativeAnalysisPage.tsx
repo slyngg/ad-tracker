@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from 'recharts';
 import PageShell from '../../components/shared/PageShell';
 import { getAuthToken } from '../../stores/authStore';
+import { useLiveRefresh } from '../../hooks/useLiveRefresh';
 
 async function apiFetch<T>(path: string): Promise<T> {
   const token = getAuthToken();
@@ -38,6 +39,7 @@ export default function CreativeAnalysisPage() {
   }, [platform, type, sort]);
 
   useEffect(() => { load(); }, [load]);
+  useLiveRefresh(load);
 
   const filtered = creatives.filter(c => !search || (c.ad_name || '').toLowerCase().includes(search.toLowerCase()));
   const typeBreakdown = creatives.reduce<Record<string, number>>((acc, c) => { acc[c.creative_type || 'unknown'] = (acc[c.creative_type || 'unknown'] || 0) + parseFloat(String(c.spend)); return acc; }, {});

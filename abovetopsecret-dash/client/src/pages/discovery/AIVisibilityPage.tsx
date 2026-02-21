@@ -3,6 +3,7 @@ import { fetchMetrics, MetricRow } from '../../lib/api';
 import { fmt } from '../../lib/formatters';
 import PageShell from '../../components/shared/PageShell';
 import PieBreakdown from '../../components/charts/PieBreakdown';
+import { useLiveRefresh } from '../../hooks/useLiveRefresh';
 
 interface CampaignCategory {
   name: string;
@@ -94,6 +95,7 @@ export default function AIVisibilityPage() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+  useLiveRefresh(loadData);
 
   const spendPie = categories.map((c) => ({ name: c.name, value: c.totalSpend }));
   const totalSpend = categories.reduce((s, c) => s + c.totalSpend, 0);

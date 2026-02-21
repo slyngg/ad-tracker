@@ -1,19 +1,23 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { fetchPnL, PnLData } from '../../lib/api';
 import PageShell from '../../components/shared/PageShell';
 import AnimatedNumber from '../../components/shared/AnimatedNumber';
+import { useLiveRefresh } from '../../hooks/useLiveRefresh';
 
 export default function PnLPage() {
   const [data, setData] = useState<PnLData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const load = useCallback(() => {
     fetchPnL()
       .then(setData)
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => { load(); }, [load]);
+  useLiveRefresh(load);
 
   const fmt = (n: number) => `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 

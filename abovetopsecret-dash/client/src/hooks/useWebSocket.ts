@@ -8,6 +8,7 @@ export type WsEventType =
   | 'override_change'
   | 'notification'
   | 'rule_execution'
+  | 'sync_status'
   | 'error';
 
 export interface WsMessage {

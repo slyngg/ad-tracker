@@ -41,6 +41,9 @@ import creativeGenRouter from './routes/creative-gen';
 import creativesRouter from './routes/creatives';
 import accountsRouter from './routes/accounts';
 import brandConfigsRouter from './routes/brand-configs';
+import campaignsRouter from './routes/campaigns';
+import templatesRouter from './routes/templates';
+import adLibraryRouter from './routes/ad-library';
 import healthRouter from './routes/health';
 import { authMiddleware } from './middleware/auth';
 import { startScheduler } from './services/scheduler';
@@ -171,6 +174,9 @@ app.use('/api/creative-gen', creativeGenRouter);
 app.use('/api/creatives', creativesRouter);
 app.use('/api/accounts', accountsRouter);
 app.use('/api/brand-configs', brandConfigsRouter);
+app.use('/api/campaigns', campaignsRouter);
+app.use('/api/templates', templatesRouter);
+app.use('/api/ad-library', adLibraryRouter);
 
 const httpServer = createServer(app);
 

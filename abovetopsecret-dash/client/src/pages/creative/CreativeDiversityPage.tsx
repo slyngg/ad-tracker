@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from 'recharts';
 import PageShell from '../../components/shared/PageShell';
 import { fetchCreativeDiversity, fetchTagDistribution } from '../../lib/api';
 import { getAuthToken } from '../../stores/authStore';
+import { useLiveRefresh } from '../../hooks/useLiveRefresh';
 
 const COLORS = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#ec4899', '#06b6d4', '#84cc16'];
 const DIMENSIONS = [
@@ -25,18 +26,18 @@ export default function CreativeDiversityPage() {
   const [aiResult, setAiResult] = useState('');
   const [streaming, setStreaming] = useState(false);
 
-  useEffect(() => {
-    async function load() {
-      setLoading(true);
-      try {
-        const [div, dist] = await Promise.all([fetchCreativeDiversity(), fetchTagDistribution()]);
-        setDiversity(div);
-        setDistribution(dist);
-      } catch { /* empty */ }
-      finally { setLoading(false); }
-    }
-    load();
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [div, dist] = await Promise.all([fetchCreativeDiversity(), fetchTagDistribution()]);
+      setDiversity(div);
+      setDistribution(dist);
+    } catch { /* empty */ }
+    finally { setLoading(false); }
   }, []);
+
+  useEffect(() => { load(); }, [load]);
+  useLiveRefresh(load);
 
   const runDiversityCheck = async () => {
     setStreaming(true);
