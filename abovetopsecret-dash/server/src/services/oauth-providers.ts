@@ -99,7 +99,7 @@ const meta: ProviderConfig = {
       scope: this.scopes.join(','),
       response_type: 'code',
     });
-    return `https://www.facebook.com/v19.0/dialog/oauth?${params}`;
+    return `https://www.facebook.com/v21.0/dialog/oauth?${params}`;
   },
 
   async exchangeCode(code, redirectUri) {
@@ -110,8 +110,12 @@ const meta: ProviderConfig = {
       redirect_uri: redirectUri,
       code,
     });
-    const shortLived = await httpsRequest(`https://graph.facebook.com/v19.0/oauth/access_token?${params}`);
+    const shortLived = await httpsRequest(`https://graph.facebook.com/v21.0/oauth/access_token?${params}`);
     if (shortLived.error) throw new Error(shortLived.error.message || 'Meta token exchange failed');
+
+    if (!shortLived.access_token) {
+      throw new Error('Meta OAuth returned no access_token in short-lived exchange');
+    }
 
     // Exchange short-lived for long-lived (60-day) token
     const llParams = new URLSearchParams({
@@ -120,12 +124,24 @@ const meta: ProviderConfig = {
       client_secret: process.env.META_APP_SECRET || '',
       fb_exchange_token: shortLived.access_token,
     });
-    const longLived = await httpsRequest(`https://graph.facebook.com/v19.0/oauth/access_token?${llParams}`);
-    if (longLived.error) throw new Error(longLived.error.message || 'Meta long-lived token exchange failed');
+    const longLived = await httpsRequest(`https://graph.facebook.com/v21.0/oauth/access_token?${llParams}`);
+    if (longLived.error) {
+      console.error('[Meta OAuth] Long-lived token exchange failed:', longLived.error);
+      throw new Error(longLived.error.message || 'Meta long-lived token exchange failed');
+    }
+
+    if (!longLived.access_token) {
+      console.error('[Meta OAuth] Long-lived exchange returned no access_token:', longLived);
+      throw new Error('Meta long-lived token exchange returned no access_token');
+    }
+
+    // Meta long-lived tokens last ~60 days (5184000 seconds)
+    const expiresIn = longLived.expires_in || 5184000;
+    console.log(`[Meta OAuth] Obtained long-lived token, expires_in=${expiresIn}s (~${Math.round(expiresIn / 86400)}d)`);
 
     return {
       access_token: longLived.access_token,
-      expires_in: longLived.expires_in || 5184000, // ~60 days
+      expires_in: expiresIn,
       scopes: this.scopes,
       raw: longLived,
     };
@@ -139,11 +155,15 @@ const meta: ProviderConfig = {
       client_secret: process.env.META_APP_SECRET || '',
       fb_exchange_token: currentToken,
     });
-    const result = await httpsRequest(`https://graph.facebook.com/v19.0/oauth/access_token?${params}`);
+    const result = await httpsRequest(`https://graph.facebook.com/v21.0/oauth/access_token?${params}`);
     if (result.error) throw new Error(result.error.message || 'Meta token refresh failed');
+
+    const expiresIn = result.expires_in || 5184000;
+    console.log(`[Meta OAuth] Refreshed long-lived token, expires_in=${expiresIn}s (~${Math.round(expiresIn / 86400)}d)`);
+
     return {
       access_token: result.access_token,
-      expires_in: result.expires_in || 5184000,
+      expires_in: expiresIn,
       scopes: this.scopes,
     };
   },

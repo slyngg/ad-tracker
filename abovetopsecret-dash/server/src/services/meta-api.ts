@@ -1,7 +1,7 @@
 import https from 'https';
 import FormData from 'form-data';
 
-const GRAPH_API_VERSION = 'v19.0';
+const GRAPH_API_VERSION = 'v21.0';
 const GRAPH_API_BASE = `https://graph.facebook.com/${GRAPH_API_VERSION}`;
 
 export async function metaApiPost(

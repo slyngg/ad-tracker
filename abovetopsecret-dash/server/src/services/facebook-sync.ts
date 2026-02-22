@@ -132,7 +132,7 @@ export async function syncFacebook(userId?: number): Promise<{ synced: number; a
 
   for (const accountId of accounts) {
     try {
-      const url = `https://graph.facebook.com/v19.0/${accountId}/insights?fields=account_name,campaign_name,adset_name,adset_id,ad_name,spend,clicks,impressions,actions&date_preset=today&level=ad&access_token=${accessToken}`;
+      const url = `https://graph.facebook.com/v21.0/${accountId}/insights?fields=account_name,campaign_name,adset_name,adset_id,ad_name,spend,clicks,impressions,actions&date_preset=today&level=ad&access_token=${accessToken}`;
 
       const rows = await fetchAllPages(url);
 
@@ -206,7 +206,7 @@ export async function syncFacebook(userId?: number): Promise<{ synced: number; a
         try {
           const acctToken = decrypt(acct.access_token_encrypted);
           const acctId = acct.platform_account_id;
-          const url = `https://graph.facebook.com/v19.0/${acctId}/insights?fields=account_name,campaign_name,adset_name,adset_id,ad_name,spend,clicks,impressions,actions&date_preset=today&level=ad&access_token=${acctToken}`;
+          const url = `https://graph.facebook.com/v21.0/${acctId}/insights?fields=account_name,campaign_name,adset_name,adset_id,ad_name,spend,clicks,impressions,actions&date_preset=today&level=ad&access_token=${acctToken}`;
 
           const rows = await fetchAllPages(url);
 
@@ -311,7 +311,7 @@ export async function syncFacebookCreatives(userId?: number): Promise<{ synced: 
   for (const accountId of accounts) {
     try {
       // 1. Pull ads with creative fields
-      const adsUrl = `https://graph.facebook.com/v19.0/${accountId}/ads?fields=id,name,adset_id,campaign_id,status,creative{thumbnail_url,image_url,video_id,body,title,call_to_action_type}&limit=500&access_token=${accessToken}`;
+      const adsUrl = `https://graph.facebook.com/v21.0/${accountId}/ads?fields=id,name,adset_id,campaign_id,status,creative{thumbnail_url,image_url,video_id,body,title,call_to_action_type}&limit=500&access_token=${accessToken}`;
       const adRows = await fetchAllPages(adsUrl) as unknown as FBAdRow[];
 
       // Populate name cache from fb_ads_today
@@ -384,7 +384,7 @@ export async function syncFacebookCreatives(userId?: number): Promise<{ synced: 
 
       // 2. Pull ad-level daily insights
       const today = new Date().toISOString().split('T')[0];
-      const insightsUrl = `https://graph.facebook.com/v19.0/${accountId}/insights?level=ad&fields=ad_id,spend,impressions,clicks,actions,action_values,video_p25_watched_actions,video_p50_watched_actions,video_p75_watched_actions,video_p100_watched_actions,video_play_actions&time_range={"since":"${today}","until":"${today}"}&time_increment=1&limit=500&access_token=${accessToken}`;
+      const insightsUrl = `https://graph.facebook.com/v21.0/${accountId}/insights?level=ad&fields=ad_id,spend,impressions,clicks,actions,action_values,video_p25_watched_actions,video_p50_watched_actions,video_p75_watched_actions,video_p100_watched_actions,video_play_actions&time_range={"since":"${today}","until":"${today}"}&time_increment=1&limit=500&access_token=${accessToken}`;
 
       let insightRows: FBAdInsightRow[];
       try {

@@ -66,7 +66,7 @@ router.post('/test/facebook', async (req: Request, res: Response) => {
       return;
     }
 
-    const url = `https://graph.facebook.com/v19.0/${firstAccount}?fields=name,account_status&access_token=${token}`;
+    const url = `https://graph.facebook.com/v21.0/${firstAccount}?fields=name,account_status&access_token=${token}`;
 
     const result = await new Promise<{ name?: string; error?: { message: string } }>((resolve, reject) => {
       https.get(url, (response) => {

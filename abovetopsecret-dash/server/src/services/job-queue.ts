@@ -3,11 +3,15 @@ import { createLogger } from '../lib/logger';
 
 const log = createLogger('JobQueue');
 
-// Redis connection config
+// Redis connection config — prevent ioredis from auto-reconnecting and
+// spamming ECONNREFUSED when no Redis server is available.
 const connection = {
   host: process.env.REDIS_HOST || '127.0.0.1',
   port: parseInt(process.env.REDIS_PORT || '6379'),
-  maxRetriesPerRequest: null,
+  maxRetriesPerRequest: null as null,
+  retryStrategy: () => null as null,
+  enableOfflineQueue: false,
+  lazyConnect: true,
 };
 
 // ── Lazy-initialized queue (only created when initJobQueue is called) ──
@@ -135,8 +139,18 @@ export async function initJobQueue(): Promise<boolean> {
       },
     });
 
+    // Grab the underlying ioredis client and swallow unhandled errors
+    // so they don't crash the process when Redis is unavailable.
+    const client = await syncQueue.client;
+    client.on('error', (err) => {
+      log.debug({ err }, 'Redis connection error (suppressed)');
+    });
+
+    // Explicitly connect (required because lazyConnect is true)
+    await client.connect();
+
     // Verify Redis connectivity with a ping
-    await syncQueue.client.then((c) => c.ping());
+    await client.ping();
     log.info('BullMQ queue connected to Redis');
     return true;
   } catch (err) {
