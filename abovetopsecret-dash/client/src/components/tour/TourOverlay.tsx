@@ -92,22 +92,22 @@ export default function TourOverlay() {
 
     const handler = (e: MouseEvent | TouchEvent) => {
       const target = e.target as HTMLElement;
-      const tourEl = document.querySelector(`[data-tour="${step.target}"]`);
-      if (!tourEl) return;
 
       // Allow interaction inside the tooltip
       const tooltip = document.querySelector('[data-tour-tooltip]');
       if (tooltip?.contains(target)) return;
 
+      const tourEl = document.querySelector(`[data-tour="${step.target}"]`);
+
       // Allow interaction on the target element (or its children)
-      if (tourEl.contains(target)) {
+      if (tourEl?.contains(target)) {
         if (step.advanceOnClick) {
           setTimeout(() => next(), 50);
         }
         return;
       }
 
-      // Block all other interaction
+      // Block all other interaction (including when target element isn't found)
       e.preventDefault();
       e.stopPropagation();
     };

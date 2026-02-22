@@ -144,13 +144,9 @@ function OnboardingGate({ children }: { children: ReactNode }) {
   const { active, start } = useTourStore();
 
   useEffect(() => {
-    // Start tour for new users who haven't completed onboarding
+    // Force tour for users who haven't completed onboarding — no escape
     if (user && !user.onboardingCompleted && !active) {
-      // Only start if tour hasn't been skipped or completed before
-      const raw = localStorage.getItem('optic_tour_state');
-      if (!raw) {
-        start();
-      }
+      start();
     }
   }, [user, active, start]);
 

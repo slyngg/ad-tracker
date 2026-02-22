@@ -140,9 +140,14 @@ export const useTourStore = create<TourState>((set, get) => ({
   },
 
   skip: () => {
+    // Block skipping until data provider is connected (past the waitForEvent step)
+    const { currentStep } = get();
+    const connectionStepIdx = TOUR_STEPS.findIndex(s => s.waitForEvent);
+    if (connectionStepIdx >= 0 && currentStep <= connectionStepIdx) return;
     const s = { active: false, currentStep: 0, skipped: true };
     persist(s);
     set(s);
+    callOnboardingComplete(); // Mark onboarding done so tour doesn't restart
   },
 
   complete: () => {
