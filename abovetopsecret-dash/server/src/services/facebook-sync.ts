@@ -118,16 +118,59 @@ async function getAccessToken(userId?: number): Promise<string | undefined> {
   return getSetting('fb_access_token', userId);
 }
 
+/**
+ * Auto-discover all ad accounts accessible by the current token.
+ * Returns array of account IDs like ['act_123456', 'act_789012'].
+ */
+async function discoverAdAccounts(accessToken: string): Promise<string[]> {
+  const accounts: string[] = [];
+  let url: string | undefined = `https://graph.facebook.com/v21.0/me/adaccounts?fields=account_id,name,account_status&limit=100&access_token=${accessToken}`;
+
+  while (url) {
+    const response = await fetchJSON(url);
+    if (response.data) {
+      for (const acct of response.data) {
+        // account_status: 1 = ACTIVE, 2 = DISABLED, 3 = UNSETTLED, etc.
+        if (acct.account_id) {
+          accounts.push(`act_${acct.account_id}`);
+          console.log(`[Meta Sync] Discovered ad account: act_${acct.account_id} (${acct.name || 'unnamed'}, status=${acct.account_status})`);
+        }
+      }
+    }
+    url = response.paging?.next;
+  }
+
+  return accounts;
+}
+
 export async function syncFacebook(userId?: number): Promise<{ synced: number; accounts: number; skipped: boolean }> {
   const accessToken = await getAccessToken(userId);
-  const accountIds = await getSetting('fb_ad_account_ids', userId);
 
-  if (!accessToken || !accountIds) {
-    console.warn('[Meta Sync] Access token or ad account IDs not set, skipping sync');
+  if (!accessToken) {
+    console.warn('[Meta Sync] No access token available, skipping sync');
     return { synced: 0, accounts: 0, skipped: true };
   }
 
-  const accounts = accountIds.split(',').map((id) => id.trim()).filter(Boolean);
+  // Try manual account IDs first, fall back to auto-discovery from token
+  const manualIds = await getSetting('fb_ad_account_ids', userId);
+  let accounts: string[];
+
+  if (manualIds) {
+    accounts = manualIds.split(',').map((id) => id.trim()).filter(Boolean);
+  } else {
+    // Auto-discover all ad accounts the token has access to
+    try {
+      accounts = await discoverAdAccounts(accessToken);
+      if (accounts.length === 0) {
+        console.warn('[Meta Sync] Token has no accessible ad accounts');
+        return { synced: 0, accounts: 0, skipped: true };
+      }
+      console.log(`[Meta Sync] Auto-discovered ${accounts.length} ad account(s)`);
+    } catch (err) {
+      console.error('[Meta Sync] Failed to discover ad accounts:', err);
+      return { synced: 0, accounts: 0, skipped: true };
+    }
+  }
   let totalSynced = 0;
 
   for (const accountId of accounts) {
@@ -295,13 +338,24 @@ function getVideoActionValue(actions?: FBAction[]): number {
 // Sync ad-level creatives from Facebook
 export async function syncFacebookCreatives(userId?: number): Promise<{ synced: number; metrics: number; skipped: boolean }> {
   const accessToken = await getAccessToken(userId);
-  const accountIds = await getSetting('fb_ad_account_ids', userId);
 
-  if (!accessToken || !accountIds) {
+  if (!accessToken) {
     return { synced: 0, metrics: 0, skipped: true };
   }
 
-  const accounts = accountIds.split(',').map((id) => id.trim()).filter(Boolean);
+  const manualIds = await getSetting('fb_ad_account_ids', userId);
+  let accounts: string[];
+
+  if (manualIds) {
+    accounts = manualIds.split(',').map((id) => id.trim()).filter(Boolean);
+  } else {
+    try {
+      accounts = await discoverAdAccounts(accessToken);
+      if (accounts.length === 0) return { synced: 0, metrics: 0, skipped: true };
+    } catch {
+      return { synced: 0, metrics: 0, skipped: true };
+    }
+  }
   let totalSynced = 0;
   let totalMetrics = 0;
 
