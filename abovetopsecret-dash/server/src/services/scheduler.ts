@@ -5,6 +5,7 @@ import { syncAllCCData } from './cc-sync';
 import { syncGA4Data } from './ga4-sync';
 import { syncShopifyProducts, syncShopifyCustomers } from './shopify-sync';
 import { syncTikTokAds } from './tiktok-sync';
+import { syncNewsBreakAds } from './newsbreak-sync';
 import { syncAllKlaviyoData } from './klaviyo-sync';
 import { syncFollowedBrands } from './ad-library';
 import { getSetting } from './settings';
@@ -39,6 +40,7 @@ const LOCK_CC_FULL_SYNC = 100007;
 const LOCK_SHOPIFY_SYNC = 100008;
 const LOCK_TIKTOK_SYNC = 100009;
 const LOCK_KLAVIYO_SYNC = 100010;
+const LOCK_NEWSBREAK_SYNC = 100012;
 
 async function withAdvisoryLock(
   lockId: number,
@@ -197,11 +199,25 @@ export function startScheduler(): void {
               ON CONFLICT DO NOTHING
             `, [userId]);
 
+            await pool.query(`
+              INSERT INTO newsbreak_ads_archive (archived_date, ad_data, user_id, account_id)
+              SELECT
+                (NOW() AT TIME ZONE COALESCE(u.timezone, 'UTC'))::DATE - 1,
+                row_to_json(n)::jsonb,
+                n.user_id,
+                n.account_id
+              FROM newsbreak_ads_today n
+              JOIN users u ON u.id = n.user_id
+              WHERE n.user_id = $1
+              ON CONFLICT DO NOTHING
+            `, [userId]);
+
             // Delete archived data from _today tables for this user
             await pool.query('DELETE FROM fb_ads_today WHERE user_id = $1', [userId]);
             await pool.query('DELETE FROM cc_orders_today WHERE user_id = $1', [userId]);
             await pool.query('DELETE FROM cc_upsells_today WHERE user_id = $1', [userId]);
             await pool.query('DELETE FROM tiktok_ads_today WHERE user_id = $1', [userId]);
+            await pool.query('DELETE FROM newsbreak_ads_today WHERE user_id = $1', [userId]);
 
             console.log(`[Scheduler] Daily reset complete for user ${userId}`);
           } catch (err) {
@@ -229,10 +245,16 @@ export function startScheduler(): void {
               FROM tiktok_ads_today WHERE user_id IS NULL
               ON CONFLICT DO NOTHING;
 
+              INSERT INTO newsbreak_ads_archive (archived_date, ad_data, user_id)
+              SELECT CURRENT_DATE, row_to_json(newsbreak_ads_today)::jsonb, user_id
+              FROM newsbreak_ads_today WHERE user_id IS NULL
+              ON CONFLICT DO NOTHING;
+
               DELETE FROM fb_ads_today WHERE user_id IS NULL;
               DELETE FROM cc_orders_today WHERE user_id IS NULL;
               DELETE FROM cc_upsells_today WHERE user_id IS NULL;
               DELETE FROM tiktok_ads_today WHERE user_id IS NULL;
+              DELETE FROM newsbreak_ads_today WHERE user_id IS NULL;
             `);
             console.log('[Scheduler] Legacy (null user_id) daily reset complete');
           } catch (err) {
@@ -274,9 +296,9 @@ export function startScheduler(): void {
     });
   });
 
-  // OAuth token refresh every 6 hours
+  // OAuth token refresh every hour (catches short-lived Google/TikTok tokens)
   const LOCK_TOKEN_REFRESH = 100005;
-  cron.schedule('0 */6 * * *', async () => {
+  cron.schedule('0 * * * *', async () => {
     await withAdvisoryLock(LOCK_TOKEN_REFRESH, 'OAuth token refresh', async () => {
       console.log('[Scheduler] Running OAuth token refresh...');
       try {
@@ -386,6 +408,30 @@ export function startScheduler(): void {
     });
   });
 
+  // NewsBreak Ads sync every 15 minutes (offset from other syncs)
+  cron.schedule('7,22,37,52 * * * *', async () => {
+    await withAdvisoryLock(LOCK_NEWSBREAK_SYNC, 'NewsBreak Ads sync', async () => {
+      console.log('[Scheduler] Running NewsBreak Ads sync...');
+      try {
+        const userIds = await getActiveUserIds();
+        for (const userId of userIds) {
+          try {
+            const result = await syncNewsBreakAds(userId);
+            if (!result.skipped && result.synced > 0) {
+              console.log(`[Scheduler] NewsBreak sync for user ${userId}: ${result.synced} ad rows`);
+              await evaluateRules(userId);
+              getRealtime()?.emitMetricsUpdate(userId);
+            }
+          } catch (err) {
+            console.error(`[Scheduler] NewsBreak sync failed for user ${userId}:`, err);
+          }
+        }
+      } catch (err) {
+        console.error('[Scheduler] NewsBreak Ads sync failed:', err);
+      }
+    });
+  });
+
   // Klaviyo sync every 2 hours
   cron.schedule('15 */2 * * *', async () => {
     await withAdvisoryLock(LOCK_KLAVIYO_SYNC, 'Klaviyo sync', async () => {
@@ -435,5 +481,5 @@ export function startScheduler(): void {
     });
   });
 
-  console.log('[Scheduler] Cron jobs registered: Meta Ads (*/10), CC poll (* * *), GA4 (3,18,33,48), CC full sync (0 */4), Creative (5,35), Daily reset (0 *), OAuth refresh (0 */6), Shopify (30 */6), TikTok (*/10), Klaviyo (15 */2), Ad Library (45 */2)');
+  console.log('[Scheduler] Cron jobs registered: Meta Ads (*/10), CC poll (* * *), GA4 (3,18,33,48), CC full sync (0 */4), Creative (5,35), Daily reset (0 *), OAuth refresh (0 *), Shopify (30 */6), TikTok (*/10), NewsBreak (7,22,37,52), Klaviyo (15 */2), Ad Library (45 */2)');
 }

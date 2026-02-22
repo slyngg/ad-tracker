@@ -2,15 +2,15 @@ import pool from '../db';
 import { getProvider, decrypt, encrypt } from './oauth-providers';
 
 /**
- * Refresh OAuth tokens that expire within the next 7 days.
- * Called by the scheduler every 6 hours.
+ * Refresh OAuth tokens that are expired or expire within the next 7 days.
+ * Called by the scheduler every hour.
  */
 export async function refreshOAuthTokens(): Promise<{ refreshed: number; failed: number }> {
   const result = await pool.query(`
-    SELECT id, user_id, platform, refresh_token_encrypted, credentials
+    SELECT id, user_id, platform, refresh_token_encrypted, credentials, token_expires_at
     FROM integration_configs
     WHERE connection_method = 'oauth'
-      AND status = 'connected'
+      AND status IN ('connected')
       AND token_expires_at IS NOT NULL
       AND token_expires_at < NOW() + INTERVAL '7 days'
   `);
@@ -52,7 +52,8 @@ export async function refreshOAuthTokens(): Promise<{ refreshed: number; failed:
       `, [JSON.stringify(encryptedAccess), encryptedRefresh, expiresAt, row.id]);
 
       refreshed++;
-      console.log(`[OAuth Refresh] Refreshed token for ${row.platform} (user ${row.user_id})`);
+      const wasExpired = row.token_expires_at && new Date(row.token_expires_at) < new Date();
+      console.log(`[OAuth Refresh] ${wasExpired ? 'Recovered expired' : 'Refreshed'} token for ${row.platform} (user ${row.user_id}), new expiry: ${expiresAt?.toISOString() || 'unknown'}`);
     } catch (err: any) {
       failed++;
       console.error(`[OAuth Refresh] Failed for ${row.platform} (user ${row.user_id}):`, err.message);
