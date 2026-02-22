@@ -248,13 +248,22 @@ router.get('/status', authMiddleware, async (req: Request, res: Response) => {
     const statusMap = OAUTH_PLATFORMS.map(platform => {
       const row = result.rows.find(r => r.platform === platform);
       if (!row) return { platform, status: 'disconnected', connectionMethod: 'none' };
+
+      // If the token has expired, report as expired (not connected)
+      let status = row.status;
+      let error = row.error_message;
+      if (status === 'connected' && row.token_expires_at && new Date(row.token_expires_at) < new Date()) {
+        status = 'expired';
+        error = error || 'Token expired — please reconnect';
+      }
+
       return {
         platform: row.platform,
-        status: row.status,
+        status,
         connectionMethod: row.connection_method || 'manual',
         tokenExpiresAt: row.token_expires_at,
         scopes: row.scopes,
-        error: row.error_message,
+        error,
         updatedAt: row.updated_at,
       };
     });

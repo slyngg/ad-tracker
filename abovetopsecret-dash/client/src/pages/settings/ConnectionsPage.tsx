@@ -97,8 +97,11 @@ export default function ConnectionsPage() {
     const s = oauthFor(platform);
     return s?.status === 'connected' && s.connectionMethod === 'oauth';
   };
+  const isExpired = (platform: string) => oauthFor(platform)?.status === 'expired';
   const isAnyConnected = (platform: string) => {
-    if (oauthFor(platform)?.status === 'connected') return true;
+    const oauth = oauthFor(platform);
+    if (oauth?.status === 'connected') return true;
+    if (oauth?.status === 'expired') return false;
     if (platform === 'meta') return !!(settings.fb_access_token && settings.fb_ad_account_ids);
     if (platform === 'google') return !!settings.ga4_property_id;
     if (platform === 'shopify') return !!settings.shopify_webhook_secret;
@@ -178,11 +181,23 @@ export default function ConnectionsPage() {
 
   const statusDot = (platform: string) => {
     const connected = isAnyConnected(platform);
+    const expired = isExpired(platform);
     const oauth = oauthFor(platform);
+
+    if (expired) {
+      return (
+        <span className="flex items-center gap-1">
+          <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
+          <span className="text-[10px] text-red-400">Expired — reconnect</span>
+        </span>
+      );
+    }
+
     if (connected && oauth?.tokenExpiresAt) {
       const days = Math.ceil((new Date(oauth.tokenExpiresAt).getTime() - Date.now()) / 86400000);
       if (days <= 7) return <span className="text-[10px] text-amber-400 whitespace-nowrap">Expiring {days}d</span>;
     }
+
     return (
       <span className="flex items-center gap-1">
         <span className={`w-1.5 h-1.5 rounded-full ${connected ? 'bg-emerald-500' : 'bg-gray-600'}`} />
@@ -209,7 +224,7 @@ export default function ConnectionsPage() {
         <div className="flex items-center gap-3 flex-wrap text-xs text-ats-text-muted">
           {PLATFORMS.map(p => (
             <span key={p.key} className="flex items-center gap-1">
-              <span className={`w-1.5 h-1.5 rounded-full ${isAnyConnected(p.oauthPlatform || p.key) ? 'bg-emerald-500' : 'bg-gray-600'}`} />
+              <span className={`w-1.5 h-1.5 rounded-full ${isAnyConnected(p.oauthPlatform || p.key) ? 'bg-emerald-500' : isExpired(p.oauthPlatform || p.key) ? 'bg-red-500' : 'bg-gray-600'}`} />
               {p.key === 'checkoutchamp' ? 'CC' : p.key.charAt(0).toUpperCase() + p.key.slice(1)}
             </span>
           ))}
@@ -222,6 +237,7 @@ export default function ConnectionsPage() {
         {PLATFORMS.map((platform, platformIdx) => {
           const platformKey = platform.oauthPlatform || platform.key;
           const connected = isAnyConnected(platformKey);
+          const expired = isExpired(platformKey);
           const oauthConnected = platform.oauthPlatform ? isOAuthConnected(platform.oauthPlatform) : false;
           const oauth = platform.oauthPlatform ? oauthFor(platform.oauthPlatform) : undefined;
           const isExpanded = expanded[platform.key] || false;
@@ -229,7 +245,7 @@ export default function ConnectionsPage() {
 
           return (
             <div key={platform.key} data-tour={platformIdx === 0 ? 'platform-card-first' : undefined} className={`rounded-xl border transition-all ${
-              connected ? 'bg-ats-card border-emerald-800/30' : 'bg-ats-card border-ats-border'
+              expired ? 'bg-ats-card border-red-900/40' : connected ? 'bg-ats-card border-emerald-800/30' : 'bg-ats-card border-ats-border'
             }`}>
               {/* Header */}
               <div className="px-3 py-3 sm:px-4 sm:py-4">
@@ -258,7 +274,7 @@ export default function ConnectionsPage() {
 
                 {/* Action buttons */}
                 <div className="mt-3 flex items-center gap-2 flex-wrap">
-                  {connected ? (
+                  {connected && !expired ? (
                     <>
                       {hasManual && (
                         <button onClick={() => toggle(platform.key)} className={btnSecondary}>
