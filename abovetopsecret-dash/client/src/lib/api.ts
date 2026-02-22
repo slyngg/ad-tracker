@@ -472,6 +472,10 @@ export function testCCConnection(): Promise<{ success: boolean; error?: string; 
   return request('/settings/test/checkout-champ', { method: 'POST' });
 }
 
+export function testNewsBreakConnection(): Promise<{ success: boolean; error?: string; message?: string }> {
+  return request('/settings/test/newsbreak', { method: 'POST' });
+}
+
 // --- Analytics API ---
 export function fetchTimeseries(period?: string): Promise<TimeseriesPoint[]> {
   const params = new URLSearchParams();

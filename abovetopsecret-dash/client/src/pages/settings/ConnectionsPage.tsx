@@ -4,6 +4,7 @@ import {
   updateSettings,
   testFacebookConnection,
   testCCConnection,
+  testNewsBreakConnection,
   fetchWebhookTokens,
   createWebhookToken,
   revokeWebhookToken,
@@ -25,7 +26,7 @@ interface PlatformDef {
   iconBg: string;
   description: string;
   oauthPlatform?: string;
-  manualFields?: 'meta' | 'google' | 'shopify' | 'checkoutchamp';
+  manualFields?: 'meta' | 'google' | 'shopify' | 'checkoutchamp' | 'newsbreak';
 }
 
 const PLATFORMS: PlatformDef[] = [
@@ -35,6 +36,7 @@ const PLATFORMS: PlatformDef[] = [
   { key: 'tiktok', label: 'TikTok Ads', icon: 'T', iconBg: 'bg-pink-600', description: 'Connect for campaign performance and spend data.', oauthPlatform: 'tiktok' },
   { key: 'klaviyo', label: 'Klaviyo', icon: 'K', iconBg: 'bg-purple-600', description: 'Connect for email list metrics, campaign performance, and customer profiles.', oauthPlatform: 'klaviyo' },
   { key: 'checkoutchamp', label: 'CheckoutChamp', icon: 'C', iconBg: 'bg-indigo-600', description: 'Add the webhook URL as a postback in your CC campaign settings, or enter API credentials for polling.', manualFields: 'checkoutchamp' },
+  { key: 'newsbreak', label: 'NewsBreak Ads', icon: 'N', iconBg: 'bg-orange-600', description: 'Connect for campaign performance, ad spend, and conversion data.', manualFields: 'newsbreak' },
 ];
 
 export default function ConnectionsPage() {
@@ -55,10 +57,15 @@ export default function ConnectionsPage() {
   const [shopifySecret, setShopifySecret] = useState('');
   const [shopifyStoreUrl, setShopifyStoreUrl] = useState('');
 
+  const [nbApiKey, setNbApiKey] = useState('');
+  const [nbAccountId, setNbAccountId] = useState('');
+
   const [fbTestStatus, setFbTestStatus] = useState<StatusType>('idle');
   const [fbTestMessage, setFbTestMessage] = useState('');
   const [ccTestStatus, setCcTestStatus] = useState<StatusType>('idle');
   const [ccTestMessage, setCcTestMessage] = useState('');
+  const [nbTestStatus, setNbTestStatus] = useState<StatusType>('idle');
+  const [nbTestMessage, setNbTestMessage] = useState('');
 
   // OAuth + UI state
   const [oauthStatuses, setOauthStatuses] = useState<OAuthStatus[]>([]);
@@ -83,6 +90,7 @@ export default function ConnectionsPage() {
       setCcPollEnabled(s.cc_poll_enabled !== 'false');
       setShopifyStoreUrl(s.shopify_store_url || '');
       setGa4PropertyId(s.ga4_property_id || '');
+      setNbAccountId(s.newsbreak_account_id || '');
     } catch {}
   }, []);
   const loadTokens = useCallback(async () => {
@@ -106,6 +114,7 @@ export default function ConnectionsPage() {
     if (platform === 'google') return !!settings.ga4_property_id;
     if (platform === 'shopify') return !!settings.shopify_webhook_secret;
     if (platform === 'checkoutchamp') return !!(settings.cc_login_id && settings.cc_password);
+    if (platform === 'newsbreak') return !!(settings.newsbreak_api_key && settings.newsbreak_account_id);
     return false;
   };
   const toggle = (key: string) => setExpanded(p => ({ ...p, [key]: !p[key] }));
@@ -131,9 +140,11 @@ export default function ConnectionsPage() {
       data.cc_poll_enabled = ccPollEnabled ? 'true' : 'false';
       if (shopifySecret) data.shopify_webhook_secret = shopifySecret;
       if (shopifyStoreUrl) data.shopify_store_url = shopifyStoreUrl;
+      if (nbApiKey) data.newsbreak_api_key = nbApiKey;
+      if (nbAccountId) data.newsbreak_account_id = nbAccountId;
       const updated = await updateSettings(data);
       setSettings(updated);
-      setFbToken(''); setCcLoginId(''); setCcPassword(''); setCcWebhookSecret(''); setShopifySecret('');
+      setFbToken(''); setCcLoginId(''); setCcPassword(''); setCcWebhookSecret(''); setShopifySecret(''); setNbApiKey('');
       flash('Settings saved', 'success');
     } catch { flash('Failed to save', 'error'); }
     finally { setSaving(false); }
@@ -160,6 +171,15 @@ export default function ConnectionsPage() {
       setCcTestStatus(r.success ? 'success' : 'error');
       setCcTestMessage(r.success ? (r.message || 'Connected') : (r.error || 'Failed'));
     } catch { setCcTestStatus('error'); setCcTestMessage('Connection failed'); }
+  };
+
+  const handleTestNB = async () => {
+    setNbTestStatus('testing');
+    try {
+      const r = await testNewsBreakConnection();
+      setNbTestStatus(r.success ? 'success' : 'error');
+      setNbTestMessage(r.success ? (r.message || 'Connected') : (r.error || 'Failed'));
+    } catch { setNbTestStatus('error'); setNbTestMessage('Connection failed'); }
   };
 
   const handleCreateToken = async () => {
@@ -420,6 +440,29 @@ export default function ConnectionsPage() {
                           {ccTestStatus === 'testing' ? 'Testing...' : 'Test API Connection'}
                         </button>
                         {ccTestMessage && <span className={`text-xs ${ccTestStatus === 'success' ? 'text-emerald-400' : 'text-red-400'}`}>{ccTestMessage}</span>}
+                      </div>
+                    </>
+                  )}
+
+                  {/* NewsBreak */}
+                  {platform.manualFields === 'newsbreak' && (
+                    <>
+                      <div>
+                        <label className={labelCls}>API Key</label>
+                        <input type="password" value={nbApiKey} onChange={e => setNbApiKey(e.target.value)}
+                          placeholder={settings.newsbreak_api_key || 'Enter your NewsBreak API key'} className={inputCls} />
+                        <div className="text-[10px] text-ats-text-muted mt-0.5">From Ad Manager &gt; Resources &gt; API Access Tokens</div>
+                      </div>
+                      <div>
+                        <label className={labelCls}>Account ID</label>
+                        <input type="text" value={nbAccountId} onChange={e => setNbAccountId(e.target.value)}
+                          placeholder={settings.newsbreak_account_id || 'Your advertiser/account ID'} className={inputCls} />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button onClick={handleTestNB} className={btnSecondary}>
+                          {nbTestStatus === 'testing' ? 'Testing...' : 'Test Connection'}
+                        </button>
+                        {nbTestMessage && <span className={`text-xs ${nbTestStatus === 'success' ? 'text-emerald-400' : 'text-red-400'}`}>{nbTestMessage}</span>}
                       </div>
                     </>
                   )}

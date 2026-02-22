@@ -7,6 +7,7 @@ const SENSITIVE_KEYS = [
   'cc_webhook_secret',
   'shopify_webhook_secret',
   'auth_token',
+  'newsbreak_api_key',
 ];
 
 // Environment variable fallback mapping
@@ -18,6 +19,8 @@ const ENV_FALLBACKS: Record<string, string> = {
   cc_webhook_secret: 'CC_WEBHOOK_SECRET',
   shopify_webhook_secret: 'SHOPIFY_WEBHOOK_SECRET',
   auth_token: 'AUTH_TOKEN',
+  newsbreak_api_key: 'NEWSBREAK_API_KEY',
+  newsbreak_account_id: 'NEWSBREAK_ACCOUNT_ID',
 };
 
 export async function getSetting(key: string, userId?: number | null): Promise<string | undefined> {

@@ -113,4 +113,69 @@ router.post('/test/checkout-champ', async (req: Request, res: Response) => {
   }
 });
 
+// POST /api/settings/test/newsbreak — test NewsBreak API connection
+router.post('/test/newsbreak', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user?.id as number | undefined;
+    const apiKey = await getSetting('newsbreak_api_key', userId);
+    const accountId = await getSetting('newsbreak_account_id', userId);
+
+    if (!apiKey) {
+      res.json({ success: false, error: 'No NewsBreak API key configured' });
+      return;
+    }
+    if (!accountId) {
+      res.json({ success: false, error: 'No NewsBreak Account ID configured' });
+      return;
+    }
+
+    // Test with a minimal report request for today
+    const today = new Date().toISOString().split('T')[0];
+    const postData = JSON.stringify({
+      advertiser_id: accountId,
+      start_date: today,
+      end_date: today,
+      group_by: ['ad_id'],
+      page: 1,
+      page_size: 1,
+    });
+
+    const result = await new Promise<any>((resolve, reject) => {
+      const options = {
+        hostname: 'business.newsbreak.com',
+        path: '/business-api/v1/reports/getIntegratedReport',
+        method: 'POST',
+        headers: {
+          'access_token': apiKey,
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(postData),
+          'Accept': 'application/json',
+        },
+      };
+
+      const request = https.request(options, (response) => {
+        let data = '';
+        response.on('data', (chunk) => (data += chunk));
+        response.on('end', () => {
+          try { resolve(JSON.parse(data)); } catch (e) { reject(e); }
+        });
+        response.on('error', reject);
+      });
+      request.setTimeout(15_000, () => request.destroy(new Error('Request timeout')));
+      request.on('error', reject);
+      request.write(postData);
+      request.end();
+    });
+
+    if (result.code === 0 || result.code === 200) {
+      res.json({ success: true, message: 'Connected to NewsBreak API' });
+    } else {
+      res.json({ success: false, error: result.message || 'API returned an error' });
+    }
+  } catch (err) {
+    console.error('Error testing NewsBreak connection:', err);
+    res.json({ success: false, error: 'Connection failed' });
+  }
+});
+
 export default router;

@@ -12,6 +12,7 @@ import { syncShopifyProducts, syncShopifyCustomers } from './shopify-sync';
 import { syncTikTokAds } from './tiktok-sync';
 import { syncAllKlaviyoData } from './klaviyo-sync';
 import { syncAllCCData } from './cc-sync';
+import { syncNewsBreakAds } from './newsbreak-sync';
 import { getRealtime } from './realtime';
 import { evaluateRules } from './rules-engine';
 import { tagUntaggedCreatives } from './creative-tagger';
@@ -20,7 +21,7 @@ import { createLogger } from '../lib/logger';
 
 const log = createLogger('ImmediateSync');
 
-export type SyncPlatform = 'meta' | 'google' | 'shopify' | 'tiktok' | 'klaviyo' | 'checkoutChamp';
+export type SyncPlatform = 'meta' | 'google' | 'shopify' | 'tiktok' | 'klaviyo' | 'checkoutChamp' | 'newsbreak';
 
 interface SyncResult {
   platform: SyncPlatform;
@@ -163,6 +164,15 @@ async function runPlatformSync(
           success: true,
           detail: `${result.orders} orders, ${result.purchases} purchases`,
         };
+      }
+
+      case 'newsbreak': {
+        const result = await syncNewsBreakAds(userId);
+        if (!result.skipped && result.synced > 0) {
+          await evaluateRules(userId);
+        }
+        emitPlatformDone(userId, platform);
+        return { success: !result.skipped, detail: `${result.synced} ad rows synced` };
       }
 
       default:

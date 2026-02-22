@@ -13,6 +13,10 @@ export default function TourTooltip({ targetRect }: TourTooltipProps) {
   const isFirst = currentStep === 0;
   const isLast = currentStep === total - 1;
 
+  // Only allow skipping after the data provider connection step is completed
+  const connectionStepIdx = TOUR_STEPS.findIndex(s => s.waitForEvent);
+  const canSkip = connectionStepIdx < 0 || currentStep > connectionStepIdx;
+
   const vw = window.innerWidth;
   const vh = window.innerHeight;
   const isMobile = vw < 640;
@@ -30,12 +34,14 @@ export default function TourTooltip({ targetRect }: TourTooltipProps) {
             <span className="text-[11px] text-ats-text-muted font-mono uppercase tracking-widest">
               Step {currentStep + 1} of {total}
             </span>
-            <button
-              onClick={skip}
-              className="text-xs text-ats-text-muted hover:text-ats-text transition-colors min-h-[44px] flex items-center px-2 -mr-2"
-            >
-              Skip tour
-            </button>
+            {canSkip && (
+              <button
+                onClick={skip}
+                className="text-xs text-ats-text-muted hover:text-ats-text transition-colors min-h-[44px] flex items-center px-2 -mr-2"
+              >
+                Skip tour
+              </button>
+            )}
           </div>
 
           <h3 className="text-base font-bold text-ats-text mb-1">{step.title}</h3>
@@ -113,12 +119,14 @@ export default function TourTooltip({ targetRect }: TourTooltipProps) {
           <span className="text-[10px] text-ats-text-muted font-mono uppercase tracking-widest">
             Step {currentStep + 1} of {total}
           </span>
-          <button
-            onClick={skip}
-            className="text-xs text-ats-text-muted hover:text-ats-text transition-colors min-h-[36px] flex items-center px-1"
-          >
-            Skip tour
-          </button>
+          {canSkip && (
+            <button
+              onClick={skip}
+              className="text-xs text-ats-text-muted hover:text-ats-text transition-colors min-h-[36px] flex items-center px-1"
+            >
+              Skip tour
+            </button>
+          )}
         </div>
 
         <h3 className="text-sm font-bold text-ats-text mb-1">{step.title}</h3>

@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import pool from '../db';
 
-const SUPPORTED_PLATFORMS = ['meta', 'google', 'shopify', 'tiktok', 'klaviyo', 'google_ads', 'google_search_console', 'tiktok_ads', 'ga4'];
+const SUPPORTED_PLATFORMS = ['meta', 'google', 'shopify', 'tiktok', 'klaviyo', 'google_ads', 'google_search_console', 'tiktok_ads', 'ga4', 'newsbreak'];
 
 const router = Router();
 
