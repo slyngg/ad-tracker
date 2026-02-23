@@ -20,14 +20,14 @@ export default function TourTooltip({ targetRect }: TourTooltipProps) {
 
   const vw = window.innerWidth;
   const vh = window.innerHeight;
-  const isMobile = vw < 640;
+  const isMobile = vw < 1024;
 
-  // On mobile: full-width bottom sheet. On desktop: floating tooltip near target.
+  // On mobile: full-width bottom sheet above the tab bar. On desktop: floating tooltip near target.
   if (isMobile) {
     return (
       <div
-        className="fixed left-0 right-0 bottom-0 z-[10002] animate-in fade-in slide-in-from-bottom-4 duration-200"
-        style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
+        className="fixed left-0 right-0 z-[10002] animate-in fade-in slide-in-from-bottom-4 duration-200"
+        style={{ bottom: 'calc(56px + env(safe-area-inset-bottom, 0px))' }}
       >
         <div className="bg-ats-card border-t border-ats-border rounded-t-2xl shadow-2xl px-5 pt-4 pb-5">
           {/* Step counter + skip */}

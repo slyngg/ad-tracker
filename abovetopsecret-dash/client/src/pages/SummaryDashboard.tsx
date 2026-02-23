@@ -166,7 +166,7 @@ export default function SummaryDashboard() {
     return favorites.map(f => ({ ...f, ...(metricMap[f.metric_key] || { value: 0, format: fmt.num }) }));
   }, [summary, favorites, profit]);
 
-  const cardCls = 'bg-ats-card rounded-xl p-4 border border-ats-border';
+  const cardCls = 'bg-ats-card rounded-xl p-3 sm:p-4 border border-ats-border';
 
   const hasRealData = !!(summary && (summary.total_spend > 0 || summary.total_revenue > 0 || summary.total_conversions > 0));
 
@@ -219,7 +219,7 @@ export default function SummaryDashboard() {
             <div key={pm.id} className="bg-ats-accent/10 border border-ats-accent/30 rounded-lg px-4 py-2 min-w-[120px] flex-shrink-0 relative group">
               <button onClick={() => togglePin(pm.metric_key, pm.label)} className="absolute top-1 right-1 text-[10px] text-ats-accent opacity-0 group-hover:opacity-100">unpin</button>
               <div className="text-xs sm:text-[10px] text-ats-accent uppercase tracking-wider font-mono">{pm.label}</div>
-              <div className="text-lg font-bold text-ats-text font-mono">{pm.format(pm.value)}</div>
+              <div className="text-sm sm:text-lg font-bold text-ats-text font-mono truncate">{pm.format(pm.value)}</div>
             </div>
           ))}
         </div>
@@ -227,35 +227,35 @@ export default function SummaryDashboard() {
 
       {/* KPI Cards */}
       {summary && (
-        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-6">
+        <div data-tour="summary-cards" className="grid grid-cols-2 lg:grid-cols-5 gap-2 sm:gap-3 mb-6">
           <div className={cardCls}>
             <div className="flex items-center justify-between">
-              <div className="text-xs sm:text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Spend</div>
+              <div className="text-[10px] sm:text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Spend</div>
               <button onClick={() => togglePin('spend', 'Spend')} className={`text-[10px] ${favorites.some(f => f.metric_key === 'spend') ? 'text-ats-accent' : 'text-ats-text-muted hover:text-ats-accent'}`}>📌</button>
             </div>
-            <div className="text-2xl font-bold text-ats-text font-mono"><AnimatedNumber value={summary.total_spend} format={fmt.currency} /></div>
+            <div className="text-base sm:text-2xl font-bold text-ats-text font-mono truncate"><AnimatedNumber value={summary.total_spend} format={fmt.currency} /></div>
             {spendSpark.length > 0 && <div className="mt-2"><MetricSparkline data={spendSpark} color="#ef4444" height={28} /></div>}
           </div>
           <div className={cardCls}>
             <div className="flex items-center justify-between">
-              <div className="text-xs sm:text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Revenue</div>
+              <div className="text-[10px] sm:text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Revenue</div>
               <button onClick={() => togglePin('revenue', 'Revenue')} className={`text-[10px] ${favorites.some(f => f.metric_key === 'revenue') ? 'text-ats-accent' : 'text-ats-text-muted hover:text-ats-accent'}`}>📌</button>
             </div>
-            <div className="text-2xl font-bold text-ats-green font-mono"><AnimatedNumber value={summary.total_revenue} format={fmt.currency} /></div>
+            <div className="text-base sm:text-2xl font-bold text-ats-green font-mono truncate"><AnimatedNumber value={summary.total_revenue} format={fmt.currency} /></div>
             {revenueSpark.length > 0 && <div className="mt-2"><MetricSparkline data={revenueSpark} color="#22c55e" height={28} /></div>}
           </div>
           <div className={cardCls}>
-            <div className="text-xs sm:text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">ROAS</div>
-            <div className={`text-2xl font-bold font-mono ${roiColor}`}><AnimatedNumber value={summary.total_roi} format={fmt.ratio} /></div>
+            <div className="text-[10px] sm:text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">ROAS</div>
+            <div className={`text-base sm:text-2xl font-bold font-mono truncate ${roiColor}`}><AnimatedNumber value={summary.total_roi} format={fmt.ratio} /></div>
           </div>
           <div className={cardCls}>
-            <div className="text-xs sm:text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Conversions</div>
-            <div className="text-2xl font-bold text-ats-text font-mono"><AnimatedNumber value={summary.total_conversions} format={fmt.num} /></div>
+            <div className="text-[10px] sm:text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Conversions</div>
+            <div className="text-base sm:text-2xl font-bold text-ats-text font-mono truncate"><AnimatedNumber value={summary.total_conversions} format={fmt.num} /></div>
             {conversionSpark.length > 0 && <div className="mt-2"><MetricSparkline data={conversionSpark} color="#3b82f6" height={28} /></div>}
           </div>
           <div className={cardCls}>
-            <div className="text-xs sm:text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Net Profit</div>
-            <div className={`text-2xl font-bold font-mono ${profitColor}`}><AnimatedNumber value={profit} format={fmt.currency} /></div>
+            <div className="text-[10px] sm:text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Net Profit</div>
+            <div className={`text-base sm:text-2xl font-bold font-mono truncate ${profitColor}`}><AnimatedNumber value={profit} format={fmt.currency} /></div>
           </div>
         </div>
       )}
@@ -310,10 +310,10 @@ export default function SummaryDashboard() {
           </div>
           {ga4 ? (
             <div className="grid grid-cols-2 gap-3">
-              <div><div className="text-xs sm:text-[10px] text-ats-text-muted uppercase font-mono">Sessions</div><div className="text-lg font-bold text-ats-text font-mono">{fmt.num(ga4.sessions)}</div></div>
-              <div><div className="text-xs sm:text-[10px] text-ats-text-muted uppercase font-mono">Pageviews</div><div className="text-lg font-bold text-ats-text font-mono">{fmt.num(ga4.pageviews)}</div></div>
-              <div><div className="text-xs sm:text-[10px] text-ats-text-muted uppercase font-mono">Bounce Rate</div><div className="text-lg font-bold text-ats-text font-mono">{fmt.pctRaw(ga4.bounce_rate)}</div></div>
-              <div><div className="text-xs sm:text-[10px] text-ats-text-muted uppercase font-mono">Avg Duration</div><div className="text-lg font-bold text-ats-text font-mono">{Math.round(ga4.avg_duration)}s</div></div>
+              <div><div className="text-[10px] text-ats-text-muted uppercase font-mono">Sessions</div><div className="text-sm sm:text-lg font-bold text-ats-text font-mono">{fmt.num(ga4.sessions)}</div></div>
+              <div><div className="text-[10px] text-ats-text-muted uppercase font-mono">Pageviews</div><div className="text-sm sm:text-lg font-bold text-ats-text font-mono">{fmt.num(ga4.pageviews)}</div></div>
+              <div><div className="text-[10px] text-ats-text-muted uppercase font-mono">Bounce Rate</div><div className="text-sm sm:text-lg font-bold text-ats-text font-mono">{fmt.pctRaw(ga4.bounce_rate)}</div></div>
+              <div><div className="text-[10px] text-ats-text-muted uppercase font-mono">Avg Duration</div><div className="text-sm sm:text-lg font-bold text-ats-text font-mono">{Math.round(ga4.avg_duration)}s</div></div>
             </div>
           ) : (
             <div className="text-center py-6">

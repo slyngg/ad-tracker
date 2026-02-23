@@ -164,7 +164,7 @@ export default function SyncPreloader({ hasData, loading, children }: SyncPreloa
     return (
       <div className="space-y-6">
         {/* Sync Status Panel */}
-        <div className="bg-ats-card rounded-2xl border border-ats-border p-6 shadow-lg">
+        <div className="bg-ats-card rounded-2xl border border-ats-border p-4 sm:p-6 shadow-lg">
           <div className="flex items-center gap-3 mb-4">
             <div className="relative w-8 h-8">
               <div className="absolute inset-0 rounded-full border-2 border-ats-accent/30" />
@@ -205,7 +205,7 @@ export default function SyncPreloader({ hasData, loading, children }: SyncPreloa
 
         {/* Skeleton Dashboard Preview */}
         <div className="opacity-60">
-          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-6">
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-2 sm:gap-3 mb-6">
             {Array.from({ length: 5 }).map((_, i) => (
               <SkeletonCard key={i} />
             ))}

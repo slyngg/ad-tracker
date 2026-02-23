@@ -37,17 +37,13 @@ export default function TourOverlay() {
     }
   }, [active, step, location.pathname, navigate]);
 
-  // For sidebar-targeted steps on mobile, open the sidebar
+  // For sidebar-targeted steps on desktop, the sidebar is always visible.
+  // Mobile tour steps never target nav- elements (they skip sidebar interaction).
+  // This is a no-op safety check in case desktop tour runs at a narrow viewport.
   useEffect(() => {
     if (!active || !step) return;
-    if (step.target.startsWith('nav-')) {
-      const isMobile = window.innerWidth < 1024;
-      if (isMobile) {
-        // Small delay so route navigation settles before opening sidebar
-        setTimeout(() => {
-          useSidebarStore.getState().setMobileOpen(true);
-        }, 50);
-      }
+    if (step.target.startsWith('nav-') && window.innerWidth >= 1024) {
+      // Sidebar is permanently visible on desktop — no action needed
     }
   }, [active, step]);
 
