@@ -98,7 +98,7 @@ router.get('/data', async (req: Request, res: Response) => {
         COALESCE(a.cpm, 0) AS cpm,
         COALESCE(a.cpc, 0) AS cpc
       FROM ad_metrics a
-      FULL OUTER JOIN order_metrics o ON LOWER(a.source) LIKE '%' || LOWER(COALESCE(o.source, '')) || '%'
+      FULL OUTER JOIN order_metrics o ON LOWER(a.source) = LOWER(o.source)
       ORDER BY spend DESC
     `, params);
 
