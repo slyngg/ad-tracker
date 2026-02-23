@@ -42,7 +42,10 @@ export default function TourOverlay() {
     if (step.target.startsWith('nav-')) {
       const isMobile = window.innerWidth < 1024;
       if (isMobile) {
-        useSidebarStore.getState().setMobileOpen(true);
+        // Small delay so route navigation settles before opening sidebar
+        setTimeout(() => {
+          useSidebarStore.getState().setMobileOpen(true);
+        }, 50);
       }
     }
   }, [active, step]);
@@ -54,12 +57,28 @@ export default function TourOverlay() {
       return;
     }
 
+    let scrolledIntoView = false;
+
     // Poll briefly for the element to appear (route transitions, lazy loading)
     let attempts = 0;
     const poll = setInterval(() => {
       updateRect();
       const el = document.querySelector(`[data-tour="${step.target}"]`);
-      if (el || attempts++ > 20) clearInterval(poll);
+      if (el) {
+        clearInterval(poll);
+        // Scroll the target element into view so it's visible on mobile
+        // (e.g. nav items below the fold inside the scrollable sidebar)
+        if (!scrolledIntoView) {
+          scrolledIntoView = true;
+          // Use a short delay to let sidebar open/expand animations finish
+          setTimeout(() => {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            // Update rect after scroll settles
+            setTimeout(updateRect, 350);
+          }, 100);
+        }
+      }
+      if (attempts++ > 20) clearInterval(poll);
     }, 150);
 
     const handleUpdate = () => {
@@ -105,6 +124,13 @@ export default function TourOverlay() {
           setTimeout(() => next(), 50);
         }
         return;
+      }
+
+      // On mobile, allow scrolling within the sidebar so the user can reach
+      // nav items that are below the fold (e.g. Settings, Connections)
+      if (step.target.startsWith('nav-')) {
+        const sidebar = target.closest('aside');
+        if (sidebar && e.type === 'touchstart') return; // allow touch-scroll in sidebar
       }
 
       // Block all other interaction (including when target element isn't found)
