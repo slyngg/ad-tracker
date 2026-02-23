@@ -62,9 +62,17 @@ async function fetchFullMetrics(userId: number | null): Promise<FullMetrics> {
   const params = userId ? [userId] : [];
 
   const [ads, orders] = await Promise.all([
-    pool.query(`SELECT COALESCE(SUM(spend),0) AS spend, COALESCE(SUM(clicks),0) AS clicks,
-      COALESCE(SUM(impressions),0) AS impressions, COALESCE(SUM(landing_page_views),0) AS lp_views
-      FROM fb_ads_today ${uf}`, params),
+    pool.query(`
+      WITH all_ads AS (
+        SELECT spend, clicks, impressions, landing_page_views AS lp_views FROM fb_ads_today ${uf}
+        UNION ALL
+        SELECT spend, clicks, impressions, 0 AS lp_views FROM tiktok_ads_today ${uf}
+        UNION ALL
+        SELECT spend, clicks, impressions, 0 AS lp_views FROM newsbreak_ads_today ${uf}
+      )
+      SELECT COALESCE(SUM(spend),0) AS spend, COALESCE(SUM(clicks),0) AS clicks,
+      COALESCE(SUM(impressions),0) AS impressions, COALESCE(SUM(lp_views),0) AS lp_views
+      FROM all_ads`, params),
     pool.query(`SELECT COALESCE(SUM(COALESCE(subtotal,revenue)),0) AS revenue,
       COUNT(DISTINCT order_id) AS conversions,
       COUNT(DISTINCT CASE WHEN new_customer THEN order_id END) AS new_customers
@@ -93,12 +101,22 @@ async function fetchCampaignDetail(userId: number | null): Promise<DetailRow[]> 
   const params = userId ? [userId] : [];
 
   const result = await pool.query(`
-    WITH fb AS (
+    WITH all_ads AS (
+      SELECT campaign_name, ad_set_name, ad_name, spend, clicks, impressions, landing_page_views AS lp_views
+      FROM fb_ads_today ${uf}
+      UNION ALL
+      SELECT campaign_name, adgroup_name AS ad_set_name, ad_name, spend, clicks, impressions, 0 AS lp_views
+      FROM tiktok_ads_today ${uf}
+      UNION ALL
+      SELECT campaign_name, adset_name AS ad_set_name, ad_name, spend, clicks, impressions, 0 AS lp_views
+      FROM newsbreak_ads_today ${uf}
+    ),
+    ad_agg AS (
       SELECT campaign_name,
              SUM(spend) AS spend, SUM(clicks) AS clicks,
-             SUM(impressions) AS impressions, SUM(landing_page_views) AS lp_views,
+             SUM(impressions) AS impressions, SUM(lp_views) AS lp_views,
              COUNT(DISTINCT ad_set_name) AS ad_sets, COUNT(DISTINCT ad_name) AS ads
-      FROM fb_ads_today ${uf}
+      FROM all_ads
       GROUP BY campaign_name
     ),
     cc AS (
@@ -109,18 +127,18 @@ async function fetchCampaignDetail(userId: number | null): Promise<DetailRow[]> 
       FROM cc_orders_today WHERE order_status='completed' AND (is_test = false OR is_test IS NULL) ${ufAnd}
       GROUP BY utm_campaign
     )
-    SELECT fb.campaign_name AS label,
-           COALESCE(fb.spend,0)::float AS spend,
+    SELECT ad_agg.campaign_name AS label,
+           COALESCE(ad_agg.spend,0)::float AS spend,
            COALESCE(cc.revenue,0)::float AS revenue,
-           COALESCE(fb.clicks,0)::int AS clicks,
-           COALESCE(fb.impressions,0)::int AS impressions,
-           COALESCE(fb.lp_views,0)::int AS lp_views,
+           COALESCE(ad_agg.clicks,0)::int AS clicks,
+           COALESCE(ad_agg.impressions,0)::int AS impressions,
+           COALESCE(ad_agg.lp_views,0)::int AS lp_views,
            COALESCE(cc.conversions,0)::int AS conversions,
            COALESCE(cc.new_customers,0)::int AS new_customers,
-           COALESCE(fb.ad_sets,0)::int AS ad_sets,
-           COALESCE(fb.ads,0)::int AS ads
-    FROM fb LEFT JOIN cc ON fb.campaign_name = cc.utm_campaign
-    ORDER BY fb.spend DESC LIMIT 8
+           COALESCE(ad_agg.ad_sets,0)::int AS ad_sets,
+           COALESCE(ad_agg.ads,0)::int AS ads
+    FROM ad_agg LEFT JOIN cc ON ad_agg.campaign_name = cc.utm_campaign
+    ORDER BY ad_agg.spend DESC LIMIT 8
   `, params);
 
   return result.rows.map((r: any) => {
@@ -157,24 +175,34 @@ async function fetchOfferDetail(userId: number | null): Promise<DetailRow[]> {
       FROM cc_orders_today WHERE order_status='completed' AND (is_test = false OR is_test IS NULL) ${ufAnd}
       GROUP BY offer_name
     ),
-    fb AS (
-      SELECT ad_set_name,
-             SUM(spend) AS spend, SUM(clicks) AS clicks,
-             SUM(impressions) AS impressions, SUM(landing_page_views) AS lp_views
+    all_ads AS (
+      SELECT ad_set_name AS adset_key, spend, clicks, impressions, landing_page_views AS lp_views
       FROM fb_ads_today ${uf}
-      GROUP BY ad_set_name
+      UNION ALL
+      SELECT adgroup_name AS adset_key, spend, clicks, impressions, 0 AS lp_views
+      FROM tiktok_ads_today ${uf}
+      UNION ALL
+      SELECT adset_name AS adset_key, spend, clicks, impressions, 0 AS lp_views
+      FROM newsbreak_ads_today ${uf}
+    ),
+    ad_agg AS (
+      SELECT adset_key,
+             SUM(spend) AS spend, SUM(clicks) AS clicks,
+             SUM(impressions) AS impressions, SUM(lp_views) AS lp_views
+      FROM all_ads
+      GROUP BY adset_key
     )
     SELECT cc.offer_name AS label,
-           COALESCE(fb.spend,0)::float AS spend,
+           COALESCE(ad_agg.spend,0)::float AS spend,
            cc.revenue::float,
-           COALESCE(fb.clicks,0)::int AS clicks,
-           COALESCE(fb.impressions,0)::int AS impressions,
-           COALESCE(fb.lp_views,0)::int AS lp_views,
+           COALESCE(ad_agg.clicks,0)::int AS clicks,
+           COALESCE(ad_agg.impressions,0)::int AS impressions,
+           COALESCE(ad_agg.lp_views,0)::int AS lp_views,
            cc.conversions::int,
            cc.new_customers::int,
            ROUND(cc.avg_qty::numeric,1) AS avg_qty,
            cc.sources::int
-    FROM cc LEFT JOIN fb ON fb.ad_set_name = cc.offer_name
+    FROM cc LEFT JOIN ad_agg ON ad_agg.adset_key = cc.offer_name
     ORDER BY cc.revenue DESC LIMIT 8
   `, params);
 
@@ -202,17 +230,29 @@ async function fetchAccountDetail(userId: number | null): Promise<DetailRow[]> {
   const params = userId ? [userId] : [];
 
   const result = await pool.query(`
-    WITH fb AS (
+    WITH all_ads AS (
+      SELECT account_name, campaign_name, ad_set_name, ad_name, spend, clicks, impressions, landing_page_views AS lp_views
+      FROM fb_ads_today ${uf}
+      UNION ALL
+      SELECT a.name AS account_name, t.campaign_name, t.adgroup_name AS ad_set_name, t.ad_name, t.spend, t.clicks, t.impressions, 0 AS lp_views
+      FROM tiktok_ads_today t LEFT JOIN accounts a ON a.id = t.account_id
+      ${uf.replace('WHERE', 'WHERE t.')}
+      UNION ALL
+      SELECT a.name AS account_name, n.campaign_name, n.adset_name AS ad_set_name, n.ad_name, n.spend, n.clicks, n.impressions, 0 AS lp_views
+      FROM newsbreak_ads_today n LEFT JOIN accounts a ON a.platform = 'newsbreak' AND a.user_id = n.user_id
+      ${uf.replace('WHERE', 'WHERE n.')}
+    ),
+    ad_agg AS (
       SELECT account_name,
              SUM(spend) AS spend, SUM(clicks) AS clicks,
-             SUM(impressions) AS impressions, SUM(landing_page_views) AS lp_views,
+             SUM(impressions) AS impressions, SUM(lp_views) AS lp_views,
              COUNT(DISTINCT campaign_name) AS campaigns,
              COUNT(DISTINCT ad_set_name) AS ad_sets, COUNT(DISTINCT ad_name) AS ads
-      FROM fb_ads_today ${uf}
+      FROM all_ads
       GROUP BY account_name
     ),
     totals AS (
-      SELECT COALESCE(SUM(spend),0) AS total_spend FROM fb_ads_today ${uf}
+      SELECT COALESCE(SUM(spend),0) AS total_spend FROM all_ads
     ),
     rev AS (
       SELECT COALESCE(SUM(COALESCE(subtotal,revenue)),0) AS total_revenue,
@@ -220,17 +260,17 @@ async function fetchAccountDetail(userId: number | null): Promise<DetailRow[]> {
              COUNT(DISTINCT CASE WHEN new_customer THEN order_id END) AS total_new
       FROM cc_orders_today WHERE order_status='completed' AND (is_test = false OR is_test IS NULL) ${ufAnd}
     )
-    SELECT fb.account_name AS label,
-           fb.spend::float, fb.clicks::int, fb.impressions::int, fb.lp_views::int,
-           fb.campaigns::int, fb.ad_sets::int, fb.ads::int,
+    SELECT ad_agg.account_name AS label,
+           ad_agg.spend::float, ad_agg.clicks::int, ad_agg.impressions::int, ad_agg.lp_views::int,
+           ad_agg.campaigns::int, ad_agg.ad_sets::int, ad_agg.ads::int,
            CASE WHEN totals.total_spend > 0
-             THEN (fb.spend / totals.total_spend * rev.total_revenue) ELSE 0 END::float AS revenue,
+             THEN (ad_agg.spend / totals.total_spend * rev.total_revenue) ELSE 0 END::float AS revenue,
            CASE WHEN totals.total_spend > 0
-             THEN ROUND(fb.spend / totals.total_spend * rev.total_conversions) ELSE 0 END::int AS conversions,
+             THEN ROUND(ad_agg.spend / totals.total_spend * rev.total_conversions) ELSE 0 END::int AS conversions,
            CASE WHEN totals.total_spend > 0
-             THEN ROUND(fb.spend / totals.total_spend * rev.total_new) ELSE 0 END::int AS new_customers
-    FROM fb, totals, rev
-    ORDER BY fb.spend DESC LIMIT 8
+             THEN ROUND(ad_agg.spend / totals.total_spend * rev.total_new) ELSE 0 END::int AS new_customers
+    FROM ad_agg, totals, rev
+    ORDER BY ad_agg.spend DESC LIMIT 8
   `, params);
 
   return result.rows.map((r: any) => {

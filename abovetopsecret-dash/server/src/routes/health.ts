@@ -31,6 +31,7 @@ router.get('/data', async (req: Request, res: Response) => {
       { table: 'fb_ads_today', label: 'Meta Ads', maxAgeMinutes: 20 },
       { table: 'cc_orders_today', label: 'CheckoutChamp Orders', maxAgeMinutes: 5 },
       { table: 'tiktok_ads_today', label: 'TikTok Ads', maxAgeMinutes: 20 },
+      { table: 'newsbreak_ads_today', label: 'NewsBreak Ads', maxAgeMinutes: 20 },
       { table: 'ga4_sessions', label: 'GA4 Sessions', maxAgeMinutes: 30 },
     ];
 
@@ -67,6 +68,7 @@ router.get('/data', async (req: Request, res: Response) => {
       { table: 'fb_ads_today', col: 'spend', label: 'Meta negative spend' },
       { table: 'cc_orders_today', col: 'revenue', label: 'CC negative revenue' },
       { table: 'tiktok_ads_today', col: 'spend', label: 'TikTok negative spend' },
+      { table: 'newsbreak_ads_today', col: 'spend', label: 'NewsBreak negative spend' },
     ];
 
     for (const { table, col, label } of negativeChecks) {
@@ -92,7 +94,10 @@ router.get('/data', async (req: Request, res: Response) => {
         SELECT
           COALESCE(SUM(f.spend), 0) AS total_spend,
           COALESCE(SUM(o.revenue), 0) AS total_revenue
-        FROM (SELECT SUM(spend) AS spend FROM fb_ads_today WHERE ($1::int IS NULL OR user_id = $1)) f,
+        FROM (SELECT
+               (SELECT COALESCE(SUM(spend), 0) FROM fb_ads_today WHERE ($1::int IS NULL OR user_id = $1)) +
+               (SELECT COALESCE(SUM(spend), 0) FROM tiktok_ads_today WHERE ($1::int IS NULL OR user_id = $1)) +
+               (SELECT COALESCE(SUM(spend), 0) FROM newsbreak_ads_today WHERE ($1::int IS NULL OR user_id = $1)) AS spend) f,
              (SELECT SUM(COALESCE(subtotal, revenue)) AS revenue FROM cc_orders_today WHERE order_status = 'completed' AND ($1::int IS NULL OR user_id = $1)) o
       `, [userId || null]);
 

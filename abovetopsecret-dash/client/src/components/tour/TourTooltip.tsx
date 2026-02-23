@@ -1,20 +1,21 @@
-import { TOUR_STEPS, useTourStore } from '../../stores/tourStore';
+import { useTourStore } from '../../stores/tourStore';
 
 interface TourTooltipProps {
   targetRect: DOMRect;
 }
 
 export default function TourTooltip({ targetRect }: TourTooltipProps) {
-  const { currentStep, next, back, skip } = useTourStore();
-  const step = TOUR_STEPS[currentStep];
+  const { currentStep, next, back, skip, getSteps } = useTourStore();
+  const steps = getSteps();
+  const step = steps[currentStep];
   if (!step) return null;
 
-  const total = TOUR_STEPS.length;
+  const total = steps.length;
   const isFirst = currentStep === 0;
   const isLast = currentStep === total - 1;
 
   // Only allow skipping after the data provider connection step is completed
-  const connectionStepIdx = TOUR_STEPS.findIndex(s => s.waitForEvent);
+  const connectionStepIdx = steps.findIndex(s => s.waitForEvent);
   const canSkip = connectionStepIdx < 0 || currentStep > connectionStepIdx;
 
   const vw = window.innerWidth;
@@ -79,7 +80,7 @@ export default function TourTooltip({ targetRect }: TourTooltipProps) {
 
           {/* Progress dots */}
           <div className="flex gap-1.5 justify-center mt-4">
-            {TOUR_STEPS.map((_, i) => (
+            {steps.map((_, i) => (
               <div
                 key={i}
                 className={`w-2 h-2 rounded-full transition-colors ${
@@ -165,7 +166,7 @@ export default function TourTooltip({ targetRect }: TourTooltipProps) {
 
         {/* Progress dots */}
         <div className="flex gap-1 justify-center mt-3">
-          {TOUR_STEPS.map((_, i) => (
+          {steps.map((_, i) => (
             <div
               key={i}
               className={`w-1.5 h-1.5 rounded-full transition-colors ${

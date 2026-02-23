@@ -71,7 +71,7 @@ export default function CreativeAnalysisPage() {
       <div className="flex flex-wrap gap-2">
         <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search..." className="bg-ats-surface border border-ats-border rounded-lg px-3 py-1.5 text-sm text-ats-text" />
         <select value={platform} onChange={e => setPlatform(e.target.value)} className="bg-ats-surface border border-ats-border rounded-lg px-3 py-1.5 text-sm text-ats-text">
-          <option value="all">All Platforms</option><option value="facebook">Meta</option><option value="google">Google</option><option value="tiktok">TikTok</option>
+          <option value="all">All Platforms</option><option value="facebook">Meta</option><option value="google">Google</option><option value="tiktok">TikTok</option><option value="newsbreak">NewsBreak</option>
         </select>
         <select value={type} onChange={e => setType(e.target.value)} className="bg-ats-surface border border-ats-border rounded-lg px-3 py-1.5 text-sm text-ats-text">
           <option value="all">All Types</option><option value="image">Image</option><option value="video">Video</option><option value="carousel">Carousel</option>

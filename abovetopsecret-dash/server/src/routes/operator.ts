@@ -41,7 +41,14 @@ async function getMetricsContext(userId: number | null | undefined): Promise<str
   try {
     const [spendResult, revenueResult, topOffersResult] = await Promise.all([
       pool.query(
-        'SELECT COALESCE(SUM(spend), 0) AS total_spend, COALESCE(SUM(clicks), 0) AS total_clicks, COALESCE(SUM(impressions), 0) AS total_impressions FROM fb_ads_today WHERE user_id = $1',
+        `WITH all_ads AS (
+          SELECT spend, clicks, impressions FROM fb_ads_today WHERE user_id = $1
+          UNION ALL
+          SELECT spend, clicks, impressions FROM tiktok_ads_today WHERE user_id = $1
+          UNION ALL
+          SELECT spend, clicks, impressions FROM newsbreak_ads_today WHERE user_id = $1
+        )
+        SELECT COALESCE(SUM(spend), 0) AS total_spend, COALESCE(SUM(clicks), 0) AS total_clicks, COALESCE(SUM(impressions), 0) AS total_impressions FROM all_ads`,
         [userId || null]
       ),
       pool.query(

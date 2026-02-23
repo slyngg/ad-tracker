@@ -5,7 +5,7 @@ import { validateBody } from '../middleware/validate';
 
 const createAccountSchema = z.object({
   name: z.string().min(1, 'name is required').max(200),
-  platform: z.enum(['meta', 'google', 'tiktok', 'shopify', 'klaviyo', 'checkoutchamp']).default('meta'),
+  platform: z.enum(['meta', 'google', 'tiktok', 'newsbreak', 'shopify', 'klaviyo', 'checkoutchamp']).default('meta'),
   platform_account_id: z.string().max(200).nullish(),
   currency: z.string().length(3).default('USD'),
   timezone: z.string().max(100).default('America/New_York'),
@@ -63,16 +63,26 @@ router.get('/summary', async (req: Request, res: Response) => {
     const userId = req.user?.id;
     const result = await pool.query(
       `SELECT a.id, a.name, a.platform, a.color, a.status,
-        COALESCE(fb.spend, 0) AS spend,
+        COALESCE(ad_spend.spend, 0) + COALESCE(nb.spend, 0) AS spend,
         COALESCE(cc.revenue, 0) AS revenue,
         COALESCE(cc.conversions, 0) AS conversions,
-        CASE WHEN COALESCE(fb.spend, 0) > 0 THEN COALESCE(cc.revenue, 0) / fb.spend ELSE 0 END AS roas
+        CASE WHEN (COALESCE(ad_spend.spend, 0) + COALESCE(nb.spend, 0)) > 0
+          THEN COALESCE(cc.revenue, 0) / (COALESCE(ad_spend.spend, 0) + COALESCE(nb.spend, 0))
+          ELSE 0 END AS roas
        FROM accounts a
        LEFT JOIN (
-         SELECT account_id, SUM(spend) AS spend
-         FROM fb_ads_today WHERE user_id = $1
+         SELECT account_id, SUM(spend) AS spend FROM (
+           SELECT account_id, spend FROM fb_ads_today WHERE user_id = $1
+           UNION ALL
+           SELECT account_id, spend FROM tiktok_ads_today WHERE user_id = $1
+         ) int_ads
          GROUP BY account_id
-       ) fb ON fb.account_id = a.id
+       ) ad_spend ON ad_spend.account_id = a.id
+       LEFT JOIN LATERAL (
+         SELECT SUM(spend) AS spend
+         FROM newsbreak_ads_today
+         WHERE user_id = $1 AND account_id = a.platform_account_id
+       ) nb ON a.platform = 'newsbreak'
        LEFT JOIN (
          SELECT account_id,
            SUM(COALESCE(subtotal, revenue)) AS revenue,

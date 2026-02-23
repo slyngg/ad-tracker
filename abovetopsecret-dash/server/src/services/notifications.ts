@@ -4,7 +4,10 @@ export async function checkThresholds(userId: number): Promise<void> {
   try {
     // Get current metrics
     const adsResult = await pool.query(
-      'SELECT COALESCE(SUM(spend), 0) AS spend FROM fb_ads_today WHERE user_id = $1',
+      `SELECT
+        (SELECT COALESCE(SUM(spend), 0) FROM fb_ads_today WHERE user_id = $1) +
+        (SELECT COALESCE(SUM(spend), 0) FROM tiktok_ads_today WHERE user_id = $1) +
+        (SELECT COALESCE(SUM(spend), 0) FROM newsbreak_ads_today WHERE user_id = $1) AS spend`,
       [userId]
     );
     const ordersResult = await pool.query(

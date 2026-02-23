@@ -21,9 +21,11 @@ CREATE TABLE IF NOT EXISTS newsbreak_ads_today (
   cpa NUMERIC(12,4) DEFAULT 0,
   roas NUMERIC(10,4) DEFAULT 0,
   synced_at TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE (user_id, ad_id)
+  -- No plain UNIQUE(user_id, ad_id) — NULL user_id breaks ON CONFLICT
+  -- Use COALESCE-based expression index instead (see below)
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS uq_newsbreak_ads_user_ad ON newsbreak_ads_today (COALESCE(user_id, -1), ad_id);
 CREATE INDEX IF NOT EXISTS idx_newsbreak_ads_today_user ON newsbreak_ads_today(user_id);
 
 CREATE TABLE IF NOT EXISTS newsbreak_ads_archive (

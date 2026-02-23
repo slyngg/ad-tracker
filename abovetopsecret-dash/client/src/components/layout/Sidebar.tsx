@@ -1,22 +1,15 @@
 import { useEffect, useState } from 'react';
-import { PanelLeftClose, PanelLeftOpen, X, LogOut, Bell } from 'lucide-react';
+import { PanelLeftClose, PanelLeftOpen, LogOut, Bell } from 'lucide-react';
 import { useSidebarStore } from '../../stores/sidebarStore';
 import { useAuthStore } from '../../stores/authStore';
 import { NAV_SECTIONS } from '../../lib/routes';
 import NavSection from './NavSection';
 
 export default function Sidebar() {
-  const { collapsed, mobileOpen, toggleCollapsed, setMobileOpen } = useSidebarStore();
+  const { collapsed, toggleCollapsed } = useSidebarStore();
   const logout = useAuthStore((s) => s.logout);
   const user = useAuthStore((s) => s.user);
   const [unreadCount, setUnreadCount] = useState(0);
-
-  // Close mobile sidebar on route change via popstate
-  useEffect(() => {
-    const close = () => setMobileOpen(false);
-    window.addEventListener('popstate', close);
-    return () => window.removeEventListener('popstate', close);
-  }, [setMobileOpen]);
 
   // Poll unread notification count
   useEffect(() => {
@@ -52,17 +45,10 @@ export default function Sidebar() {
         )}
         <button
           onClick={toggleCollapsed}
-          className="text-ats-text-muted hover:text-ats-text p-1.5 rounded-md hover:bg-ats-hover transition-colors hidden lg:block"
+          className="text-ats-text-muted hover:text-ats-text p-1.5 rounded-md hover:bg-ats-hover transition-colors"
           title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         >
           {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
-        </button>
-        {/* Mobile close */}
-        <button
-          onClick={() => setMobileOpen(false)}
-          className="text-ats-text-muted hover:text-ats-text p-1.5 rounded-md hover:bg-ats-hover transition-colors lg:hidden"
-        >
-          <X size={16} />
         </button>
       </div>
 
@@ -108,32 +94,12 @@ export default function Sidebar() {
   );
 
   return (
-    <>
-      {/* Desktop sidebar */}
-      <aside
-        className={`hidden lg:flex flex-col fixed top-0 left-0 bottom-0 bg-ats-card border-r border-ats-border z-30 transition-all duration-200 ${
-          collapsed ? 'w-sidebar-collapsed' : 'w-sidebar'
-        }`}
-      >
-        {sidebarContent}
-      </aside>
-
-      {/* Mobile backdrop */}
-      {mobileOpen && (
-        <div
-          className="fixed inset-0 bg-black/50 z-40 lg:hidden"
-          onClick={() => setMobileOpen(false)}
-        />
-      )}
-
-      {/* Mobile sidebar */}
-      <aside
-        className={`fixed top-0 left-0 bottom-0 w-[280px] bg-ats-card border-r border-ats-border z-50 transform transition-transform duration-200 lg:hidden ${
-          mobileOpen ? 'translate-x-0' : '-translate-x-full'
-        }`}
-      >
-        {sidebarContent}
-      </aside>
-    </>
+    <aside
+      className={`hidden lg:flex flex-col fixed top-0 left-0 bottom-0 bg-ats-card border-r border-ats-border z-30 transition-all duration-200 ${
+        collapsed ? 'w-sidebar-collapsed' : 'w-sidebar'
+      }`}
+    >
+      {sidebarContent}
+    </aside>
   );
 }

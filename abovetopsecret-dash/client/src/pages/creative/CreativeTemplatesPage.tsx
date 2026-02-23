@@ -53,6 +53,7 @@ function PlatformBadge({ platform }: { platform: string }) {
     tiktok: 'bg-pink-500/20 text-pink-400',
     youtube: 'bg-red-500/20 text-red-400',
     google: 'bg-yellow-500/20 text-yellow-400',
+    newsbreak: 'bg-orange-600/20 text-orange-400',
   };
   return (
     <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase ${colors[platform] || 'bg-gray-500/20 text-gray-400'}`}>
@@ -141,6 +142,7 @@ function TemplateModal({
                 <option value="tiktok">TikTok</option>
                 <option value="youtube">YouTube</option>
                 <option value="google">Google</option>
+                <option value="newsbreak">NewsBreak</option>
               </select>
             </div>
             <div>

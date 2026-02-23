@@ -212,7 +212,7 @@ export const operatorTools = [
       properties: {
         date_from: { type: 'string', description: 'Start date YYYY-MM-DD' },
         date_to: { type: 'string', description: 'End date YYYY-MM-DD' },
-        platform: { type: 'string', enum: ['meta', 'tiktok', 'youtube', 'linkedin'], description: 'Ad platform' },
+        platform: { type: 'string', enum: ['meta', 'tiktok', 'newsbreak', 'youtube', 'linkedin'], description: 'Ad platform' },
         sort_by: { type: 'string', enum: ['spend', 'roas', 'cpa', 'revenue', 'clicks', 'impressions', 'ctr', 'cvr'], description: 'Sort metric. Default: spend' },
         sort_dir: { type: 'string', enum: ['asc', 'desc'], description: 'Sort direction. Default: desc' },
         limit: { type: 'number', description: 'Max results. Default: 20' },
@@ -348,12 +348,19 @@ export async function executeTool(
     case 'get_campaign_metrics': {
       const af = buildAccountFilter(input, 2);
       const result = await pool.query(
-        `SELECT campaign_name, campaign_id,
+        `WITH all_ads AS (
+           SELECT campaign_name, campaign_id, spend, clicks, impressions FROM fb_ads_today WHERE user_id = $1 ${af.clause}
+           UNION ALL
+           SELECT campaign_name, campaign_id, spend, clicks, impressions FROM tiktok_ads_today WHERE user_id = $1 ${af.clause}
+           UNION ALL
+           SELECT campaign_name, campaign_id, spend, clicks, impressions FROM newsbreak_ads_today WHERE user_id = $1 ${af.clause}
+         )
+         SELECT campaign_name, campaign_id,
            SUM(spend) AS spend, SUM(clicks) AS clicks,
            SUM(impressions) AS impressions,
            CASE WHEN SUM(impressions) > 0 THEN SUM(clicks)::FLOAT / SUM(impressions) ELSE 0 END AS ctr,
            CASE WHEN SUM(clicks) > 0 THEN SUM(spend) / SUM(clicks) ELSE 0 END AS cpc
-         FROM fb_ads_today WHERE user_id = $1 ${af.clause}
+         FROM all_ads
          GROUP BY campaign_name, campaign_id
          ORDER BY spend DESC`,
         [userId, ...af.params]
@@ -367,11 +374,18 @@ export async function executeTool(
     case 'get_adset_metrics': {
       const af = buildAccountFilter(input, 2);
       const result = await pool.query(
-        `SELECT adset_name, adset_id, campaign_name,
+        `WITH all_ads AS (
+           SELECT ad_set_name AS adset_name, ad_set_id AS adset_id, campaign_name, spend, clicks, impressions FROM fb_ads_today WHERE user_id = $1 ${af.clause}
+           UNION ALL
+           SELECT adgroup_name AS adset_name, adgroup_id AS adset_id, campaign_name, spend, clicks, impressions FROM tiktok_ads_today WHERE user_id = $1 ${af.clause}
+           UNION ALL
+           SELECT adset_name, adset_id, campaign_name, spend, clicks, impressions FROM newsbreak_ads_today WHERE user_id = $1 ${af.clause}
+         )
+         SELECT adset_name, adset_id, campaign_name,
            SUM(spend) AS spend, SUM(clicks) AS clicks,
            SUM(impressions) AS impressions,
            CASE WHEN SUM(clicks) > 0 THEN SUM(spend) / SUM(clicks) ELSE 0 END AS cpc
-         FROM fb_ads_today WHERE user_id = $1 ${af.clause}
+         FROM all_ads
          GROUP BY adset_name, adset_id, campaign_name
          ORDER BY spend DESC`,
         [userId, ...af.params]
@@ -430,8 +444,13 @@ export async function executeTool(
            COALESCE(SUM(o.revenue), 0) AS revenue,
            CASE WHEN SUM(f.spend) > 0 THEN COALESCE(SUM(o.revenue), 0) / SUM(f.spend) ELSE 0 END AS roas
          FROM (
-           SELECT campaign_name, SUM(spend) AS spend
-           FROM fb_ads_today WHERE user_id = $1 ${af.clause}
+           SELECT campaign_name, SUM(spend) AS spend FROM (
+             SELECT campaign_name, spend FROM fb_ads_today WHERE user_id = $1 ${af.clause}
+             UNION ALL
+             SELECT campaign_name, spend FROM tiktok_ads_today WHERE user_id = $1 ${af.clause}
+             UNION ALL
+             SELECT campaign_name, spend FROM newsbreak_ads_today WHERE user_id = $1 ${af.clause}
+           ) all_ads
            GROUP BY campaign_name
          ) f
          LEFT JOIN (
@@ -474,13 +493,23 @@ export async function executeTool(
     case 'list_accounts_and_offers': {
       const accounts = await pool.query(
         `SELECT a.id, a.name, a.platform, a.platform_account_id, a.status, a.color,
-           COALESCE(fb.spend, 0) AS today_spend,
+           COALESCE(ad_spend.spend, 0) + COALESCE(nb.spend, 0) AS today_spend,
            COALESCE(cc.revenue, 0) AS today_revenue,
            COALESCE(cc.conversions, 0) AS today_conversions
          FROM accounts a
          LEFT JOIN (
-           SELECT account_id, SUM(spend) AS spend FROM fb_ads_today WHERE user_id = $1 GROUP BY account_id
-         ) fb ON fb.account_id = a.id
+           SELECT account_id, SUM(spend) AS spend FROM (
+             SELECT account_id, spend FROM fb_ads_today WHERE user_id = $1
+             UNION ALL
+             SELECT account_id, spend FROM tiktok_ads_today WHERE user_id = $1
+           ) int_ads
+           GROUP BY account_id
+         ) ad_spend ON ad_spend.account_id = a.id
+         LEFT JOIN LATERAL (
+           SELECT SUM(spend) AS spend
+           FROM newsbreak_ads_today
+           WHERE user_id = $1 AND account_id = a.platform_account_id
+         ) nb ON a.platform = 'newsbreak'
          LEFT JOIN (
            SELECT account_id, SUM(COALESCE(subtotal, revenue)) AS revenue, COUNT(DISTINCT order_id) AS conversions
            FROM cc_orders_today WHERE user_id = $1 AND order_status = 'completed' AND (is_test = false OR is_test IS NULL)
@@ -648,7 +677,7 @@ export async function executeTool(
       const groupByWhitelist: Record<string, string> = {
         day: 'archived_date',
         campaign: "ad_data->>'campaign_name'",
-        adset: "ad_data->>'ad_set_name'",
+        adset: "COALESCE(ad_data->>'ad_set_name', ad_data->>'adset_name')",
       };
 
       const groupByKey = input.group_by || 'day';
@@ -662,7 +691,17 @@ export async function executeTool(
 
       const af = buildAccountFilter(input, 4);
       const result = await pool.query(
-        `SELECT ${groupByColumn} AS dimension,
+        `WITH all_archives AS (
+           SELECT archived_date, ad_data ${af.clause ? ', account_id' : ''} FROM fb_ads_archive
+           WHERE user_id = $1 AND archived_date >= $2::DATE AND archived_date <= $3::DATE ${af.clause}
+           UNION ALL
+           SELECT archived_date, ad_data ${af.clause ? ', account_id' : ''} FROM tiktok_ads_archive
+           WHERE user_id = $1 AND archived_date >= $2::DATE AND archived_date <= $3::DATE ${af.clause}
+           UNION ALL
+           SELECT archived_date, ad_data ${af.clause ? ', account_id' : ''} FROM newsbreak_ads_archive
+           WHERE user_id = $1 AND archived_date >= $2::DATE AND archived_date <= $3::DATE ${af.clause}
+         )
+         SELECT ${groupByColumn} AS dimension,
            SUM((ad_data->>'spend')::NUMERIC) AS spend,
            SUM((ad_data->>'impressions')::INT) AS impressions,
            SUM((ad_data->>'clicks')::INT) AS clicks,
@@ -672,11 +711,7 @@ export async function executeTool(
            CASE WHEN SUM((ad_data->>'clicks')::INT) > 0
              THEN SUM((ad_data->>'spend')::NUMERIC) / SUM((ad_data->>'clicks')::INT)
              ELSE 0 END AS cpc
-         FROM fb_ads_archive
-         WHERE user_id = $1
-           AND archived_date >= $2::DATE
-           AND archived_date <= $3::DATE
-           ${af.clause}
+         FROM all_archives
          GROUP BY ${groupByColumn}
          ORDER BY ${groupByColumn}`,
         [userId, input.start_date, input.end_date, ...af.params]

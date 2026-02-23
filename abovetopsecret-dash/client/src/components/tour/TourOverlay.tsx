@@ -1,19 +1,20 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { useTourStore, TOUR_STEPS } from '../../stores/tourStore';
+import { useTourStore } from '../../stores/tourStore';
 import { useSidebarStore } from '../../stores/sidebarStore';
 import TourTooltip from './TourTooltip';
 
 export default function TourOverlay() {
-  const { active, currentStep, next } = useTourStore();
+  const { active, currentStep, next, getSteps } = useTourStore();
   const navigate = useNavigate();
   const location = useLocation();
   const [targetRect, setTargetRect] = useState<DOMRect | null>(null);
   const observerRef = useRef<ResizeObserver | null>(null);
   const rafRef = useRef<number>(0);
 
-  const step = active ? TOUR_STEPS[currentStep] : null;
+  const steps = getSteps();
+  const step = active ? steps[currentStep] : null;
 
   const updateRect = useCallback(() => {
     if (!step) {

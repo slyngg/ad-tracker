@@ -10,7 +10,7 @@ import {
 
 type Tab = 'accounts' | 'offers';
 
-const PLATFORMS = ['meta', 'google', 'tiktok', 'shopify', 'klaviyo', 'other'];
+const PLATFORMS = ['meta', 'google', 'tiktok', 'newsbreak', 'shopify', 'klaviyo', 'other'];
 const OFFER_TYPES = ['product', 'bundle', 'subscription', 'upsell', 'downsell', 'other'];
 const COLORS = ['#3b82f6', '#22c55e', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'];
 

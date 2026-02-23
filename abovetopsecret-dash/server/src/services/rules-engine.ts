@@ -30,11 +30,18 @@ export async function evaluateRules(userId: number): Promise<void> {
 
     // Get current metrics for this user
     const metricsResult = await pool.query(`
+      WITH all_ads AS (
+        SELECT spend, clicks, impressions FROM fb_ads_today WHERE user_id = $1
+        UNION ALL
+        SELECT spend, clicks, impressions FROM tiktok_ads_today WHERE user_id = $1
+        UNION ALL
+        SELECT spend, clicks, impressions FROM newsbreak_ads_today WHERE user_id = $1
+      )
       SELECT
         COALESCE(SUM(spend), 0) AS total_spend,
         COALESCE(SUM(clicks), 0) AS total_clicks,
         COALESCE(SUM(impressions), 0) AS total_impressions
-      FROM fb_ads_today WHERE user_id = $1
+      FROM all_ads
     `, [userId]);
 
     const ordersResult = await pool.query(`

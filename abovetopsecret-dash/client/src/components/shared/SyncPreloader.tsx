@@ -7,6 +7,7 @@ const PLATFORM_META: Record<string, { label: string; icon: string; color: string
   google: { label: 'Google Analytics', icon: '🔴', color: '#ea4335' },
   shopify: { label: 'Shopify', icon: '🟢', color: '#96bf48' },
   tiktok: { label: 'TikTok Ads', icon: '🎵', color: '#ff0050' },
+  newsbreak: { label: 'NewsBreak Ads', icon: '🟠', color: '#ea580c' },
   klaviyo: { label: 'Klaviyo', icon: '💜', color: '#8e24aa' },
   checkoutChamp: { label: 'CheckoutChamp', icon: '🔵', color: '#2196f3' },
 };

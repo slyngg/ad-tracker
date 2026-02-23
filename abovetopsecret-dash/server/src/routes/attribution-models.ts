@@ -52,20 +52,23 @@ router.get('/data', async (req: Request, res: Response) => {
     const ufAnd = userId ? 'AND user_id = $1' : '';
     const params = userId ? [userId] : [];
 
-    // For now, use FB ads data as the primary attribution source
-    // Multi-touch models will use attribution_touchpoints when populated
+    // Multi-platform: UNION all ad tables, resolve account names via LEFT JOIN
     const result = await pool.query(`
       WITH ad_metrics AS (
-        SELECT
-          account_name AS source,
-          SUM(spend) AS spend,
-          SUM(clicks) AS clicks,
-          SUM(impressions) AS impressions,
+        SELECT source, SUM(spend) AS spend, SUM(clicks) AS clicks, SUM(impressions) AS impressions,
           CASE WHEN SUM(impressions) > 0 THEN SUM(clicks)::NUMERIC / SUM(impressions) * 100 ELSE 0 END AS ctr,
           CASE WHEN SUM(clicks) > 0 THEN SUM(spend) / SUM(clicks) ELSE 0 END AS cpc,
           CASE WHEN SUM(impressions) > 0 THEN SUM(spend) / SUM(impressions) * 1000 ELSE 0 END AS cpm
-        FROM fb_ads_today ${uf}
-        GROUP BY account_name
+        FROM (
+          SELECT account_name AS source, spend, clicks, impressions FROM fb_ads_today ${uf}
+          UNION ALL
+          SELECT a.name AS source, t.spend, t.clicks, t.impressions
+          FROM tiktok_ads_today t LEFT JOIN accounts a ON a.id = t.account_id ${uf.replace('WHERE', 'WHERE t.')}
+          UNION ALL
+          SELECT a.name AS source, n.spend, n.clicks, n.impressions
+          FROM newsbreak_ads_today n LEFT JOIN accounts a ON a.platform = 'newsbreak' AND a.user_id = n.user_id ${uf.replace('WHERE', 'WHERE n.')}
+        ) all_ads
+        GROUP BY source
       ),
       order_metrics AS (
         SELECT

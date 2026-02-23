@@ -179,7 +179,8 @@ export class RealtimeService {
       this.pool.query(`
         SELECT
           (SELECT COALESCE(SUM(spend), 0) FROM fb_ads_today ${uf ? 'WHERE user_id = $1' : ''}) +
-          (SELECT COALESCE(SUM(spend), 0) FROM tiktok_ads_today ${uf ? 'WHERE user_id = $1' : ''}) AS total_spend,
+          (SELECT COALESCE(SUM(spend), 0) FROM tiktok_ads_today ${uf ? 'WHERE user_id = $1' : ''}) +
+          (SELECT COALESCE(SUM(spend), 0) FROM newsbreak_ads_today ${uf ? 'WHERE user_id = $1' : ''}) AS total_spend,
           (SELECT COALESCE(SUM(COALESCE(subtotal, revenue)), 0) FROM cc_orders_today WHERE order_status = 'completed' AND (is_test = false OR is_test IS NULL) ${ufAnd}) AS total_revenue,
           (SELECT COUNT(DISTINCT order_id) FROM cc_orders_today WHERE order_status = 'completed' AND (is_test = false OR is_test IS NULL) ${ufAnd}) AS total_conversions
       `, params),
@@ -190,12 +191,14 @@ export class RealtimeService {
         ORDER BY conversion_time DESC
         LIMIT 20
       `, params),
-      // Prorate yesterday's spend (Meta + TikTok) by fraction of day elapsed in user's timezone
+      // Prorate yesterday's spend (Meta + TikTok + NewsBreak) by fraction of day elapsed in user's timezone
       this.pool.query(`
         SELECT (
           COALESCE((SELECT SUM((ad_data->>'spend')::NUMERIC) FROM fb_ads_archive
             WHERE archived_date = (NOW() AT TIME ZONE $${tzIdx})::DATE - 1 ${prevUserFilter}), 0) +
           COALESCE((SELECT SUM((ad_data->>'spend')::NUMERIC) FROM tiktok_ads_archive
+            WHERE archived_date = (NOW() AT TIME ZONE $${tzIdx})::DATE - 1 ${prevUserFilter}), 0) +
+          COALESCE((SELECT SUM((ad_data->>'spend')::NUMERIC) FROM newsbreak_ads_archive
             WHERE archived_date = (NOW() AT TIME ZONE $${tzIdx})::DATE - 1 ${prevUserFilter}), 0)
         ) * (EXTRACT(EPOCH FROM (NOW() AT TIME ZONE $${tzIdx})::TIME) / 86400.0) AS prev_spend
       `, prevTzParams),
@@ -263,16 +266,19 @@ export class RealtimeService {
       this.pool.query(`
         SELECT
           (SELECT COALESCE(SUM(spend), 0) FROM fb_ads_today ${uf ? 'WHERE user_id = $1' : ''}) +
-          (SELECT COALESCE(SUM(spend), 0) FROM tiktok_ads_today ${uf ? 'WHERE user_id = $1' : ''}) AS total_spend,
+          (SELECT COALESCE(SUM(spend), 0) FROM tiktok_ads_today ${uf ? 'WHERE user_id = $1' : ''}) +
+          (SELECT COALESCE(SUM(spend), 0) FROM newsbreak_ads_today ${uf ? 'WHERE user_id = $1' : ''}) AS total_spend,
           (SELECT COALESCE(SUM(COALESCE(subtotal, revenue)), 0) FROM cc_orders_today WHERE order_status = 'completed' AND (is_test = false OR is_test IS NULL) ${ufAnd}) AS total_revenue,
           (SELECT COUNT(DISTINCT order_id) FROM cc_orders_today WHERE order_status = 'completed' AND (is_test = false OR is_test IS NULL) ${ufAnd}) AS total_conversions
       `, params),
-      // Prorate yesterday's spend (Meta + TikTok) by fraction of day elapsed in user's timezone
+      // Prorate yesterday's spend (Meta + TikTok + NewsBreak) by fraction of day elapsed in user's timezone
       this.pool.query(`
         SELECT (
           COALESCE((SELECT SUM((ad_data->>'spend')::NUMERIC) FROM fb_ads_archive
             WHERE archived_date = (NOW() AT TIME ZONE $${tzIdx})::DATE - 1 ${prevUserFilter}), 0) +
           COALESCE((SELECT SUM((ad_data->>'spend')::NUMERIC) FROM tiktok_ads_archive
+            WHERE archived_date = (NOW() AT TIME ZONE $${tzIdx})::DATE - 1 ${prevUserFilter}), 0) +
+          COALESCE((SELECT SUM((ad_data->>'spend')::NUMERIC) FROM newsbreak_ads_archive
             WHERE archived_date = (NOW() AT TIME ZONE $${tzIdx})::DATE - 1 ${prevUserFilter}), 0)
         ) * (EXTRACT(EPOCH FROM (NOW() AT TIME ZONE $${tzIdx})::TIME) / 86400.0) AS prev_spend
       `, prevTzParams),

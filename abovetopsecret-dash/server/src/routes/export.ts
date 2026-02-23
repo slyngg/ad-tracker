@@ -23,9 +23,9 @@ router.get('/csv', async (req: Request, res: Response) => {
     const allParams = [...userParams, ...af.params];
 
     const coreResult = await pool.query(`
-      WITH fb_agg AS (
+      WITH all_ads_agg AS (
         SELECT
-          ad_set_name,
+          ad_set_name AS adset_key,
           account_name,
           SUM(spend) AS spend,
           SUM(clicks) AS clicks,
@@ -34,6 +34,30 @@ router.get('/csv', async (req: Request, res: Response) => {
         FROM fb_ads_today
         WHERE 1=1 ${userFilter} ${af.clause}
         GROUP BY ad_set_name, account_name
+        UNION ALL
+        SELECT
+          adgroup_name AS adset_key,
+          a.name AS account_name,
+          SUM(t.spend) AS spend,
+          SUM(t.clicks) AS clicks,
+          SUM(t.impressions) AS impressions,
+          0 AS landing_page_views
+        FROM tiktok_ads_today t
+        LEFT JOIN accounts a ON a.id = t.account_id
+        WHERE 1=1 ${userFilter} ${af.clause}
+        GROUP BY adgroup_name, a.name
+        UNION ALL
+        SELECT
+          adset_name AS adset_key,
+          a.name AS account_name,
+          SUM(n.spend) AS spend,
+          SUM(n.clicks) AS clicks,
+          SUM(n.impressions) AS impressions,
+          0 AS landing_page_views
+        FROM newsbreak_ads_today n
+        LEFT JOIN accounts a ON a.platform = 'newsbreak' AND a.user_id = n.user_id
+        WHERE 1=1 ${userFilter} ${af.clause}
+        GROUP BY adset_name, a.name
       ),
       cc_agg AS (
         SELECT
@@ -47,25 +71,25 @@ router.get('/csv', async (req: Request, res: Response) => {
         GROUP BY normalize_attribution_key(utm_campaign), offer_name
       )
       SELECT
-        fb.account_name,
+        ads.account_name,
         COALESCE(cc.offer_name, 'Unattributed') AS offer_name,
-        SUM(fb.spend) AS spend,
+        SUM(ads.spend) AS spend,
         COALESCE(SUM(cc.revenue), 0) AS revenue,
-        CASE WHEN SUM(fb.spend) > 0 THEN COALESCE(SUM(cc.revenue), 0) / SUM(fb.spend) ELSE 0 END AS roi,
-        CASE WHEN COALESCE(SUM(cc.conversions), 0) > 0 THEN SUM(fb.spend) / SUM(cc.conversions) ELSE 0 END AS cpa,
+        CASE WHEN SUM(ads.spend) > 0 THEN COALESCE(SUM(cc.revenue), 0) / SUM(ads.spend) ELSE 0 END AS roi,
+        CASE WHEN COALESCE(SUM(cc.conversions), 0) > 0 THEN SUM(ads.spend) / SUM(cc.conversions) ELSE 0 END AS cpa,
         CASE WHEN COALESCE(SUM(cc.conversions), 0) > 0 THEN SUM(cc.revenue) / SUM(cc.conversions) ELSE 0 END AS aov,
-        CASE WHEN SUM(fb.impressions) > 0 THEN SUM(fb.clicks)::FLOAT / SUM(fb.impressions) ELSE 0 END AS ctr,
-        CASE WHEN SUM(fb.impressions) > 0 THEN (SUM(fb.spend) / SUM(fb.impressions)) * 1000 ELSE 0 END AS cpm,
-        CASE WHEN SUM(fb.clicks) > 0 THEN SUM(fb.spend) / SUM(fb.clicks) ELSE 0 END AS cpc,
-        CASE WHEN SUM(fb.clicks) > 0 THEN COALESCE(SUM(cc.conversions), 0)::FLOAT / SUM(fb.clicks) ELSE 0 END AS cvr,
+        CASE WHEN SUM(ads.impressions) > 0 THEN SUM(ads.clicks)::FLOAT / SUM(ads.impressions) ELSE 0 END AS ctr,
+        CASE WHEN SUM(ads.impressions) > 0 THEN (SUM(ads.spend) / SUM(ads.impressions)) * 1000 ELSE 0 END AS cpm,
+        CASE WHEN SUM(ads.clicks) > 0 THEN SUM(ads.spend) / SUM(ads.clicks) ELSE 0 END AS cpc,
+        CASE WHEN SUM(ads.clicks) > 0 THEN COALESCE(SUM(cc.conversions), 0)::FLOAT / SUM(ads.clicks) ELSE 0 END AS cvr,
         COALESCE(SUM(cc.conversions), 0) AS conversions,
         CASE WHEN COALESCE(SUM(cc.conversions), 0) > 0
           THEN SUM(cc.new_customers)::FLOAT / SUM(cc.conversions)
           ELSE 0 END AS new_customer_pct,
-        CASE WHEN SUM(fb.impressions) > 0 THEN SUM(fb.landing_page_views)::FLOAT / SUM(fb.impressions) ELSE 0 END AS lp_ctr
-      FROM fb_agg fb
-      LEFT JOIN cc_agg cc ON normalize_attribution_key(fb.ad_set_name) = cc.utm_campaign
-      GROUP BY fb.account_name, cc.offer_name
+        CASE WHEN SUM(ads.impressions) > 0 THEN SUM(ads.landing_page_views)::FLOAT / SUM(ads.impressions) ELSE 0 END AS lp_ctr
+      FROM all_ads_agg ads
+      LEFT JOIN cc_agg cc ON normalize_attribution_key(ads.adset_key) = cc.utm_campaign
+      GROUP BY ads.account_name, cc.offer_name
       ORDER BY spend DESC
     `, allParams);
 

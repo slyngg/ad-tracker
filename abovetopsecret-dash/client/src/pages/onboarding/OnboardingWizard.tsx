@@ -18,6 +18,7 @@ interface IntegrationStatus {
   meta: 'idle' | 'testing' | 'connected' | 'error';
   google: 'idle' | 'testing' | 'connected' | 'error';
   tiktok: 'idle' | 'testing' | 'connected' | 'error';
+  newsbreak: 'idle' | 'testing' | 'connected' | 'error';
   klaviyo: 'idle' | 'testing' | 'connected' | 'error';
 }
 
@@ -64,7 +65,7 @@ export default function OnboardingWizard() {
   const [ga4PropertyId, setGa4PropertyId] = useState('');
   const [ga4CredentialsJson, setGa4CredentialsJson] = useState('');
 
-  const [status, setStatus] = useState<IntegrationStatus>({ shopify: 'idle', checkoutChamp: 'idle', meta: 'idle', google: 'idle', tiktok: 'idle', klaviyo: 'idle' });
+  const [status, setStatus] = useState<IntegrationStatus>({ shopify: 'idle', checkoutChamp: 'idle', meta: 'idle', google: 'idle', tiktok: 'idle', newsbreak: 'idle', klaviyo: 'idle' });
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [hasAnyData, setHasAnyData] = useState(false);
@@ -242,7 +243,7 @@ export default function OnboardingWizard() {
         {/* Connection status bar */}
         <div className="bg-ats-card border border-ats-border rounded-xl p-3 sm:p-4 mb-4 sm:mb-6 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-3 sm:gap-4 flex-wrap">
-            {(['meta', 'google', 'shopify', 'tiktok', 'klaviyo', 'checkoutChamp'] as const).map(k => (
+            {(['meta', 'google', 'shopify', 'tiktok', 'newsbreak', 'klaviyo', 'checkoutChamp'] as const).map(k => (
               <div key={k} className="flex items-center gap-1.5">
                 <div className={`w-2 h-2 rounded-full ${statusDot(status[k])}`} />
                 <span className="text-xs text-ats-text-muted capitalize">{k === 'checkoutChamp' ? 'CC' : k}</span>
@@ -382,6 +383,23 @@ export default function OnboardingWizard() {
           )}
         </div>
 
+        {/* ── NewsBreak (OAuth only) ────────────── */}
+        <div className="bg-ats-card border border-ats-border rounded-xl p-4 sm:p-5 mb-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <span className="text-lg">🟠</span>
+              <h3 className="text-sm font-bold text-ats-text">NewsBreak Ads</h3>
+            </div>
+            <div className="flex items-center gap-1.5"><div className={`w-2 h-2 rounded-full ${statusDot(status.newsbreak)}`} /><span className="text-[10px] text-ats-text-muted font-mono">{statusLabel(status.newsbreak)}</span></div>
+          </div>
+          <p className="text-xs text-ats-text-muted mb-3">Connect for NewsBreak campaign performance and spend data.</p>
+          {status.newsbreak !== 'connected' ? (
+            <OAuthConnectButton platform="newsbreak" onSuccess={() => handleOAuthSuccess('newsbreak')} onError={handleOAuthError} />
+          ) : (
+            <div className="text-xs text-emerald-400 font-mono">Connected</div>
+          )}
+        </div>
+
         {/* ── CheckoutChamp (manual only) ────────── */}
         <div className="bg-ats-card border border-ats-border rounded-xl p-4 sm:p-5 mb-4">
           <div className="flex items-center justify-between mb-3">
@@ -431,7 +449,7 @@ export default function OnboardingWizard() {
 
         {/* Connected summary */}
         <div className="bg-ats-card border border-ats-border rounded-xl p-3 sm:p-4 mb-6 sm:mb-8 flex flex-wrap justify-center gap-3 sm:gap-4 mx-auto">
-          {(['meta', 'google', 'shopify', 'tiktok', 'klaviyo', 'checkoutChamp'] as const).map(k => (
+          {(['meta', 'google', 'shopify', 'tiktok', 'newsbreak', 'klaviyo', 'checkoutChamp'] as const).map(k => (
             <div key={k} className="flex items-center gap-1.5">
               <div className={`w-2.5 h-2.5 rounded-full ${statusDot(status[k])}`} />
               <span className={`text-xs font-mono ${status[k] === 'connected' ? 'text-emerald-400' : 'text-ats-text-muted'}`}>

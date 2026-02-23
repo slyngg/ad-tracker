@@ -443,7 +443,7 @@ export default function OperatorPage() {
 
   return (
     <PageShell title="Operator AI" subtitle="Your AI-powered media buying assistant" hideHeaderOnMobile compactMobile>
-      <div className="flex h-[calc(100dvh-3rem)] lg:h-[calc(100vh-180px)] bg-ats-card border-y border-ats-border lg:border lg:rounded-xl rounded-none overflow-hidden relative">
+      <div className="flex h-[calc(100dvh-3rem-56px-env(safe-area-inset-bottom,0px))] lg:h-[calc(100vh-180px)] bg-ats-card border-y border-ats-border lg:border lg:rounded-xl rounded-none overflow-hidden relative">
         {/* Mobile sidebar overlay */}
         {sidebarOpen && (
           <div
@@ -499,7 +499,7 @@ export default function OperatorPage() {
             )}
 
             {messages.length === 0 && !activeConvo && (
-              <div className="flex flex-col items-start lg:items-center lg:justify-center h-full px-4 pt-6 lg:pt-0 lg:text-center">
+              <div data-tour="operator-empty-state" className="flex flex-col items-start lg:items-center lg:justify-center h-full px-4 pt-6 lg:pt-0 lg:text-center">
                 <div className="text-3xl mb-3">&#x1f916;</div>
                 <h3 className="text-lg font-bold text-ats-text mb-2">OpticData Operator</h3>
                 <p className="text-sm text-ats-text-muted mb-6 max-w-sm">

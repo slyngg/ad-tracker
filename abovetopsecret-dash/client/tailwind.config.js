@@ -29,6 +29,10 @@ export default {
       spacing: {
         'sidebar': '260px',
         'sidebar-collapsed': '64px',
+        'bottom-bar': '56px',
+      },
+      height: {
+        'bottom-bar': '56px',
       },
       keyframes: {
         'pulse-once': {

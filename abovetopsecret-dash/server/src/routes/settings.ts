@@ -118,26 +118,21 @@ router.post('/test/newsbreak', async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user?.id as number | undefined;
     const apiKey = await getSetting('newsbreak_api_key', userId);
-    const accountId = await getSetting('newsbreak_account_id', userId);
 
     if (!apiKey) {
       res.json({ success: false, error: 'No NewsBreak API key configured' });
       return;
     }
-    if (!accountId) {
-      res.json({ success: false, error: 'No NewsBreak Account ID configured' });
-      return;
-    }
 
-    // Test with a minimal report request for today
+    // Test with a minimal DATE report for today
     const today = new Date().toISOString().split('T')[0];
     const postData = JSON.stringify({
-      advertiser_id: accountId,
-      start_date: today,
-      end_date: today,
-      group_by: ['ad_id'],
-      page: 1,
-      page_size: 1,
+      name: 'connection_test',
+      dateRange: 'FIXED',
+      startDate: today,
+      endDate: today,
+      dimensions: ['DATE'],
+      metrics: ['COST'],
     });
 
     const result = await new Promise<any>((resolve, reject) => {
@@ -146,7 +141,7 @@ router.post('/test/newsbreak', async (req: Request, res: Response) => {
         path: '/business-api/v1/reports/getIntegratedReport',
         method: 'POST',
         headers: {
-          'access_token': apiKey,
+          'Access-Token': apiKey,
           'Content-Type': 'application/json',
           'Content-Length': Buffer.byteLength(postData),
           'Accept': 'application/json',
@@ -167,10 +162,11 @@ router.post('/test/newsbreak', async (req: Request, res: Response) => {
       request.end();
     });
 
-    if (result.code === 0 || result.code === 200) {
-      res.json({ success: true, message: 'Connected to NewsBreak API' });
+    if (result.code === 0) {
+      const spend = ((result.data?.aggregateData?.[0]?.costDecimal || 0) / 100).toFixed(2);
+      res.json({ success: true, message: `Connected to NewsBreak API — today's spend: $${spend}` });
     } else {
-      res.json({ success: false, error: result.message || 'API returned an error' });
+      res.json({ success: false, error: result.errMsg || 'API returned an error' });
     }
   } catch (err) {
     console.error('Error testing NewsBreak connection:', err);

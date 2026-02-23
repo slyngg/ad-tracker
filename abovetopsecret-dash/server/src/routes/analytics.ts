@@ -43,14 +43,25 @@ router.get('/timeseries', async (req: Request, res: Response) => {
         WHERE archived_date >= CURRENT_DATE - ($1 || ' days')::INTERVAL ${uf}
         GROUP BY archived_date
       ),
+      newsbreak_ad_data AS (
+        SELECT
+          archived_date AS date,
+          COALESCE(SUM((ad_data->>'spend')::NUMERIC), 0) AS spend,
+          COALESCE(SUM((ad_data->>'clicks')::NUMERIC), 0) AS clicks,
+          COALESCE(SUM((ad_data->>'impressions')::NUMERIC), 0) AS impressions
+        FROM newsbreak_ads_archive
+        WHERE archived_date >= CURRENT_DATE - ($1 || ' days')::INTERVAL ${uf}
+        GROUP BY archived_date
+      ),
       ad_data AS (
         SELECT
-          COALESCE(m.date, t.date) AS date,
-          COALESCE(m.spend, 0) + COALESCE(t.spend, 0) AS spend,
-          COALESCE(m.clicks, 0) + COALESCE(t.clicks, 0) AS clicks,
-          COALESCE(m.impressions, 0) + COALESCE(t.impressions, 0) AS impressions
+          COALESCE(m.date, t.date, n.date) AS date,
+          COALESCE(m.spend, 0) + COALESCE(t.spend, 0) + COALESCE(n.spend, 0) AS spend,
+          COALESCE(m.clicks, 0) + COALESCE(t.clicks, 0) + COALESCE(n.clicks, 0) AS clicks,
+          COALESCE(m.impressions, 0) + COALESCE(t.impressions, 0) + COALESCE(n.impressions, 0) AS impressions
         FROM meta_ad_data m
         FULL OUTER JOIN tiktok_ad_data t ON m.date = t.date
+        FULL OUTER JOIN newsbreak_ad_data n ON COALESCE(m.date, t.date) = n.date
       ),
       order_data AS (
         SELECT
@@ -82,18 +93,24 @@ router.get('/timeseries', async (req: Request, res: Response) => {
     const todayAdsQ = userId
       ? `SELECT
           COALESCE((SELECT SUM(spend) FROM fb_ads_today WHERE user_id = $1), 0) +
-          COALESCE((SELECT SUM(spend) FROM tiktok_ads_today WHERE user_id = $1), 0) AS spend,
+          COALESCE((SELECT SUM(spend) FROM tiktok_ads_today WHERE user_id = $1), 0) +
+          COALESCE((SELECT SUM(spend) FROM newsbreak_ads_today WHERE user_id = $1), 0) AS spend,
           COALESCE((SELECT SUM(clicks) FROM fb_ads_today WHERE user_id = $1), 0) +
-          COALESCE((SELECT SUM(clicks) FROM tiktok_ads_today WHERE user_id = $1), 0) AS clicks,
+          COALESCE((SELECT SUM(clicks) FROM tiktok_ads_today WHERE user_id = $1), 0) +
+          COALESCE((SELECT SUM(clicks) FROM newsbreak_ads_today WHERE user_id = $1), 0) AS clicks,
           COALESCE((SELECT SUM(impressions) FROM fb_ads_today WHERE user_id = $1), 0) +
-          COALESCE((SELECT SUM(impressions) FROM tiktok_ads_today WHERE user_id = $1), 0) AS impressions`
+          COALESCE((SELECT SUM(impressions) FROM tiktok_ads_today WHERE user_id = $1), 0) +
+          COALESCE((SELECT SUM(impressions) FROM newsbreak_ads_today WHERE user_id = $1), 0) AS impressions`
       : `SELECT
           COALESCE((SELECT SUM(spend) FROM fb_ads_today), 0) +
-          COALESCE((SELECT SUM(spend) FROM tiktok_ads_today), 0) AS spend,
+          COALESCE((SELECT SUM(spend) FROM tiktok_ads_today), 0) +
+          COALESCE((SELECT SUM(spend) FROM newsbreak_ads_today), 0) AS spend,
           COALESCE((SELECT SUM(clicks) FROM fb_ads_today), 0) +
-          COALESCE((SELECT SUM(clicks) FROM tiktok_ads_today), 0) AS clicks,
+          COALESCE((SELECT SUM(clicks) FROM tiktok_ads_today), 0) +
+          COALESCE((SELECT SUM(clicks) FROM newsbreak_ads_today), 0) AS clicks,
           COALESCE((SELECT SUM(impressions) FROM fb_ads_today), 0) +
-          COALESCE((SELECT SUM(impressions) FROM tiktok_ads_today), 0) AS impressions`;
+          COALESCE((SELECT SUM(impressions) FROM tiktok_ads_today), 0) +
+          COALESCE((SELECT SUM(impressions) FROM newsbreak_ads_today), 0) AS impressions`;
     const todayOrdersQ = userId
       ? "SELECT COALESCE(SUM(COALESCE(subtotal, revenue)), 0) AS revenue, COUNT(DISTINCT order_id) AS conversions FROM cc_orders_today WHERE order_status = 'completed' AND (is_test = false OR is_test IS NULL) AND user_id = $1"
       : "SELECT COALESCE(SUM(COALESCE(subtotal, revenue)), 0) AS revenue, COUNT(DISTINCT order_id) AS conversions FROM cc_orders_today WHERE order_status = 'completed' AND (is_test = false OR is_test IS NULL)";
@@ -153,23 +170,37 @@ router.get('/breakdown', async (req: Request, res: Response) => {
     let result;
     if (by === 'account') {
       result = await pool.query(`
+        WITH all_ads AS (
+          SELECT account_name AS label, spend, clicks, impressions FROM fb_ads_today ${ufWithAf}
+          UNION ALL
+          SELECT account_id AS label, spend, clicks, impressions FROM tiktok_ads_today ${ufWithAf}
+          UNION ALL
+          SELECT account_id AS label, spend, clicks, impressions FROM newsbreak_ads_today ${ufWithAf}
+        )
         SELECT
-          account_name AS label,
+          label,
           SUM(spend) AS spend,
           SUM(clicks) AS clicks,
           SUM(impressions) AS impressions
-        FROM fb_ads_today ${ufWithAf}
-        GROUP BY account_name ORDER BY spend DESC
+        FROM all_ads
+        GROUP BY label ORDER BY spend DESC
       `, bAllParams);
     } else if (by === 'campaign') {
       result = await pool.query(`
+        WITH all_ads AS (
+          SELECT campaign_name AS label, spend, clicks, impressions FROM fb_ads_today ${ufWithAf}
+          UNION ALL
+          SELECT campaign_name AS label, spend, clicks, impressions FROM tiktok_ads_today ${ufWithAf}
+          UNION ALL
+          SELECT campaign_name AS label, spend, clicks, impressions FROM newsbreak_ads_today ${ufWithAf}
+        )
         SELECT
-          campaign_name AS label,
+          label,
           SUM(spend) AS spend,
           SUM(clicks) AS clicks,
           SUM(impressions) AS impressions
-        FROM fb_ads_today ${ufWithAf}
-        GROUP BY campaign_name ORDER BY spend DESC LIMIT 20
+        FROM all_ads
+        GROUP BY label ORDER BY spend DESC LIMIT 20
       `, bAllParams);
     } else {
       // by offer
@@ -212,10 +243,13 @@ router.get('/funnel', async (req: Request, res: Response) => {
     const [adsResult, ordersResult, upsellsResult] = await Promise.all([
       pool.query(`
         SELECT
-          COALESCE(SUM(impressions), 0) AS impressions,
-          COALESCE(SUM(clicks), 0) AS clicks,
-          COALESCE(SUM(landing_page_views), 0) AS lp_views
-        FROM fb_ads_today ${ufFunnel}
+          COALESCE((SELECT SUM(impressions) FROM fb_ads_today ${ufFunnel}), 0) +
+          COALESCE((SELECT SUM(impressions) FROM tiktok_ads_today ${ufFunnel}), 0) +
+          COALESCE((SELECT SUM(impressions) FROM newsbreak_ads_today ${ufFunnel}), 0) AS impressions,
+          COALESCE((SELECT SUM(clicks) FROM fb_ads_today ${ufFunnel}), 0) +
+          COALESCE((SELECT SUM(clicks) FROM tiktok_ads_today ${ufFunnel}), 0) +
+          COALESCE((SELECT SUM(clicks) FROM newsbreak_ads_today ${ufFunnel}), 0) AS clicks,
+          COALESCE((SELECT SUM(landing_page_views) FROM fb_ads_today ${ufFunnel}), 0) AS lp_views
       `, fAllParams),
       pool.query(`
         SELECT COUNT(DISTINCT order_id) AS orders
@@ -338,11 +372,12 @@ router.get('/pnl', async (req: Request, res: Response) => {
     const ufPnl = uf ? `${uf} ${paf.clause}` : (paf.clause ? `WHERE 1=1 ${paf.clause}` : '');
 
     const [adSpendResult, revenueResult, refundResult, orderCountResult, costsResult] = await Promise.all([
-      // Total ad spend (Meta + TikTok)
+      // Total ad spend (Meta + TikTok + NewsBreak)
       pool.query(`
         SELECT
           COALESCE((SELECT SUM(spend) FROM fb_ads_today ${ufPnl}), 0) +
-          COALESCE((SELECT SUM(spend) FROM tiktok_ads_today ${ufPnl}), 0) AS total_spend
+          COALESCE((SELECT SUM(spend) FROM tiktok_ads_today ${ufPnl}), 0) +
+          COALESCE((SELECT SUM(spend) FROM newsbreak_ads_today ${ufPnl}), 0) AS total_spend
       `, pAllParams),
       // Gross revenue (completed, non-test orders)
       pool.query(`

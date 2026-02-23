@@ -1,6 +1,9 @@
 import pool from '../db';
 import https from 'https';
 import { getSetting } from './settings';
+import { createLogger } from '../lib/logger';
+
+const log = createLogger('NewsBreakSync');
 
 // ── Auth resolution ────────────────────────────────────────────
 
@@ -17,8 +20,8 @@ async function getNewsBreakAuth(userId?: number): Promise<{ accessToken: string;
         const { credentials, config } = result.rows[0];
         const apiKey = credentials?.api_key;
         const accountId = config?.account_id || credentials?.account_id;
-        if (apiKey && accountId) {
-          return { accessToken: apiKey, accountId: String(accountId) };
+        if (apiKey) {
+          return { accessToken: apiKey, accountId: String(accountId || 'default') };
         }
       }
     } catch {
@@ -29,8 +32,8 @@ async function getNewsBreakAuth(userId?: number): Promise<{ accessToken: string;
   // Fallback to app_settings
   const accessToken = await getSetting('newsbreak_api_key', userId);
   const accountId = await getSetting('newsbreak_account_id', userId);
-  if (accessToken && accountId) {
-    return { accessToken, accountId };
+  if (accessToken) {
+    return { accessToken, accountId: accountId || 'default' };
   }
 
   return null;
@@ -38,18 +41,18 @@ async function getNewsBreakAuth(userId?: number): Promise<{ accessToken: string;
 
 // ── HTTP helper ────────────────────────────────────────────────
 
-function fetchNewsBreakJSON(url: string, accessToken: string, body?: any): Promise<any> {
+function fetchNewsBreakJSON(accessToken: string, body: any): Promise<any> {
   return new Promise((resolve, reject) => {
-    const parsedUrl = new URL(url);
-    const postData = body ? JSON.stringify(body) : undefined;
+    const postData = JSON.stringify(body);
     const options: https.RequestOptions = {
-      hostname: parsedUrl.hostname,
-      path: parsedUrl.pathname + parsedUrl.search,
-      method: postData ? 'POST' : 'GET',
+      hostname: 'business.newsbreak.com',
+      path: '/business-api/v1/reports/getIntegratedReport',
+      method: 'POST',
       headers: {
-        'access_token': accessToken,
+        'Access-Token': accessToken,
+        'Content-Type': 'application/json',
         'Accept': 'application/json',
-        ...(postData ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(postData) } : {}),
+        'Content-Length': Buffer.byteLength(postData),
       },
     };
 
@@ -68,7 +71,7 @@ function fetchNewsBreakJSON(url: string, accessToken: string, body?: any): Promi
 
     req.setTimeout(30_000, () => req.destroy(new Error('Request timeout after 30s')));
     req.on('error', reject);
-    if (postData) req.write(postData);
+    req.write(postData);
     req.end();
   });
 }
@@ -82,91 +85,88 @@ export async function syncNewsBreakAds(userId?: number): Promise<{ synced: numbe
   const { accessToken, accountId } = auth;
   const today = new Date().toISOString().split('T')[0];
 
-  let synced = 0;
-  let page = 1;
+  // Fetch ad-level report with campaign and ad set dimensions
+  const requestBody = {
+    name: `sync_${today}`,
+    dateRange: 'FIXED',
+    startDate: today,
+    endDate: today,
+    dimensions: ['CAMPAIGN', 'AD_SET', 'AD'],
+    metrics: ['COST'],
+  };
 
+  let synced = 0;
   const dbClient = await pool.connect();
   try {
+    const response = await fetchNewsBreakJSON(accessToken, requestBody);
+
+    if (response.code !== 0) {
+      log.error({ code: response.code, errMsg: response.errMsg }, 'API error');
+      return { synced: 0, skipped: false };
+    }
+
+    const rows = response.data?.rows || [];
+    if (!Array.isArray(rows) || rows.length === 0) {
+      log.info('No ad data returned');
+      return { synced: 0, skipped: false };
+    }
+
     await dbClient.query('BEGIN');
 
-    while (true) {
-      const requestBody = {
-        advertiser_id: accountId,
-        start_date: today,
-        end_date: today,
-        group_by: ['ad_id'],
-        page,
-        page_size: 1000,
-      };
+    for (const row of rows) {
+      try {
+        const adId = row.adId;
+        if (!adId) continue;
 
-      const response = await fetchNewsBreakJSON(
-        'https://business.newsbreak.com/business-api/v1/reports/getIntegratedReport',
-        accessToken,
-        requestBody,
-      );
+        // API returns monetary values in cents — convert to dollars
+        const spend = (parseFloat(row.costDecimal) || row.cost || 0) / 100;
+        const impressions = parseInt(row.impression) || 0;
+        const clicks = parseInt(row.click) || 0;
+        const conversions = parseInt(row.conversion) || 0;
+        const conversionValue = (parseFloat(row.conversionValueDecimal) || row.conversionValue || 0) / 100;
 
-      if (response.code !== 0 && response.code !== 200) {
-        console.error(`[NewsBreak Sync] API error: ${response.message || JSON.stringify(response)}`);
-        break;
+        // CTR/CVR are in per-10000 format — convert to raw ratio
+        const ctr = (parseInt(row.ctr) || 0) / 10000;
+        // CPC/CPM/CPA are in cents
+        const cpc = (parseFloat(row.cpcDecimal) || row.cpc || 0) / 100;
+        const cpm = (parseFloat(row.cpmDecimal) || row.cpm || 0) / 100;
+        const cpa = row.cpaDecimal > 0 ? (parseFloat(row.cpaDecimal) || 0) / 100 : 0;
+        const roas = parseFloat(row.roas) || 0;
+
+        await dbClient.query('SAVEPOINT row_insert');
+        await dbClient.query(
+          `INSERT INTO newsbreak_ads_today (user_id, account_id, campaign_id, campaign_name, adset_id, adset_name, ad_id, ad_name, spend, impressions, clicks, conversions, conversion_value, ctr, cpc, cpm, cpa, roas, synced_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, NOW())
+           ON CONFLICT (COALESCE(user_id, -1), ad_id) DO UPDATE SET
+             account_id = EXCLUDED.account_id, campaign_id = EXCLUDED.campaign_id,
+             campaign_name = EXCLUDED.campaign_name, adset_id = EXCLUDED.adset_id,
+             adset_name = EXCLUDED.adset_name, ad_name = EXCLUDED.ad_name,
+             spend = EXCLUDED.spend, impressions = EXCLUDED.impressions, clicks = EXCLUDED.clicks,
+             conversions = EXCLUDED.conversions, conversion_value = EXCLUDED.conversion_value,
+             ctr = EXCLUDED.ctr, cpc = EXCLUDED.cpc, cpm = EXCLUDED.cpm, cpa = EXCLUDED.cpa,
+             roas = EXCLUDED.roas, synced_at = NOW()`,
+          [
+            userId || null, accountId,
+            row.campaignId || null, row.campaign || null,
+            row.adSetId || null, row.adSet || null,
+            adId, row.ad || null,
+            spend, impressions, clicks, conversions, conversionValue,
+            ctr, cpc, cpm, cpa, roas,
+          ]
+        );
+        await dbClient.query('RELEASE SAVEPOINT row_insert');
+        synced++;
+      } catch (err) {
+        await dbClient.query('ROLLBACK TO SAVEPOINT row_insert');
+        log.error({ err }, 'Failed to upsert ad row');
       }
-
-      const rows = response.data?.list || response.data?.rows || response.data || [];
-      if (!Array.isArray(rows) || rows.length === 0) break;
-
-      for (const row of rows) {
-        try {
-          const adId = row.ad_id;
-          if (!adId) continue;
-
-          const spend = parseFloat(row.spend || '0') || 0;
-          const impressions = parseInt(row.impressions || '0') || 0;
-          const clicks = parseInt(row.clicks || '0') || 0;
-          const conversions = parseInt(row.conversions || '0') || 0;
-          const conversionValue = parseFloat(row.conversion_value || row.total_conversion_value || '0') || 0;
-          const ctr = parseFloat(row.ctr || '0') || 0;
-          const cpc = parseFloat(row.cpc || '0') || 0;
-          const cpm = parseFloat(row.cpm || '0') || 0;
-          const cpa = parseFloat(row.cpa || row.cost_per_conversion || '0') || 0;
-          const roas = parseFloat(row.roas || '0') || 0;
-
-          await dbClient.query('SAVEPOINT row_insert');
-          await dbClient.query(
-            `INSERT INTO newsbreak_ads_today (user_id, account_id, campaign_id, campaign_name, adset_id, adset_name, ad_id, ad_name, spend, impressions, clicks, conversions, conversion_value, ctr, cpc, cpm, cpa, roas, synced_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, NOW())
-             ON CONFLICT (user_id, ad_id) DO UPDATE SET
-               account_id = EXCLUDED.account_id, campaign_id = EXCLUDED.campaign_id,
-               campaign_name = EXCLUDED.campaign_name, adset_id = EXCLUDED.adset_id,
-               adset_name = EXCLUDED.adset_name, ad_name = EXCLUDED.ad_name,
-               spend = EXCLUDED.spend, impressions = EXCLUDED.impressions, clicks = EXCLUDED.clicks,
-               conversions = EXCLUDED.conversions, conversion_value = EXCLUDED.conversion_value,
-               ctr = EXCLUDED.ctr, cpc = EXCLUDED.cpc, cpm = EXCLUDED.cpm, cpa = EXCLUDED.cpa,
-               roas = EXCLUDED.roas, synced_at = NOW()`,
-            [
-              userId || null, accountId,
-              row.campaign_id || null, row.campaign_name || null,
-              row.adset_id || row.ad_group_id || null, row.adset_name || row.ad_group_name || null,
-              adId, row.ad_name || null,
-              spend, impressions, clicks, conversions, conversionValue,
-              ctr, cpc, cpm, cpa, roas,
-            ]
-          );
-          await dbClient.query('RELEASE SAVEPOINT row_insert');
-          synced++;
-        } catch (err) {
-          await dbClient.query('ROLLBACK TO SAVEPOINT row_insert');
-          console.error(`[NewsBreak Sync] Failed to upsert ad row:`, err);
-        }
-      }
-
-      if (rows.length < 1000) break;
-      page++;
     }
 
     await dbClient.query('COMMIT');
-    console.log(`[NewsBreak Sync] Synced ${synced} ad rows${userId ? ` for user ${userId}` : ''}`);
+    log.info({ synced, userId }, `Synced ${synced} ad rows`);
   } catch (err) {
     await dbClient.query('ROLLBACK');
-    console.error(`[NewsBreak Sync] Fetch failed:`, err);
+    log.error({ err }, 'Fetch failed');
   } finally {
     dbClient.release();
   }

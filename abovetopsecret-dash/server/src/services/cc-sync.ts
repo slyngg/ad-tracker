@@ -1,6 +1,20 @@
 import pool from '../db';
 import { getSetting, setSetting } from './settings';
 import { CheckoutChampClient, formatCCDate } from './checkout-champ-client';
+import { matchOffer } from './offer-matcher';
+
+// Map utm_source values to platform names in accounts table
+const UTM_SOURCE_TO_PLATFORM: Record<string, string> = {
+  facebook: 'meta',
+  fb: 'meta',
+  meta: 'meta',
+  instagram: 'meta',
+  ig: 'meta',
+  tiktok: 'tiktok',
+  newsbreak: 'newsbreak',
+  google: 'google',
+  bing: 'google',
+};
 
 // ── Date helpers ───────────────────────────────────────────────
 
@@ -110,12 +124,88 @@ export async function syncCCOrders(userId?: number): Promise<{ synced: number }>
     }
 
     await setLastSyncTime('cc_last_orders_sync', now, userId);
+    if (userId && synced > 0) {
+      await resolveOrderAttribution(userId);
+    }
     console.log(`[CC Sync] Orders: synced ${synced}${userId ? ` for user ${userId}` : ''}`);
   } catch (err) {
     console.error(`[CC Sync] Orders fetch failed:`, err);
   }
 
   return { synced };
+}
+
+// ── Post-sync attribution resolution ─────────────────────────────
+
+async function resolveOrderAttribution(userId: number): Promise<number> {
+  let resolved = 0;
+  try {
+    // 1. Find unattributed orders that have utm_source
+    const unattributed = await pool.query(
+      `SELECT DISTINCT LOWER(utm_source) AS utm_source
+       FROM cc_orders_today
+       WHERE user_id = $1 AND account_id IS NULL AND utm_source IS NOT NULL AND utm_source != ''`,
+      [userId]
+    );
+
+    if (unattributed.rows.length === 0) return 0;
+
+    // 2. Get user's accounts indexed by platform
+    const accounts = await pool.query(
+      `SELECT id, platform FROM accounts WHERE user_id = $1 AND status = 'active'`,
+      [userId]
+    );
+    // Build platform → MIN(account_id) lookup for deterministic assignment
+    const platformToAccountId: Record<string, number> = {};
+    for (const a of accounts.rows) {
+      if (!platformToAccountId[a.platform] || a.id < platformToAccountId[a.platform]) {
+        platformToAccountId[a.platform] = a.id;
+      }
+    }
+
+    // 3. Bulk-update account_id per utm_source
+    for (const row of unattributed.rows) {
+      const platform = UTM_SOURCE_TO_PLATFORM[row.utm_source];
+      if (!platform) continue;
+      const accountId = platformToAccountId[platform];
+      if (!accountId) continue;
+
+      const res = await pool.query(
+        `UPDATE cc_orders_today SET account_id = $1
+         WHERE user_id = $2 AND account_id IS NULL AND LOWER(utm_source) = $3`,
+        [accountId, userId, row.utm_source]
+      );
+      resolved += res.rowCount || 0;
+    }
+
+    // 4. Resolve offer_id for orders missing it
+    const missingOffer = await pool.query(
+      `SELECT order_id, utm_campaign, offer_name
+       FROM cc_orders_today
+       WHERE user_id = $1 AND offer_id IS NULL AND (utm_campaign IS NOT NULL AND utm_campaign != '')`,
+      [userId]
+    );
+
+    for (const order of missingOffer.rows) {
+      const offerId = await matchOffer(userId, {
+        utm_campaign: order.utm_campaign,
+        campaign_name: order.offer_name,
+      });
+      if (offerId) {
+        await pool.query(
+          `UPDATE cc_orders_today SET offer_id = $1 WHERE user_id = $2 AND order_id = $3`,
+          [offerId, userId, order.order_id]
+        );
+      }
+    }
+
+    if (resolved > 0) {
+      console.log(`[CC Sync] Attribution: resolved ${resolved} orders for user ${userId}`);
+    }
+  } catch (err) {
+    console.error(`[CC Sync] Attribution resolution failed:`, err);
+  }
+  return resolved;
 }
 
 // ── Purchases (Subscriptions / LTV) ─────────────────────────────
