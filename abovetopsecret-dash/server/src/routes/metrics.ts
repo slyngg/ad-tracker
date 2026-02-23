@@ -82,7 +82,7 @@ router.get('/', async (req: Request, res: Response) => {
           0 AS landing_page_views
         FROM tiktok_ads_today t
         LEFT JOIN accounts a ON a.id = t.account_id
-        WHERE 1=1 ${userFilter} ${af.clause}
+        WHERE 1=1 ${userFilter.replace('user_id', 't.user_id')} ${af.clause}
         GROUP BY adgroup_name, a.name
         UNION ALL
         SELECT
@@ -94,7 +94,7 @@ router.get('/', async (req: Request, res: Response) => {
           0 AS landing_page_views
         FROM newsbreak_ads_today n
         LEFT JOIN accounts a ON a.platform = 'newsbreak' AND a.user_id = n.user_id
-        WHERE 1=1 ${userFilter} ${af.clause}
+        WHERE 1=1 ${userFilter.replace('user_id', 'n.user_id')} ${af.clause}
         GROUP BY adset_name, a.name
       ),
       cc_agg AS (
