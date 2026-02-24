@@ -485,11 +485,8 @@ export default function ConnectionsPage() {
                     </>
                   )}
 
-                  {/* Save */}
-                  <button onClick={handleSave} disabled={saving}
-                    className="w-full py-2 bg-ats-accent text-white rounded-lg text-xs font-semibold hover:bg-blue-600 active:scale-[0.98] transition-all disabled:opacity-60">
-                    {saving ? 'Saving...' : 'Save Changes'}
-                  </button>
+                  {/* Auto-saved indicator */}
+                  <p className="text-[10px] text-ats-text-muted text-center mt-1">Changes are saved automatically</p>
                 </div>
               )}
             </div>

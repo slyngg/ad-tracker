@@ -124,12 +124,13 @@ router.post('/test/newsbreak', async (req: Request, res: Response) => {
       return;
     }
 
-    // Test with a minimal DATE report for today
+    // Test with a minimal DATE report — use yesterday+today to handle API reporting lag
     const today = new Date().toISOString().split('T')[0];
+    const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
     const postData = JSON.stringify({
       name: 'connection_test',
       dateRange: 'FIXED',
-      startDate: today,
+      startDate: yesterday,
       endDate: today,
       dimensions: ['DATE'],
       metrics: ['COST'],
@@ -164,7 +165,7 @@ router.post('/test/newsbreak', async (req: Request, res: Response) => {
 
     if (result.code === 0) {
       const spend = ((result.data?.aggregateData?.[0]?.costDecimal || 0) / 100).toFixed(2);
-      res.json({ success: true, message: `Connected to NewsBreak API — today's spend: $${spend}` });
+      res.json({ success: true, message: `Connected to NewsBreak API — recent spend: $${spend}` });
     } else {
       res.json({ success: false, error: result.errMsg || 'API returned an error' });
     }

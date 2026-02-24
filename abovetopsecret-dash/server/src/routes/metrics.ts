@@ -266,7 +266,8 @@ router.get('/summary', async (req: Request, res: Response) => {
         (SELECT COALESCE(SUM(spend), 0) FROM fb_ads_today WHERE 1=1 ${userFilter} ${saf.clause}) +
         (SELECT COALESCE(SUM(spend), 0) FROM tiktok_ads_today WHERE 1=1 ${userFilter} ${saf.clause}) +
         (SELECT COALESCE(SUM(spend), 0) FROM newsbreak_ads_today WHERE 1=1 ${userFilter} ${saf.clause}) AS total_spend,
-        (SELECT COALESCE(SUM(COALESCE(subtotal, revenue)), 0) FROM cc_orders_today WHERE order_status = 'completed' AND (is_test = false OR is_test IS NULL) ${userFilter} ${saf.clause}) AS total_revenue,
+        (SELECT COALESCE(SUM(COALESCE(subtotal, revenue)), 0) FROM cc_orders_today WHERE order_status = 'completed' AND (is_test = false OR is_test IS NULL) ${userFilter} ${saf.clause})
+        + (SELECT COALESCE(SUM(conversion_value), 0) FROM newsbreak_ads_today WHERE 1=1 ${userFilter} ${saf.clause}) AS total_revenue,
         (SELECT COUNT(DISTINCT order_id) FROM cc_orders_today WHERE order_status = 'completed' AND (is_test = false OR is_test IS NULL) ${userFilter} ${saf.clause}) AS total_conversions
     `, sAllParams);
 
