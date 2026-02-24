@@ -92,7 +92,7 @@ export async function syncNewsBreakAds(userId?: number): Promise<{ synced: numbe
     startDate: today,
     endDate: today,
     dimensions: ['CAMPAIGN', 'AD_SET', 'AD'],
-    metrics: ['COST'],
+    metrics: ['COST', 'IMPRESSION', 'CLICK', 'CTR', 'CPC', 'CPM', 'CONVERSION', 'CONVERSION_VALUE', 'CPA', 'ROAS'],
   };
 
   let synced = 0;

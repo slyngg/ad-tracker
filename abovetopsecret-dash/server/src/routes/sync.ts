@@ -5,6 +5,7 @@ import { syncShopifyProducts, syncShopifyCustomers } from '../services/shopify-s
 import { syncTikTokAds } from '../services/tiktok-sync';
 import { syncAllKlaviyoData } from '../services/klaviyo-sync';
 import { syncGA4Data } from '../services/ga4-sync';
+import { syncNewsBreakAds } from '../services/newsbreak-sync';
 
 const router = Router();
 
@@ -66,6 +67,18 @@ router.post('/tiktok', async (req: Request, res: Response) => {
   } catch (err) {
     console.error('Error triggering TikTok sync:', err);
     res.status(500).json({ error: 'Failed to sync TikTok data' });
+  }
+});
+
+// POST /api/sync/newsbreak
+router.post('/newsbreak', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user?.id as number | undefined;
+    const result = await syncNewsBreakAds(userId);
+    res.json(result);
+  } catch (err) {
+    console.error('Error triggering NewsBreak sync:', err);
+    res.status(500).json({ error: 'Failed to sync NewsBreak data' });
   }
 });
 

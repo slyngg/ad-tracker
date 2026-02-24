@@ -84,8 +84,9 @@ export default function ConnectionsPage() {
     if (autoSaveRef.current) clearTimeout(autoSaveRef.current);
     autoSaveRef.current = setTimeout(async () => {
       try {
-        const updated = await updateSettings(data);
-        setSettings(updated);
+        await updateSettings(data);
+        // Don't call setSettings here — server returns masked values that would
+        // overwrite the real values in state and break isAnyConnected checks
       } catch {}
     }, 800);
   }, []);
@@ -154,9 +155,9 @@ export default function ConnectionsPage() {
       if (shopifyStoreUrl) data.shopify_store_url = shopifyStoreUrl;
       if (nbApiKey) data.newsbreak_api_key = nbApiKey;
       if (nbAccountId) data.newsbreak_account_id = nbAccountId;
-      const updated = await updateSettings(data);
-      setSettings(updated);
-      setFbToken(''); setCcLoginId(''); setCcPassword(''); setCcWebhookSecret(''); setShopifySecret(''); setNbApiKey('');
+      await updateSettings(data);
+      // Reload to get fresh state (server masks sensitive values but we keep local state)
+      await loadSettings();
       flash('Settings saved', 'success');
     } catch { flash('Failed to save', 'error'); }
     finally { setSaving(false); }
