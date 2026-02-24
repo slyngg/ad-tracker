@@ -150,16 +150,26 @@ router.get('/timeseries', async (req: Request, res: Response) => {
       const todayOrdersQ = userId
         ? "SELECT COALESCE(SUM(COALESCE(subtotal, revenue)), 0) AS revenue, COUNT(DISTINCT order_id) AS conversions FROM cc_orders_today WHERE order_status = 'completed' AND (is_test = false OR is_test IS NULL) AND user_id = $1"
         : "SELECT COALESCE(SUM(COALESCE(subtotal, revenue)), 0) AS revenue, COUNT(DISTINCT order_id) AS conversions FROM cc_orders_today WHERE order_status = 'completed' AND (is_test = false OR is_test IS NULL)";
+      const todayPlatformQ = userId
+        ? "SELECT COALESCE(SUM(conversion_value), 0) AS platform_revenue, COALESCE(SUM(conversions), 0) AS platform_conversions FROM newsbreak_ads_today WHERE user_id = $1"
+        : "SELECT COALESCE(SUM(conversion_value), 0) AS platform_revenue, COALESCE(SUM(conversions), 0) AS platform_conversions FROM newsbreak_ads_today";
 
-      const [todayAds, todayOrders] = await Promise.all([
+      const [todayAds, todayOrders, todayPlatform] = await Promise.all([
         pool.query(todayAdsQ, userId ? [userId] : []),
         pool.query(todayOrdersQ, userId ? [userId] : []),
+        pool.query(todayPlatformQ, userId ? [userId] : []),
       ]);
 
       const ta = todayAds.rows[0];
       const to = todayOrders.rows[0];
+      const tp = todayPlatform.rows[0];
       const todaySpend = parseFloat(ta.spend) || 0;
-      const todayRevenue = parseFloat(to.revenue) || 0;
+      const ccRevenue = parseFloat(to.revenue) || 0;
+      const ccConversions = parseInt(to.conversions) || 0;
+      const platformRevenue = parseFloat(tp.platform_revenue) || 0;
+      const platformConversions = parseInt(tp.platform_conversions) || 0;
+      const todayRevenue = Math.max(ccRevenue, platformRevenue);
+      const todayConversions = Math.max(ccConversions, platformConversions);
 
       rows.push({
         date: todayStr,
@@ -167,7 +177,7 @@ router.get('/timeseries', async (req: Request, res: Response) => {
         revenue: todayRevenue,
         clicks: parseInt(ta.clicks) || 0,
         impressions: parseInt(ta.impressions) || 0,
-        conversions: parseInt(to.conversions) || 0,
+        conversions: todayConversions,
         roas: todaySpend > 0 ? todayRevenue / todaySpend : 0,
       });
     }
@@ -199,9 +209,9 @@ router.get('/breakdown', async (req: Request, res: Response) => {
         WITH all_ads AS (
           SELECT account_name AS label, spend, clicks, impressions FROM fb_ads_today ${ufWithAf}
           UNION ALL
-          SELECT account_id AS label, spend, clicks, impressions FROM tiktok_ads_today ${ufWithAf}
+          SELECT COALESCE(a.name, 'TikTok') AS label, t.spend, t.clicks, t.impressions FROM tiktok_ads_today t LEFT JOIN accounts a ON a.id = t.account_id ${ufWithAf.replace('WHERE', 'WHERE t.').replace('AND user_id', 'AND t.user_id')}
           UNION ALL
-          SELECT account_id AS label, spend, clicks, impressions FROM newsbreak_ads_today ${ufWithAf}
+          SELECT COALESCE(a.name, 'NewsBreak') AS label, n.spend, n.clicks, n.impressions FROM newsbreak_ads_today n LEFT JOIN accounts a ON a.platform = 'newsbreak' AND a.user_id = n.user_id ${ufWithAf.replace('WHERE', 'WHERE n.').replace('AND user_id', 'AND n.user_id')}
         )
         SELECT
           label,
@@ -266,7 +276,7 @@ router.get('/funnel', async (req: Request, res: Response) => {
     const fAllParams = [...params, ...faf.params];
     const ufFunnel = uf ? `${uf} ${faf.clause}` : (faf.clause ? `WHERE 1=1 ${faf.clause}` : '');
 
-    const [adsResult, ordersResult, upsellsResult] = await Promise.all([
+    const [adsResult, ordersResult, upsellsResult, platformConvResult] = await Promise.all([
       pool.query(`
         SELECT
           COALESCE((SELECT SUM(impressions) FROM fb_ads_today ${ufFunnel}), 0) +
@@ -288,17 +298,24 @@ router.get('/funnel', async (req: Request, res: Response) => {
           COUNT(*) FILTER (WHERE accepted) AS upsells_accepted
         FROM cc_upsells_today ${ufFunnel}
       `, fAllParams),
+      pool.query(`
+        SELECT
+          COALESCE((SELECT SUM(conversions) FROM newsbreak_ads_today ${ufFunnel}), 0) +
+          COALESCE((SELECT SUM(conversions) FROM tiktok_ads_today ${ufFunnel}), 0) AS platform_conversions
+      `, fAllParams),
     ]);
 
     const ads = adsResult.rows[0];
     const orders = ordersResult.rows[0];
     const upsells = upsellsResult.rows[0];
+    const ccOrders = parseInt(orders.orders) || 0;
+    const platformConv = parseInt(platformConvResult.rows[0].platform_conversions) || 0;
 
     res.json({
       impressions: parseInt(ads.impressions) || 0,
       clicks: parseInt(ads.clicks) || 0,
       lp_views: parseInt(ads.lp_views) || 0,
-      orders: parseInt(orders.orders) || 0,
+      orders: Math.max(ccOrders, platformConv),
       upsells_offered: parseInt(upsells.upsells_offered) || 0,
       upsells_accepted: parseInt(upsells.upsells_accepted) || 0,
     });
@@ -368,13 +385,40 @@ router.get('/source-medium', async (req: Request, res: Response) => {
 
     const result = await pool.query(query, smAllParams);
 
-    res.json(result.rows.map(r => ({
+    let rows = result.rows.map(r => ({
       utm_source: r.utm_source,
       utm_medium: r.utm_medium,
       revenue: parseFloat(r.revenue) || 0,
       conversions: parseInt(r.conversions) || 0,
       orders: parseInt(r.orders) || 0,
-    })));
+    }));
+
+    // If no CC order data, generate synthetic rows from ad platform data
+    if (rows.length === 0) {
+      const platformQ = `
+        SELECT platform, SUM(spend) AS spend, SUM(conversions) AS conversions, SUM(conversion_value) AS revenue
+        FROM (
+          SELECT 'newsbreak' AS platform, spend, COALESCE(conversions, 0) AS conversions, COALESCE(conversion_value, 0) AS conversion_value FROM newsbreak_ads_today ${userId ? 'WHERE user_id = $1' : ''}
+          UNION ALL
+          SELECT 'tiktok' AS platform, spend, COALESCE(conversions, 0), COALESCE(conversion_value, 0) FROM tiktok_ads_today ${userId ? 'WHERE user_id = $1' : ''}
+          UNION ALL
+          SELECT 'facebook' AS platform, spend, 0, 0 FROM fb_ads_today ${userId ? 'WHERE user_id = $1' : ''}
+        ) plat
+        GROUP BY platform
+        HAVING SUM(spend) > 0
+        ORDER BY SUM(spend) DESC
+      `;
+      const platformResult = await pool.query(platformQ, userId ? [userId] : []);
+      rows = platformResult.rows.map(r => ({
+        utm_source: r.platform,
+        utm_medium: 'paid',
+        revenue: parseFloat(r.revenue) || 0,
+        conversions: parseInt(r.conversions) || 0,
+        orders: parseInt(r.conversions) || 0,
+      }));
+    }
+
+    res.json(rows);
   } catch (err) {
     console.error('Error fetching source/medium:', err);
     res.status(500).json({ error: 'Failed to fetch source/medium data' });
@@ -397,7 +441,7 @@ router.get('/pnl', async (req: Request, res: Response) => {
     const pAllParams = [...params, ...paf.params];
     const ufPnl = uf ? `${uf} ${paf.clause}` : (paf.clause ? `WHERE 1=1 ${paf.clause}` : '');
 
-    const [adSpendResult, revenueResult, refundResult, orderCountResult, costsResult] = await Promise.all([
+    const [adSpendResult, revenueResult, refundResult, orderCountResult, costsResult, platformRevenueResult] = await Promise.all([
       // Total ad spend (Meta + TikTok + NewsBreak)
       pool.query(`
         SELECT
@@ -431,13 +475,25 @@ router.get('/pnl', async (req: Request, res: Response) => {
         ${ufPnl}
         GROUP BY cost_type, cost_unit
       `, pAllParams),
+      // Platform-reported revenue/conversions (fallback for users without CC orders)
+      pool.query(`
+        SELECT
+          COALESCE((SELECT SUM(conversion_value) FROM newsbreak_ads_today ${ufPnl}), 0) +
+          COALESCE((SELECT SUM(conversion_value) FROM tiktok_ads_today ${ufPnl}), 0) AS platform_revenue,
+          COALESCE((SELECT SUM(conversions) FROM newsbreak_ads_today ${ufPnl}), 0) +
+          COALESCE((SELECT SUM(conversions) FROM tiktok_ads_today ${ufPnl}), 0) AS platform_conversions
+      `, pAllParams),
     ]);
 
     const adSpend = parseFloat(adSpendResult.rows[0].total_spend) || 0;
-    const grossRevenue = parseFloat(revenueResult.rows[0].gross_revenue) || 0;
+    const ccGrossRevenue = parseFloat(revenueResult.rows[0].gross_revenue) || 0;
+    const platformRevenue = parseFloat(platformRevenueResult.rows[0].platform_revenue) || 0;
+    const grossRevenue = Math.max(ccGrossRevenue, platformRevenue);
     const refunds = parseFloat(refundResult.rows[0].refund_total) || 0;
     const netRevenue = grossRevenue - refunds;
-    const orderCount = parseInt(orderCountResult.rows[0].order_count) || 0;
+    const ccOrderCount = parseInt(orderCountResult.rows[0].order_count) || 0;
+    const platformConversions = parseInt(platformRevenueResult.rows[0].platform_conversions) || 0;
+    const orderCount = Math.max(ccOrderCount, platformConversions);
 
     // Parse cost settings by type
     let cogs = 0;
