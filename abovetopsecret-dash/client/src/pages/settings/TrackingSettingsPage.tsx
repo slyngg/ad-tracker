@@ -223,7 +223,7 @@ export default function TrackingSettingsPage() {
     }).catch(() => {});
   };
 
-  const inputCls = "w-full px-3 py-2.5 bg-ats-bg border border-[#374151] rounded-md text-ats-text text-sm font-mono outline-none focus:border-ats-accent transition-colors";
+  const inputCls = "w-full px-3 py-2.5 bg-ats-bg border border-ats-border rounded-md text-ats-text text-sm font-mono outline-none focus:border-ats-accent transition-colors";
   const selectCls = `${inputCls} appearance-none`;
   const labelCls = "text-[11px] text-ats-text-muted block mb-1 uppercase tracking-wide";
   const sectionCls = "bg-ats-card rounded-xl border border-ats-border p-5 mb-5";
@@ -383,14 +383,14 @@ export default function TrackingSettingsPage() {
                 const isEnabled = config?.enabled ?? false;
 
                 return (
-                  <div key={page.key} className={`rounded-lg border ${isEnabled ? 'border-ats-border' : 'border-[#374151]'} bg-ats-bg overflow-hidden`}>
+                  <div key={page.key} className={`rounded-lg border ${isEnabled ? 'border-ats-border' : 'border-ats-border'} bg-ats-bg overflow-hidden`}>
                     {/* Header */}
                     <div
                       className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-ats-hover/50 transition-colors"
                       onClick={() => setExpandedPage(isExpanded ? null : page.key)}
                     >
                       <div className="flex items-center gap-3">
-                        <span className={`inline-block w-2.5 h-2.5 rounded-full ${isEnabled ? 'bg-ats-green' : 'bg-[#374151]'}`} />
+                        <span className={`inline-block w-2.5 h-2.5 rounded-full ${isEnabled ? 'bg-ats-green' : 'bg-ats-border'}`} />
                         <div>
                           <span className="text-sm font-semibold text-ats-text">{page.label}</span>
                           <span className="text-xs text-ats-text-muted ml-2">{page.description}</span>
@@ -421,7 +421,7 @@ export default function TrackingSettingsPage() {
                                   funnel_page: page.key,
                                   name: config?.name || `${page.label} pixel`,
                                 })}
-                                className="w-4 h-4 rounded border-[#374151] bg-ats-bg text-ats-accent focus:ring-ats-accent"
+                                className="w-4 h-4 rounded border-ats-border bg-ats-bg text-ats-accent focus:ring-ats-accent"
                               />
                               <span className="text-sm text-ats-text">Enabled</span>
                             </label>
@@ -448,7 +448,7 @@ export default function TrackingSettingsPage() {
                                       className={`flex-1 px-3 py-2 rounded-md text-xs font-mono transition-colors ${
                                         (config?.pixel_type || 'javascript') === 'javascript'
                                           ? 'bg-ats-accent text-white'
-                                          : 'bg-ats-bg border border-[#374151] text-ats-text-muted hover:bg-ats-hover'
+                                          : 'bg-ats-bg border border-ats-border text-ats-text-muted hover:bg-ats-hover'
                                       }`}
                                     >
                                       JavaScript
@@ -458,7 +458,7 @@ export default function TrackingSettingsPage() {
                                       className={`flex-1 px-3 py-2 rounded-md text-xs font-mono transition-colors ${
                                         config?.pixel_type === 'image'
                                           ? 'bg-ats-accent text-white'
-                                          : 'bg-ats-bg border border-[#374151] text-ats-text-muted hover:bg-ats-hover'
+                                          : 'bg-ats-bg border border-ats-border text-ats-text-muted hover:bg-ats-hover'
                                       }`}
                                     >
                                       Image
@@ -474,7 +474,7 @@ export default function TrackingSettingsPage() {
                                     type="checkbox"
                                     checked={config?.track_pageviews !== false}
                                     onChange={(e) => updatePixelConfig(page.key, { track_pageviews: e.target.checked })}
-                                    className="w-4 h-4 rounded border-[#374151] bg-ats-bg text-ats-accent focus:ring-ats-accent"
+                                    className="w-4 h-4 rounded border-ats-border bg-ats-bg text-ats-accent focus:ring-ats-accent"
                                   />
                                   <span className="text-xs text-ats-text">Pageviews</span>
                                 </label>
@@ -483,7 +483,7 @@ export default function TrackingSettingsPage() {
                                     type="checkbox"
                                     checked={config?.track_conversions !== false}
                                     onChange={(e) => updatePixelConfig(page.key, { track_conversions: e.target.checked })}
-                                    className="w-4 h-4 rounded border-[#374151] bg-ats-bg text-ats-accent focus:ring-ats-accent"
+                                    className="w-4 h-4 rounded border-ats-border bg-ats-bg text-ats-accent focus:ring-ats-accent"
                                   />
                                   <span className="text-xs text-ats-text">Conversions</span>
                                 </label>
@@ -492,7 +492,7 @@ export default function TrackingSettingsPage() {
                                     type="checkbox"
                                     checked={config?.track_upsells || false}
                                     onChange={(e) => updatePixelConfig(page.key, { track_upsells: e.target.checked })}
-                                    className="w-4 h-4 rounded border-[#374151] bg-ats-bg text-ats-accent focus:ring-ats-accent"
+                                    className="w-4 h-4 rounded border-ats-border bg-ats-bg text-ats-accent focus:ring-ats-accent"
                                   />
                                   <span className="text-xs text-ats-text">Upsells</span>
                                 </label>
@@ -520,7 +520,7 @@ export default function TrackingSettingsPage() {
                                     Copy
                                   </button>
                                 </div>
-                                <pre className="bg-[#0d1117] border border-[#374151] rounded-lg p-3 text-xs font-mono text-ats-text overflow-x-auto whitespace-pre leading-relaxed max-h-48">
+                                <pre className="bg-ats-bg border border-ats-border rounded-lg p-3 text-xs font-mono text-ats-text overflow-x-auto whitespace-pre leading-relaxed max-h-48">
                                   {generateSnippet(page.key)}
                                 </pre>
                               </div>

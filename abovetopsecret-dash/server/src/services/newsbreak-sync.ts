@@ -195,3 +195,88 @@ export async function syncNewsBreakAds(userId?: number): Promise<{ synced: numbe
 
   return { synced, skipped: false };
 }
+
+// ── Historical backfill ───────────────────────────────────────
+
+export async function backfillNewsBreak(userId?: number, days = 90): Promise<{ backfilled: number; days: number }> {
+  const auth = await getNewsBreakAuth(userId);
+  if (!auth) return { backfilled: 0, days: 0 };
+
+  const { accessToken, accountId } = auth;
+  let backfilled = 0;
+
+  for (let d = days; d >= 1; d--) {
+    const date = new Date(Date.now() - d * 86400000).toISOString().split('T')[0];
+
+    try {
+      const response = await fetchNewsBreakJSON(accessToken, {
+        name: `backfill_${date}`,
+        dateRange: 'FIXED',
+        startDate: date,
+        endDate: date,
+        dimensions: ['CAMPAIGN', 'AD_SET', 'AD'],
+        metrics: ['COST'],
+      });
+
+      if (response.code !== 0) {
+        log.warn({ code: response.code, errMsg: response.errMsg, date }, 'API error during backfill');
+        continue;
+      }
+
+      const rows = response.data?.rows || [];
+      if (!Array.isArray(rows) || rows.length === 0) continue;
+
+      for (const row of rows) {
+        const adId = row.adId;
+        if (!adId) continue;
+
+        // Same cents→dollars transformation as syncNewsBreakAds
+        const spend = (parseFloat(row.costDecimal) || row.cost || 0) / 100;
+        const impressions = parseInt(row.impression) || 0;
+        const clicks = parseInt(row.click) || 0;
+        const conversions = parseInt(row.conversion) || 0;
+        const conversionValue = (parseFloat(row.conversionValueDecimal) || row.conversionValue || 0) / 100;
+        const ctr = (parseInt(row.ctr) || 0) / 10000;
+        const cvr = (parseInt(row.cvr) || 0) / 10000;
+        const cpc = (parseFloat(row.cpcDecimal) || row.cpc || 0) / 100;
+        const cpm = (parseFloat(row.cpmDecimal) || row.cpm || 0) / 100;
+        const cpa = row.cpaDecimal > 0 ? (parseFloat(row.cpaDecimal) || 0) / 100 : 0;
+        const roas = parseFloat(row.roas) || 0;
+
+        const adData = {
+          ad_id: adId,
+          ad_name: row.ad || null,
+          campaign_id: row.campaignId || null,
+          campaign_name: row.campaign || null,
+          adset_id: row.adSetId || null,
+          adset_name: row.adSet || null,
+          account_id: accountId,
+          spend, impressions, clicks, conversions, conversion_value: conversionValue,
+          ctr, cpc, cpm, cpa, roas, cvr,
+        };
+
+        try {
+          await pool.query(
+            `INSERT INTO newsbreak_ads_archive (archived_date, ad_data, user_id, account_id)
+             VALUES ($1, $2, $3, $4)
+             ON CONFLICT DO NOTHING`,
+            [date, JSON.stringify(adData), userId || null, accountId]
+          );
+          backfilled++;
+        } catch (err) {
+          log.error({ err, date, adId }, 'Failed to insert archive row during backfill');
+        }
+      }
+
+      log.info({ date, rows: rows.length }, 'Backfilled day');
+    } catch (err) {
+      log.error({ err, date }, 'Backfill fetch failed for day');
+    }
+
+    // 2s delay between API calls to avoid rate limits
+    await new Promise(resolve => setTimeout(resolve, 2000));
+  }
+
+  log.info({ backfilled, days, userId }, 'Backfill complete');
+  return { backfilled, days };
+}

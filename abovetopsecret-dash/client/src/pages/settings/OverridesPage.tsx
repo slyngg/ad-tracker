@@ -59,7 +59,7 @@ export default function OverridesPage() {
     }
   };
 
-  const inputCls = "w-full px-4 py-3 bg-ats-bg border border-[#374151] rounded-md text-ats-text text-sm font-mono outline-none focus:border-ats-accent";
+  const inputCls = "w-full px-4 py-3 bg-ats-bg border border-ats-border rounded-md text-ats-text text-sm font-mono outline-none focus:border-ats-accent";
   const selectCls = `${inputCls} appearance-none`;
   const labelCls = "text-[11px] text-ats-text-muted block mb-1 uppercase tracking-wide";
 
@@ -101,7 +101,7 @@ export default function OverridesPage() {
 
       <h3 className="text-[13px] font-semibold text-ats-text-muted mb-3 uppercase tracking-wide">Active Overrides</h3>
       {overrides.length === 0 ? (
-        <div className="text-[#4b5563] text-sm">No overrides set</div>
+        <div className="text-ats-text-muted text-sm">No overrides set</div>
       ) : (
         <div className="space-y-2">
           {overrides.map((ov) => (

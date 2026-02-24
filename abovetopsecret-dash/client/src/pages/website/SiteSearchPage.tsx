@@ -3,6 +3,7 @@ import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tool
 import PageShell from '../../components/shared/PageShell';
 import { getAuthToken } from '../../stores/authStore';
 import { useLiveRefresh } from '../../hooks/useLiveRefresh';
+import { useChartTheme } from '../../hooks/useChartTheme';
 
 async function apiFetch<T>(path: string): Promise<T> {
   const token = getAuthToken();
@@ -15,6 +16,7 @@ interface SearchQuery { search_term: string; total_searches: number; total_exits
 interface DailySearch { date: string; searches: number; }
 
 export default function SiteSearchPage() {
+  const ct = useChartTheme();
   const [queries, setQueries] = useState<SearchQuery[]>([]);
   const [daily, setDaily] = useState<DailySearch[]>([]);
   const [loading, setLoading] = useState(true);
@@ -42,7 +44,7 @@ export default function SiteSearchPage() {
       <div className={`${cardCls} mb-6`}>
         <h3 className="text-sm font-semibold text-ats-text mb-3">Daily Search Volume</h3>
         <div className="h-[160px] sm:h-[200px]"><ResponsiveContainer width="100%" height="100%">
-          <LineChart data={daily}><CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} /><XAxis dataKey="date" tick={{ fill: '#6b7280', fontSize: 11 }} /><YAxis tick={{ fill: '#6b7280', fontSize: 11 }} axisLine={false} /><Tooltip contentStyle={{ backgroundColor: '#1f2937', border: '1px solid #374151', borderRadius: 8, color: '#f9fafb' }} /><Line type="monotone" dataKey="searches" stroke="#3b82f6" strokeWidth={2} dot={false} /></LineChart>
+          <LineChart data={daily}><CartesianGrid strokeDasharray="3 3" stroke={ct.grid} vertical={false} /><XAxis dataKey="date" tick={{ fill: ct.axisText, fontSize: 11 }} /><YAxis tick={{ fill: ct.axisText, fontSize: 11 }} axisLine={false} /><Tooltip contentStyle={{ backgroundColor: ct.tooltipBg, border: `1px solid ${ct.tooltipBorder}`, borderRadius: 8, color: ct.tooltipText }} /><Line type="monotone" dataKey="searches" stroke="#3b82f6" strokeWidth={2} dot={false} /></LineChart>
         </ResponsiveContainer></div>
       </div>
       <div className={`${cardCls} mb-6 overflow-hidden`}>

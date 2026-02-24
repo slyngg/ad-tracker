@@ -73,7 +73,7 @@ export default function MobileCard({ row, expanded, onToggle }: MobileCardProps)
       )}
 
       <div className="text-center mt-2">
-        <span className="text-[10px] text-[#4b5563]">
+        <span className="text-[10px] text-ats-text-muted">
           {expanded ? '▲ tap to collapse' : '▼ tap to expand'}
         </span>
       </div>

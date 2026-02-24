@@ -6,6 +6,7 @@ import {
   Tooltip,
   Legend,
 } from 'recharts';
+import { useChartTheme } from '../../hooks/useChartTheme';
 
 const COLORS = ['#3b82f6', '#22c55e', '#eab308', '#8b5cf6', '#ef4444', '#6b7280'];
 
@@ -20,6 +21,8 @@ interface PieBreakdownProps {
 }
 
 export default function PieBreakdown({ data, title }: PieBreakdownProps) {
+  const ct = useChartTheme();
+
   if (!data.length) {
     return (
       <div className="flex items-center justify-center h-48 text-ats-text-muted text-sm">
@@ -54,10 +57,10 @@ export default function PieBreakdown({ data, title }: PieBreakdownProps) {
           </Pie>
           <Tooltip
             contentStyle={{
-              backgroundColor: '#1f2937',
-              border: '1px solid #374151',
+              backgroundColor: ct.tooltipBg,
+              border: `1px solid ${ct.tooltipBorder}`,
               borderRadius: '8px',
-              color: '#f9fafb',
+              color: ct.tooltipText,
               fontSize: 12,
             }}
             formatter={(value: number | undefined, name: string | undefined) => {

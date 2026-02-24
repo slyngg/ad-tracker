@@ -20,7 +20,7 @@ export default function Filters({
       <select
         value={filterOffer}
         onChange={(e) => onOfferChange(e.target.value)}
-        className="bg-ats-card text-ats-text-secondary border border-[#374151] rounded-lg px-4 py-3 text-sm flex-1 min-w-[120px] appearance-none"
+        className="bg-ats-card text-ats-text-secondary border border-ats-border rounded-lg px-4 py-3 text-sm flex-1 min-w-[120px] appearance-none"
       >
         {offers.map((o) => (
           <option key={o} value={o}>
@@ -31,7 +31,7 @@ export default function Filters({
       <select
         value={filterAccount}
         onChange={(e) => onAccountChange(e.target.value)}
-        className="bg-ats-card text-ats-text-secondary border border-[#374151] rounded-lg px-4 py-3 text-sm flex-1 min-w-[120px] appearance-none"
+        className="bg-ats-card text-ats-text-secondary border border-ats-border rounded-lg px-4 py-3 text-sm flex-1 min-w-[120px] appearance-none"
       >
         {accounts.map((a) => (
           <option key={a} value={a}>

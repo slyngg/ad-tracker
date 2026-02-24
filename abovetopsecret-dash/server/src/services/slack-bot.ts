@@ -1,7 +1,7 @@
 import { App, LogLevel } from '@slack/bolt';
 import Anthropic from '@anthropic-ai/sdk';
 import pool from '../db';
-import { operatorTools, executeTool } from './operator-tools';
+import { operatorTools, executeTool, getPendingActionsForUser } from './operator-tools';
 
 let slackApp: App | null = null;
 
@@ -856,11 +856,11 @@ export function initSlackBot(): void {
           { type: 'divider' },
 
           // --- AI Agent: Data Queries ---
-          { type: 'section', text: { type: 'mrkdwn', text: '*:robot_face: AI Agent — Ask Anything*\nUse `/optic ask` or `@OpticData` to chat with the AI. It has 15 real-time tools:' } },
+          { type: 'section', text: { type: 'mrkdwn', text: '*:robot_face: AI Agent — Ask Anything*\nUse `/optic ask` or `@OpticData` to chat with the AI. It has 35 real-time tools:' } },
           { type: 'section', text: { type: 'mrkdwn', text: [
             '*:mag: Data & Analytics*',
-            '• *Campaign Metrics* — Spend, clicks, impressions, CPC, CTR per campaign',
-            '• *Adset Metrics* — Adset-level breakdown with spend, clicks, CPC',
+            '• *Campaign Metrics* — Spend, clicks, impressions, CPC, CTR per campaign (filter by platform: meta, tiktok, newsbreak)',
+            '• *Adset Metrics* — Adset-level breakdown with spend, clicks, CPC (filter by platform)',
             '• *Order Stats* — Revenue, conversions, AOV summary',
             '• *Top Offers* — Offers ranked by revenue',
             '• *ROAS by Campaign* — ROAS per campaign (ad spend vs. order revenue)',
@@ -870,15 +870,31 @@ export function initSlackBot(): void {
           ].join('\n') } },
           { type: 'section', text: { type: 'mrkdwn', text: [
             '*:joystick: Meta Ads Actions*',
-            '• *Pause Adset* — Instantly pause any adset to stop delivery',
-            '• *Enable Adset* — Re-activate a paused adset',
-            '• *Adjust Budget* — Change an adset\'s daily budget to any amount',
+            '• *Pause/Enable Adset* — Pause or re-activate any Meta adset',
+            '• *Pause/Enable Campaign* — Pause or re-activate an entire Meta campaign',
+            '• *Adjust Budget* — Set an adset\'s daily budget to an exact amount',
+            '• *Increase/Decrease Budget %* — Change budget by a percentage (e.g. +20%, -15%)',
           ].join('\n') } },
           { type: 'section', text: { type: 'mrkdwn', text: [
-            '*:gear: Automation & Alerts*',
-            '• *List Rules* — See all your automation rules + status',
-            '• *Create Rule* — Build rules like "if CPA > $50, pause adset X"',
-            '• *Toggle Rule* — Enable/disable any automation rule',
+            '*:movie_camera: TikTok Ads Actions*',
+            '• *Pause/Enable Ad Group* — Pause or re-activate any TikTok ad group',
+            '• *Pause/Enable Campaign* — Pause or re-activate a TikTok campaign',
+            '• *Adjust Budget* — Set an ad group\'s daily budget (min $20)',
+            '• *Increase/Decrease Budget %* — Change budget by a percentage',
+          ].join('\n') } },
+          { type: 'section', text: { type: 'mrkdwn', text: [
+            '*:shopping_trolley: Checkout Champ Actions*',
+            '• *Pause Subscription* — Pause a customer subscription',
+            '• *Cancel Subscription* — Cancel a customer subscription',
+          ].join('\n') } },
+          { type: 'section', text: { type: 'mrkdwn', text: [
+            '*:gear: Automation Rules*',
+            '• *List Rules* — See all rules with status, fire counts & errors',
+            '• *Create Rule* — Build rules with 12 metrics, 21 action types, compound AND/OR conditions, per-platform scoping',
+            '• *Update Rule* — Modify any rule\'s triggers, actions, or config',
+            '• *Delete Rule* — Permanently remove a rule',
+            '• *Toggle Rule* — Enable/disable any rule',
+            '• *Rule Logs* — View execution history with trigger data & action results',
             '• *Send Notification* — Push an alert to your dashboard + Slack',
           ].join('\n') } },
           { type: 'divider' },
@@ -888,15 +904,17 @@ export function initSlackBot(): void {
           { type: 'section', text: { type: 'mrkdwn', text: [
             ':chart_with_upwards_trend: _"What\'s my best performing campaign today?"_',
             ':chart_with_downwards_trend: _"Which adsets are bleeding money? Show me anything with ROAS under 1.0"_',
-            ':pause_button: _"Pause adset 23851234567890"_',
-            ':moneybag: _"Boost the budget on adset 23851234567890 to $200/day"_',
-            ':arrows_counterclockwise: _"Re-enable adset 23851234567890"_',
+            ':pause_button: _"Pause Meta adset 23851234567890"_',
+            ':moneybag: _"Increase the budget on adset 23851234567890 by 25%"_',
+            ':movie_camera: _"Pause TikTok ad group 17283649102837"_',
+            ':chart_with_upwards_trend: _"Bump TikTok ad group budget by 30%"_',
+            ':shopping_trolley: _"Pause subscription #12345 in Checkout Champ"_',
             ':shopping_bags: _"What are my top 5 offers by revenue?"_',
-            ':world_map: _"Break down my traffic by source and medium"_',
+            ':world_map: _"Show me TikTok campaign metrics only"_',
             ':calendar: _"Compare last week\'s spend vs this week by campaign"_',
-            ':robot_face: _"Create a rule: if CPA goes above $40, pause adset 23851234567890"_',
-            ':clipboard: _"List all my automation rules"_',
-            ':bar_chart: _"Run SQL: SELECT campaign_name, SUM(spend) FROM fb_ads_today WHERE user_id=1 GROUP BY campaign_name"_',
+            ':robot_face: _"Create a rule: when CPA > $2.00 on Meta, increase budget by 20%"_',
+            ':robot_face: _"Create a rule: if ROAS < 1.0 AND spend > $100, pause the adset"_',
+            ':clipboard: _"Show me the last 10 rule execution logs"_',
             ':bell: _"Send me a notification saying \'Check your campaigns\'"_',
           ].join('\n') } },
           { type: 'divider' },
@@ -939,13 +957,59 @@ export function initSlackBot(): void {
   })();
 }
 
+const CONFIRM_PATTERN = /^\s*(confirm|yes|yep|yup|yeah|yea|sure|ok|okay|do it|go ahead|proceed|execute|approved?|absolutely|definitely|kk)\s*[.!]?\s*$/i;
+const CANCEL_PATTERN = /^\s*(no|nah|nope|cancel|nevermind|never mind|abort|stop|don't|dont|scratch that)\s*[.!]?\s*$/i;
+
 async function askOperatorAI(question: string, userId: number | null): Promise<string> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return 'Anthropic API key not configured.';
 
+  // Programmatic confirmation gate — Slack has no conversation memory,
+  // so we detect confirm/cancel messages and execute pending actions directly
+  const pendingUserActions = getPendingActionsForUser(userId);
+  if (pendingUserActions.length > 0) {
+    if (CONFIRM_PATTERN.test(question)) {
+      const results: string[] = [];
+      for (const action of pendingUserActions) {
+        try {
+          const { summary } = await executeTool('confirm_action', { pending_id: action.id }, userId);
+          results.push(`:white_check_mark: ${summary}`);
+        } catch (err: any) {
+          results.push(`:x: Failed: ${err.message}`);
+        }
+      }
+      return results.join('\n');
+    }
+    if (CANCEL_PATTERN.test(question)) {
+      const results: string[] = [];
+      for (const action of pendingUserActions) {
+        try {
+          const { summary } = await executeTool('cancel_action', { pending_id: action.id }, userId);
+          results.push(summary);
+        } catch (err: any) {
+          results.push(`Failed to cancel: ${err.message}`);
+        }
+      }
+      return results.join('\n');
+    }
+  }
+
   const systemPrompt = `You are OpticData's AI assistant responding via Slack. Be concise. Format with Slack mrkdwn (not markdown). Current date: ${new Date().toISOString().split('T')[0]}
 
-You have access to tools that can query real-time campaign metrics, order data, offers, ROAS by campaign, traffic sources, automation rules, historical data, and more. Always use tools to fetch fresh data rather than guessing.`;
+You have tools for:
+- Real-time metrics: campaign, adset, order stats, ROAS, source/medium, historical data, custom SQL (filterable by platform: meta, tiktok, newsbreak)
+- Meta Ads actions: pause/enable adsets & campaigns, adjust budgets (absolute $ or percentage)
+- TikTok Ads actions: pause/enable ad groups & campaigns, adjust budgets (absolute $ or percentage, min $20)
+- Checkout Champ actions: pause/cancel subscriptions
+- Automation rules: list, create, update, delete, toggle, view execution logs. Rules support 12 metrics (spend, revenue, roas, cpa, conversions, clicks, impressions, ctr, cvr, aov, profit, profit_margin), compound AND/OR conditions, platform scoping, and 21 action types across all platforms.
+- Creative analysis: performance queries, diversity analysis, recommendations, pre-launch scoring, weekly retros, competitor analysis, winning patterns
+
+Always use tools to fetch fresh data.
+
+IMPORTANT — Write Action Flow:
+Write tools return one of two statuses:
+- "not_found": ID doesn't match. Result has "suggestions" (option, id, name, spend). Present as numbered list. When user picks one, re-call the tool with the correct id from suggestions.
+- "pending_confirmation": ID is valid. Result has "pending_id" and "description" (includes entity name). Present the EXACT description and ask user to say "confirm". NEVER call confirm_action without explicit user confirmation.`;
 
   const client = new Anthropic({ apiKey });
   const messages: Anthropic.MessageParam[] = [{ role: 'user', content: question }];

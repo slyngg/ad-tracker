@@ -212,8 +212,12 @@ export interface Rule {
   trigger_config: any;
   action_type: string;
   action_config: any;
+  action_meta?: any;
   enabled: boolean;
+  cooldown_minutes?: number;
+  last_fired_at?: string;
   created_at: string;
+  updated_at?: string;
 }
 
 export interface RuleLog {

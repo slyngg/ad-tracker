@@ -82,7 +82,7 @@ export default function CommandPalette() {
 
   return (
     <div className="fixed inset-0 z-[100] flex items-start justify-center pt-[15vh]">
-      <div className="fixed inset-0 bg-black/60" onClick={() => setOpen(false)} />
+      <div className="fixed inset-0" style={{ backgroundColor: 'var(--overlay-bg)' }} onClick={() => setOpen(false)} />
       <div className="relative bg-ats-card border border-ats-border rounded-xl w-full max-w-lg mx-4 shadow-2xl overflow-hidden">
         <div className="flex items-center gap-3 px-4 py-3 border-b border-ats-border">
           <Search size={16} className="text-ats-text-muted flex-shrink-0" />

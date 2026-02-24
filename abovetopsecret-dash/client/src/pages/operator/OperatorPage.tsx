@@ -447,7 +447,8 @@ export default function OperatorPage() {
         {/* Mobile sidebar overlay */}
         {sidebarOpen && (
           <div
-            className="fixed inset-0 bg-black/50 z-40 lg:hidden"
+            className="fixed inset-0 z-40 lg:hidden"
+            style={{ backgroundColor: 'var(--overlay-bg)' }}
             onClick={() => setSidebarOpen(false)}
           />
         )}

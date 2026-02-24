@@ -255,7 +255,7 @@ export default function AccountsOffersPage() {
 
       {/* Account Modal */}
       {showAccountModal && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'var(--overlay-bg)' }}>
           <div className="bg-ats-card rounded-2xl border border-ats-border w-full max-w-lg max-h-[90vh] overflow-y-auto p-6">
             <h3 className="text-lg font-bold text-ats-text mb-4">{editingAccount ? 'Edit Account' : 'New Account'}</h3>
             <div className="space-y-3">
@@ -298,7 +298,7 @@ export default function AccountsOffersPage() {
 
       {/* Offer Modal */}
       {showOfferModal && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'var(--overlay-bg)' }}>
           <div className="bg-ats-card rounded-2xl border border-ats-border w-full max-w-lg max-h-[90vh] overflow-y-auto p-6">
             <h3 className="text-lg font-bold text-ats-text mb-4">{editingOffer ? 'Edit Offer' : 'New Offer'}</h3>
             <div className="space-y-3">

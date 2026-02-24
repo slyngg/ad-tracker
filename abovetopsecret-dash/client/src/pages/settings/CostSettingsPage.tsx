@@ -147,7 +147,7 @@ export default function CostSettingsPage() {
     setForm((prev) => ({ ...prev, [field]: value }));
   };
 
-  const inputCls = "w-full px-3 py-2.5 bg-ats-bg border border-[#374151] rounded-md text-ats-text text-sm font-mono outline-none focus:border-ats-accent transition-colors";
+  const inputCls = "w-full px-3 py-2.5 bg-ats-bg border border-ats-border rounded-md text-ats-text text-sm font-mono outline-none focus:border-ats-accent transition-colors";
   const labelCls = "text-[11px] text-ats-text-muted block mb-1 uppercase tracking-wide";
   const selectCls = `${inputCls} appearance-none`;
 

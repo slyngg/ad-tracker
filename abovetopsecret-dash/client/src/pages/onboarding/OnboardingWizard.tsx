@@ -222,7 +222,7 @@ export default function OnboardingWizard() {
   const inputCls = 'w-full bg-ats-bg border border-ats-border rounded-lg px-4 py-3 text-sm text-ats-text font-mono focus:outline-none focus:border-ats-accent transition-colors';
   const labelCls = 'text-[10px] text-ats-text-muted uppercase tracking-widest font-mono mb-1 block';
   const statusDot = (s: IntegrationStatus[keyof IntegrationStatus]) =>
-    s === 'connected' ? 'bg-emerald-500' : s === 'testing' ? 'bg-amber-500 animate-pulse' : s === 'error' ? 'bg-red-500' : 'bg-gray-600';
+    s === 'connected' ? 'bg-emerald-500' : s === 'testing' ? 'bg-amber-500 animate-pulse' : s === 'error' ? 'bg-red-500' : 'bg-ats-text-muted';
   const statusLabel = (s: IntegrationStatus[keyof IntegrationStatus]) =>
     s === 'connected' ? 'Connected' : s === 'testing' ? 'Testing...' : s === 'error' ? 'Error' : 'Not connected';
 
@@ -483,7 +483,7 @@ export default function OnboardingWizard() {
         {/* Progress bar */}
         <div className="flex gap-0.5 sm:gap-1 mb-4 sm:mb-6">
           {TOUR_PAGES.map((_, i) => (
-            <div key={i} className={`h-1 flex-1 rounded-full transition-colors ${i <= tourIdx ? 'bg-ats-accent' : 'bg-gray-700'}`} />
+            <div key={i} className={`h-1 flex-1 rounded-full transition-colors ${i <= tourIdx ? 'bg-ats-accent' : 'bg-ats-border'}`} />
           ))}
         </div>
 

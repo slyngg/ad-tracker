@@ -633,7 +633,8 @@ export default function AdLibraryPage() {
         <>
           {/* Backdrop */}
           <div
-            className={`lg:hidden fixed inset-0 bg-black/50 z-40 transition-opacity ${mobileSheetOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+            className={`lg:hidden fixed inset-0 z-40 transition-opacity ${mobileSheetOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+            style={{ backgroundColor: 'var(--overlay-bg)' }}
             onClick={() => setMobileSheetOpen(false)}
           />
           {/* Sheet */}

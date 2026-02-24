@@ -3,6 +3,7 @@ import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Toolti
 import PageShell from '../../components/shared/PageShell';
 import { getAuthToken } from '../../stores/authStore';
 import { useLiveRefresh } from '../../hooks/useLiveRefresh';
+import { useChartTheme } from '../../hooks/useChartTheme';
 
 async function apiFetch<T>(path: string): Promise<T> {
   const token = getAuthToken();
@@ -15,6 +16,7 @@ interface Overview { total_customers: number; avg_ltv: number; avg_frequency: nu
 interface Customer { customer_email: string; customer_name: string; monetary: number; frequency: number; recency_days: number; }
 
 export default function LTVAnalysisPage() {
+  const ct = useChartTheme();
   const [overview, setOverview] = useState<Overview | null>(null);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
@@ -66,10 +68,10 @@ export default function LTVAnalysisPage() {
         <h3 className="text-sm font-semibold text-ats-text mb-3">LTV Distribution</h3>
         <div className="h-[180px] sm:h-[250px]"><ResponsiveContainer width="100%" height="100%">
           <BarChart data={distribution}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
-            <XAxis dataKey="label" tick={{ fill: '#6b7280', fontSize: 11 }} />
-            <YAxis tick={{ fill: '#6b7280', fontSize: 11 }} axisLine={false} />
-            <Tooltip contentStyle={{ backgroundColor: '#1f2937', border: '1px solid #374151', borderRadius: 8, color: '#f9fafb' }} />
+            <CartesianGrid strokeDasharray="3 3" stroke={ct.grid} vertical={false} />
+            <XAxis dataKey="label" tick={{ fill: ct.axisText, fontSize: 11 }} />
+            <YAxis tick={{ fill: ct.axisText, fontSize: 11 }} axisLine={false} />
+            <Tooltip contentStyle={{ backgroundColor: ct.tooltipBg, border: `1px solid ${ct.tooltipBorder}`, borderRadius: 8, color: ct.tooltipText }} />
             <Bar dataKey="count" fill="#3b82f6" radius={[4, 4, 0, 0]} />
           </BarChart>
         </ResponsiveContainer></div>

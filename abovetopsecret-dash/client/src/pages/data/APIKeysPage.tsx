@@ -117,7 +117,7 @@ export default function APIKeysPage() {
 
       {/* Generate Key Modal */}
       {showGenerate && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 flex items-center justify-center z-50 p-4" style={{ backgroundColor: 'var(--overlay-bg)' }}>
           <div className="bg-ats-card border border-ats-border rounded-xl p-6 w-full max-w-md">
             {newKey ? (
               <>

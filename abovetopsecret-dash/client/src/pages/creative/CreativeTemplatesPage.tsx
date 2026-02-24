@@ -103,7 +103,7 @@ function TemplateModal({
   }, [saving, onClose]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => { if (!saving) onClose(); }}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'var(--overlay-bg)' }} onClick={() => { if (!saving) onClose(); }}>
       <div className="bg-ats-card border border-ats-border rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6" onClick={e => e.stopPropagation()}>
         <h2 className="text-lg font-bold text-ats-text mb-4">{title}</h2>
 

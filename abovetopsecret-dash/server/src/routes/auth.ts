@@ -14,6 +14,9 @@ const registerSchema = z.object({
 
 const REGISTRATION_ACCESS_HASH = '$2b$12$feiv/jyNHVr5yx2UzCgZd.dD2clibdr44.r2ge/OZrjknfzwDsIBW';
 
+// Accounts that skip the onboarding flow entirely
+const ONBOARDING_SKIP_ACCOUNTS = new Set(['kaltron', 'destin']);
+
 const loginSchema = z.object({
   email: z.string().email('Invalid email format'),
   password: z.string().min(1, 'Password is required'),
@@ -64,12 +67,14 @@ router.post('/register', validateBody(registerSchema), async (req: Request, res:
     }
 
     const passwordHash = await bcrypt.hash(password, 12);
+    const resolvedName = displayName || email.split('@')[0];
+    const skipOnboarding = ONBOARDING_SKIP_ACCOUNTS.has(resolvedName.toLowerCase());
 
     const result = await pool.query(
-      `INSERT INTO users (email, password_hash, display_name)
-       VALUES ($1, $2, $3)
+      `INSERT INTO users (email, password_hash, display_name, onboarding_completed)
+       VALUES ($1, $2, $3, $4)
        RETURNING id, email, display_name, onboarding_completed, created_at`,
-      [email.toLowerCase(), passwordHash, displayName || email.split('@')[0]]
+      [email.toLowerCase(), passwordHash, resolvedName, skipOnboarding]
     );
 
     const user = result.rows[0];
@@ -82,7 +87,7 @@ router.post('/register', validateBody(registerSchema), async (req: Request, res:
         email: user.email,
         displayName: user.display_name,
         onboardingCompleted: user.onboarding_completed ?? false,
-        hasConnectedProvider: false,
+        hasConnectedProvider: skipOnboarding,
       },
     });
   } catch (err) {

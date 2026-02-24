@@ -14,6 +14,7 @@ import PageShell from '../../components/shared/PageShell';
 import PieBreakdown from '../../components/charts/PieBreakdown';
 import AnimatedNumber from '../../components/shared/AnimatedNumber';
 import { useLiveRefresh } from '../../hooks/useLiveRefresh';
+import { useChartTheme } from '../../hooks/useChartTheme';
 
 interface SourceMediumGroup {
   source: string;
@@ -25,6 +26,7 @@ interface SourceMediumGroup {
 }
 
 export default function SourceMediumPage() {
+  const ct = useChartTheme();
   const [data, setData] = useState<SourceMediumRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -178,18 +180,18 @@ export default function SourceMediumPage() {
               ) : (
                 <div className="h-[200px] sm:h-[280px]"><ResponsiveContainer width="100%" height="100%">
                   <BarChart data={barData} margin={{ top: 8, right: 8, left: 0, bottom: 40 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
+                    <CartesianGrid strokeDasharray="3 3" stroke={ct.grid} vertical={false} />
                     <XAxis
                       dataKey="name"
-                      tick={{ fill: '#6b7280', fontSize: 10 }}
+                      tick={{ fill: ct.axisText, fontSize: 10 }}
                       tickLine={false}
-                      axisLine={{ stroke: '#374151' }}
+                      axisLine={{ stroke: ct.axisLine }}
                       angle={-35}
                       textAnchor="end"
                       height={60}
                     />
                     <YAxis
-                      tick={{ fill: '#6b7280', fontSize: 11 }}
+                      tick={{ fill: ct.axisText, fontSize: 11 }}
                       tickLine={false}
                       axisLine={false}
                       tickFormatter={(v: number) => `$${v >= 1000 ? `${(v / 1000).toFixed(0)}K` : v}`}
@@ -197,10 +199,10 @@ export default function SourceMediumPage() {
                     />
                     <Tooltip
                       contentStyle={{
-                        backgroundColor: '#1f2937',
-                        border: '1px solid #374151',
+                        backgroundColor: ct.tooltipBg,
+                        border: `1px solid ${ct.tooltipBorder}`,
                         borderRadius: '8px',
-                        color: '#f9fafb',
+                        color: ct.tooltipText,
                         fontSize: 12,
                       }}
                       formatter={(value: number | undefined, name: string | undefined) => [

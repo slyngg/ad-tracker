@@ -197,7 +197,7 @@ export default function NotificationsPage() {
 
   const unreadCount = notifications.filter((n) => !n.read_at).length;
 
-  const inputCls = "w-full px-3 py-2 bg-ats-bg border border-[#374151] rounded-md text-ats-text text-sm font-mono outline-none focus:border-ats-accent";
+  const inputCls = "w-full px-3 py-2 bg-ats-bg border border-ats-border rounded-md text-ats-text text-sm font-mono outline-none focus:border-ats-accent";
 
   if (loading) {
     return (
@@ -274,7 +274,7 @@ export default function NotificationsPage() {
                       <div className="flex items-center gap-2">
                         <h3 className="text-sm font-semibold text-ats-text">{alert.label}</h3>
                         <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${
-                          enabled ? 'bg-emerald-900/50 text-emerald-300' : 'bg-[#374151] text-ats-text-muted'
+                          enabled ? 'bg-emerald-900/50 text-emerald-300' : 'bg-ats-border text-ats-text-muted'
                         }`}>
                           {enabled ? 'Active' : 'Off'}
                         </span>
@@ -284,7 +284,7 @@ export default function NotificationsPage() {
                     <button
                       onClick={() => togglePref(alert.eventType)}
                       className={`relative w-11 h-6 rounded-full transition-colors ${
-                        enabled ? 'bg-ats-accent' : 'bg-[#374151]'
+                        enabled ? 'bg-ats-accent' : 'bg-ats-border'
                       }`}
                     >
                       <span
@@ -407,7 +407,7 @@ export default function NotificationsPage() {
       )}
 
       <div className="text-center pt-4 pb-2">
-        <div className="text-[10px] text-[#374151] font-mono">
+        <div className="text-[10px] text-ats-text-muted font-mono">
           {ALERT_TYPES.filter((a) => isPrefEnabled(a.eventType)).length} alerts active
           {' · '}{notifications.length} notifications
           {unreadCount > 0 ? ` · ${unreadCount} unread` : ''}

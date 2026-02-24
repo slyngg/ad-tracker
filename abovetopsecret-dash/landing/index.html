@@ -3,25 +3,35 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>OpticData — Jarvis For Media Buyers</title>
-    <meta name="description" content="Real-time attribution, AI insights, and automated optimization across every channel. Jarvis for media buyers." />
-    <meta name="keywords" content="media buying, AI analytics, attribution, ad optimization, ecommerce, OpticData" />
+    <title>OpticData — Your Entire Ad Stack, In Your Pocket</title>
+    <meta name="description" content="Manage your entire ad stack from your phone. Real-time ROAS, AI insights, voice control, and automated optimization. Jarvis for media buyers." />
+    <meta name="keywords" content="media buying, AI analytics, attribution, ad optimization, ecommerce, OpticData, mobile ads manager" />
     <link rel="canonical" href="https://optic-data.com/" />
 
     <!-- Open Graph -->
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://optic-data.com/" />
-    <meta property="og:title" content="OpticData — Jarvis For Media Buyers" />
-    <meta property="og:description" content="Real-time attribution, AI insights, and automated optimization across every channel." />
+    <meta property="og:title" content="OpticData — Your Entire Ad Stack, In Your Pocket" />
+    <meta property="og:description" content="Check ROAS, pause bleeders, shift budgets — all from your phone. AI-powered intelligence for media buyers." />
     <meta property="og:site_name" content="OpticData" />
 
     <!-- Twitter -->
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="OpticData — Jarvis For Media Buyers" />
-    <meta name="twitter:description" content="Real-time attribution, AI insights, and automated optimization across every channel." />
+    <meta name="twitter:title" content="OpticData — Your Entire Ad Stack, In Your Pocket" />
+    <meta name="twitter:description" content="Check ROAS, pause bleeders, shift budgets — all from your phone. AI-powered intelligence for media buyers." />
 
-    <meta name="theme-color" content="#030712" />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <meta name="theme-color" content="#030712" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#f8fafc" media="(prefers-color-scheme: light)" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+
+    <!-- Detect system theme before first paint -->
+    <script>
+      (function() {
+        var t = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        document.documentElement.classList.add(t);
+      })();
+    </script>
+
     <link rel="stylesheet" href="/src/styles/globals.css" />
     <script type="module" src="/src/scripts/main.ts"></script>
   </head>
@@ -32,18 +42,19 @@
       <div class="section-container flex items-center justify-between h-16">
         <!-- Logo -->
         <a href="/" class="flex items-center gap-1 text-xl font-bold">
-          <span class="text-od-accent">Optic</span><span class="text-white">Data</span>
+          <span class="text-od-accent">Optic</span><span class="text-od-text">Data</span>
         </a>
 
         <!-- Desktop links -->
         <div class="hidden md:flex items-center gap-8">
-          <a href="#features" class="text-sm text-od-text-secondary hover:text-white transition-colors">Features</a>
-          <a href="#integrations" class="text-sm text-od-text-secondary hover:text-white transition-colors">Integrations</a>
+          <a href="#features" class="text-sm text-od-text-secondary hover:text-od-text transition-colors">Features</a>
+          <a href="#integrations" class="text-sm text-od-text-secondary hover:text-od-text transition-colors">Integrations</a>
+          <a href="https://app.optic-data.com" class="text-sm text-od-text-secondary hover:text-od-text transition-colors">Login</a>
           <a href="https://cal.com/above-top-secret/debrief" target="_blank" rel="noopener" class="btn-primary text-sm !py-2 !px-5">Talk to Us</a>
         </div>
 
         <!-- Mobile hamburger -->
-        <button id="menu-btn" class="md:hidden p-2 text-od-text-secondary hover:text-white" aria-label="Open menu" aria-expanded="false">
+        <button id="menu-btn" class="md:hidden p-2 text-od-text-secondary hover:text-od-text" aria-label="Open menu" aria-expanded="false">
           <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
         </button>
       </div>
@@ -51,33 +62,234 @@
       <!-- Mobile menu -->
       <div id="mobile-menu" class="hidden md:hidden bg-od-bg/95 backdrop-blur-md border-t border-od-border">
         <div class="section-container py-4 flex flex-col gap-4">
-          <a href="#features" class="text-sm text-od-text-secondary hover:text-white">Features</a>
-          <a href="#integrations" class="text-sm text-od-text-secondary hover:text-white">Integrations</a>
+          <a href="#features" class="text-sm text-od-text-secondary hover:text-od-text">Features</a>
+          <a href="#integrations" class="text-sm text-od-text-secondary hover:text-od-text">Integrations</a>
+          <a href="https://app.optic-data.com" class="text-sm text-od-text-secondary hover:text-od-text">Login</a>
           <a href="https://cal.com/above-top-secret/debrief" target="_blank" rel="noopener" class="btn-primary text-sm text-center">Talk to Us</a>
         </div>
       </div>
     </nav>
 
     <!-- ===== HERO ===== -->
-    <section class="pt-32 pb-20 sm:pt-40 sm:pb-28">
-      <div class="section-container text-center">
-        <!-- Badge -->
-        <div class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-od-border bg-od-card/50 text-xs font-medium text-od-text-secondary mb-8">
-          <span class="w-2 h-2 rounded-full bg-od-green animate-pulse"></span>
-          AI-Powered Ecommerce Intelligence
-        </div>
+    <section class="relative pt-28 pb-8 sm:pt-36 sm:pb-16 overflow-hidden">
+      <!-- Background effects -->
+      <div class="absolute inset-0 pointer-events-none" aria-hidden="true">
+        <div class="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[600px] bg-od-accent/[0.06] rounded-full blur-[150px]"></div>
+        <div class="absolute bottom-0 left-1/4 w-[400px] h-[400px] bg-cyan-500/[0.04] rounded-full blur-[120px]"></div>
+        <div class="hero-grid absolute inset-0"></div>
+      </div>
 
-        <h1 class="text-4xl sm:text-5xl lg:text-6xl font-extrabold leading-tight tracking-tight max-w-4xl mx-auto mb-6">
-          <span class="gradient-text">Jarvis</span> For Media Buyers
-        </h1>
+      <div class="section-container relative z-10">
+        <div class="grid lg:grid-cols-2 gap-12 lg:gap-8 items-center">
 
-        <p class="text-lg sm:text-xl text-od-text-secondary max-w-2xl mx-auto mb-10 leading-relaxed">
-          Real-time attribution, AI insights, and automated optimization across every channel — so you can scale faster with less guesswork.
-        </p>
+          <!-- Left: Copy -->
+          <div class="text-center lg:text-left">
+            <!-- Badge -->
+            <div class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-od-accent/30 bg-od-accent/[0.08] text-xs font-medium text-od-accent mb-8 animate-fade-in">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/></svg>
+              "Hey Optics" — Voice Enabled
+            </div>
 
-        <div class="flex flex-col sm:flex-row items-center justify-center gap-4">
-          <a href="https://cal.com/above-top-secret/debrief" target="_blank" rel="noopener" class="btn-primary text-base px-8 py-3.5">Talk to Us</a>
-          <a href="https://app.optic-data.com" class="btn-secondary text-base px-8 py-3.5">Launch Dashboard &rarr;</a>
+            <h1 class="text-4xl sm:text-5xl lg:text-6xl font-black leading-[1.1] tracking-tight mb-6 animate-fade-in-up">
+              Your Entire Ad Stack.<br />
+              <span class="gradient-text">In Your Pocket.</span>
+            </h1>
+
+            <p class="text-lg sm:text-xl text-od-text-secondary max-w-xl mx-auto lg:mx-0 mb-10 leading-relaxed animate-fade-in-up delay-1">
+              Check ROAS. Pause bleeders. Shift budgets. Get AI briefs. All from your phone in seconds — no laptop, no wasted hours.
+            </p>
+
+            <!-- Stat highlights -->
+            <div class="flex items-center justify-center lg:justify-start gap-6 sm:gap-8 mb-10 animate-fade-in-up delay-2">
+              <div class="text-center">
+                <div class="text-2xl sm:text-3xl font-black gradient-text">4+</div>
+                <div class="text-[11px] sm:text-xs text-od-text-muted mt-1 uppercase tracking-wide">Hours Saved Daily</div>
+              </div>
+              <div class="w-px h-12 bg-od-border"></div>
+              <div class="text-center">
+                <div class="text-2xl sm:text-3xl font-black gradient-text">24/7</div>
+                <div class="text-[11px] sm:text-xs text-od-text-muted mt-1 uppercase tracking-wide">Campaign Watch</div>
+              </div>
+              <div class="w-px h-12 bg-od-border"></div>
+              <div class="text-center">
+                <div class="text-2xl sm:text-3xl font-black gradient-text">15+</div>
+                <div class="text-[11px] sm:text-xs text-od-text-muted mt-1 uppercase tracking-wide">AI Tools</div>
+              </div>
+            </div>
+
+            <!-- CTA buttons -->
+            <div class="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4 animate-fade-in-up delay-3">
+              <a href="https://cal.com/above-top-secret/debrief" target="_blank" rel="noopener" class="btn-primary text-base px-8 py-3.5 shadow-lg shadow-od-accent/25 hover:shadow-od-accent/40 transition-shadow">Talk to Us</a>
+              <a href="https://app.optic-data.com" class="btn-secondary text-base px-8 py-3.5">Launch Dashboard &rarr;</a>
+            </div>
+          </div>
+
+          <!-- Right: Phone mockup with floating cards -->
+          <div class="relative flex justify-center lg:justify-end animate-fade-in-up delay-2">
+
+            <!-- Floating notification cards (hidden on small screens) -->
+            <div class="hidden sm:block absolute -top-2 left-0 lg:-left-6 z-20 floating-card delay-0">
+              <div class="flex items-center gap-2 px-3 py-2 rounded-xl bg-od-card/90 border border-od-border backdrop-blur-sm shadow-xl shadow-black/30 max-w-[200px]">
+                <div class="flex-shrink-0 w-7 h-7 rounded-lg bg-purple-500/20 flex items-center justify-center">
+                  <svg class="w-3.5 h-3.5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/></svg>
+                </div>
+                <div>
+                  <div class="text-[10px] text-od-text-muted">Voice Command</div>
+                  <div class="text-[11px] text-od-text font-medium">"Check my ROAS"</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="hidden sm:block absolute top-8 right-0 lg:-right-4 z-20 floating-card delay-1">
+              <div class="flex items-center gap-2 px-3 py-2 rounded-xl bg-od-card/90 border border-od-border backdrop-blur-sm shadow-xl shadow-black/30 max-w-[200px]">
+                <div class="flex-shrink-0 w-7 h-7 rounded-lg bg-green-500/20 flex items-center justify-center">
+                  <svg class="w-3.5 h-3.5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
+                </div>
+                <div>
+                  <div class="text-[10px] text-od-text-muted">Live ROAS</div>
+                  <div class="text-[11px] font-medium"><span class="text-od-text">2.41x</span> <span class="text-od-green">+10.6%</span></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="hidden lg:block absolute bottom-32 -left-10 z-20 floating-card delay-2">
+              <div class="flex items-center gap-2 px-3 py-2 rounded-xl bg-od-card/90 border border-od-border backdrop-blur-sm shadow-xl shadow-black/30 max-w-[210px]">
+                <div class="flex-shrink-0 w-7 h-7 rounded-lg bg-yellow-500/20 flex items-center justify-center">
+                  <svg class="w-3.5 h-3.5 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z"/></svg>
+                </div>
+                <div>
+                  <div class="text-[10px] text-od-text-muted">#slack — alerts</div>
+                  <div class="text-[11px] text-od-text font-medium">Budget cap hit on CBO-3</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="hidden lg:block absolute bottom-16 -right-8 z-20 floating-card delay-3">
+              <div class="flex items-center gap-2 px-3 py-2 rounded-xl bg-od-card/90 border border-od-border backdrop-blur-sm shadow-xl shadow-black/30 max-w-[210px]">
+                <div class="flex-shrink-0 w-7 h-7 rounded-lg bg-od-green/20 flex items-center justify-center">
+                  <svg class="w-3.5 h-3.5 text-od-green" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                </div>
+                <div>
+                  <div class="text-[10px] text-od-text-muted">Auto-Rule Fired</div>
+                  <div class="text-[11px] text-od-text font-medium">Retargeting paused</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Phone glow -->
+            <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[320px] h-[520px] bg-od-accent/[0.08] rounded-full blur-[80px] pointer-events-none"></div>
+
+            <!-- Phone frame -->
+            <div class="relative w-[272px] sm:w-[300px] flex-shrink-0">
+              <div class="relative bg-gradient-to-b from-od-card to-od-surface rounded-[2.75rem] border border-od-border/80 p-2.5 shadow-2xl shadow-black/50">
+                <!-- Notch -->
+                <div class="absolute top-0 left-1/2 -translate-x-1/2 w-28 h-[22px] bg-od-bg rounded-b-2xl z-10"></div>
+                <!-- Screen -->
+                <div class="relative w-full rounded-[2.25rem] overflow-hidden bg-od-bg">
+                  <!-- Status bar -->
+                  <div class="flex justify-between items-center px-6 pt-3 pb-1">
+                    <span class="text-[10px] text-od-text-muted font-medium">9:41</span>
+                    <div class="flex items-center gap-1">
+                      <svg class="w-3 h-3 text-od-text-muted" fill="currentColor" viewBox="0 0 24 24"><path d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3a4.237 4.237 0 00-6 0zm-4-4l2 2a7.074 7.074 0 0110 0l2-2C15.14 9.14 8.87 9.14 5 13z"/></svg>
+                      <svg class="w-3 h-3 text-od-text-muted" fill="currentColor" viewBox="0 0 24 24"><path d="M15.67 4H14V2h-4v2H8.33C7.6 4 7 4.6 7 5.33v15.33C7 21.4 7.6 22 8.33 22h7.33c.74 0 1.34-.6 1.34-1.33V5.33C17 4.6 16.4 4 15.67 4z"/></svg>
+                    </div>
+                  </div>
+
+                  <!-- App header -->
+                  <div class="px-4 pt-2 pb-3 flex items-center justify-between">
+                    <div class="text-xs font-bold">
+                      <span class="text-od-accent">Optic</span><span class="text-od-text">Data</span>
+                    </div>
+                    <div class="w-6 h-6 rounded-full bg-od-accent/20 flex items-center justify-center">
+                      <svg class="w-3 h-3 text-od-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/></svg>
+                    </div>
+                  </div>
+
+                  <!-- ROAS card -->
+                  <div class="mx-3 p-3 bg-od-card rounded-xl border border-od-border mb-2.5">
+                    <div class="text-[10px] text-od-text-muted mb-0.5">Today's ROAS</div>
+                    <div class="flex items-end gap-2">
+                      <span class="text-xl font-black text-od-text leading-none">2.41x</span>
+                      <span class="text-[10px] text-od-green font-semibold mb-0.5">+10.6%</span>
+                    </div>
+                  </div>
+
+                  <!-- Spend / Revenue row -->
+                  <div class="grid grid-cols-2 gap-2 mx-3 mb-2.5">
+                    <div class="p-2 bg-od-card rounded-lg border border-od-border">
+                      <div class="text-[9px] text-od-text-muted">Spend</div>
+                      <div class="text-xs font-bold text-od-text">$4,218</div>
+                    </div>
+                    <div class="p-2 bg-od-card rounded-lg border border-od-border">
+                      <div class="text-[9px] text-od-text-muted">Revenue</div>
+                      <div class="text-xs font-bold text-od-green">$10,165</div>
+                    </div>
+                  </div>
+
+                  <!-- Mini chart -->
+                  <div class="mx-3 p-3 bg-od-card rounded-xl border border-od-border mb-2.5">
+                    <div class="text-[9px] text-od-text-muted mb-2">7-Day Performance</div>
+                    <div class="flex items-end gap-[5px] h-[52px]">
+                      <div class="flex-1 flex gap-px items-end h-full">
+                        <div class="flex-1 bg-od-accent/50 rounded-t-sm" style="height:35%"></div>
+                        <div class="flex-1 bg-od-green/50 rounded-t-sm" style="height:50%"></div>
+                      </div>
+                      <div class="flex-1 flex gap-px items-end h-full">
+                        <div class="flex-1 bg-od-accent/50 rounded-t-sm" style="height:40%"></div>
+                        <div class="flex-1 bg-od-green/50 rounded-t-sm" style="height:58%"></div>
+                      </div>
+                      <div class="flex-1 flex gap-px items-end h-full">
+                        <div class="flex-1 bg-od-accent/50 rounded-t-sm" style="height:30%"></div>
+                        <div class="flex-1 bg-od-green/50 rounded-t-sm" style="height:42%"></div>
+                      </div>
+                      <div class="flex-1 flex gap-px items-end h-full">
+                        <div class="flex-1 bg-od-accent/50 rounded-t-sm" style="height:48%"></div>
+                        <div class="flex-1 bg-od-green/60 rounded-t-sm" style="height:72%"></div>
+                      </div>
+                      <div class="flex-1 flex gap-px items-end h-full">
+                        <div class="flex-1 bg-od-accent/50 rounded-t-sm" style="height:52%"></div>
+                        <div class="flex-1 bg-od-green/60 rounded-t-sm" style="height:78%"></div>
+                      </div>
+                      <div class="flex-1 flex gap-px items-end h-full">
+                        <div class="flex-1 bg-od-accent/50 rounded-t-sm" style="height:38%"></div>
+                        <div class="flex-1 bg-od-green/50 rounded-t-sm" style="height:60%"></div>
+                      </div>
+                      <div class="flex-1 flex gap-px items-end h-full">
+                        <div class="flex-1 bg-od-accent/60 rounded-t-sm" style="height:55%"></div>
+                        <div class="flex-1 bg-od-green/70 rounded-t-sm" style="height:88%"></div>
+                      </div>
+                    </div>
+                    <div class="flex justify-between mt-1.5">
+                      <span class="text-[8px] text-od-text-muted">Mon</span>
+                      <span class="text-[8px] text-od-text-muted">Sun</span>
+                    </div>
+                  </div>
+
+                  <!-- Quick actions -->
+                  <div class="grid grid-cols-3 gap-1.5 mx-3 pb-6">
+                    <div class="flex flex-col items-center gap-1 p-2 bg-od-card rounded-lg border border-od-border">
+                      <svg class="w-3.5 h-3.5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/></svg>
+                      <span class="text-[8px] text-od-text-muted">Voice</span>
+                    </div>
+                    <div class="flex flex-col items-center gap-1 p-2 bg-od-card rounded-lg border border-od-border">
+                      <svg class="w-3.5 h-3.5 text-od-yellow" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                      <span class="text-[8px] text-od-text-muted">Rules</span>
+                    </div>
+                    <div class="flex flex-col items-center gap-1 p-2 bg-od-card rounded-lg border border-od-border">
+                      <svg class="w-3.5 h-3.5 text-od-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg>
+                      <span class="text-[8px] text-od-text-muted">AI Chat</span>
+                    </div>
+                  </div>
+
+                  <!-- Home indicator -->
+                  <div class="flex justify-center pb-2">
+                    <div class="w-24 h-1 rounded-full bg-od-text-muted/30"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          </div>
         </div>
       </div>
     </section>
@@ -89,32 +301,32 @@
         <p class="text-center text-xs uppercase tracking-widest text-od-text-muted mb-8">Connects With Your Entire Stack</p>
         <div class="flex flex-wrap items-center justify-center gap-8 sm:gap-12 mb-10">
           <!-- Meta -->
-          <div class="flex items-center gap-2 text-od-text-secondary">
+          <div class="flex items-center gap-2 text-od-text-secondary hover:text-od-text transition-colors">
             <svg class="w-6 h-6" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.04c-5.5 0-10 4.49-10 10.02 0 5 3.66 9.15 8.44 9.9v-7H7.9v-2.9h2.54V9.85c0-2.51 1.49-3.89 3.78-3.89 1.09 0 2.24.2 2.24.2v2.46h-1.26c-1.24 0-1.63.77-1.63 1.56v1.88h2.78l-.45 2.9h-2.33v7A10 10 0 0 0 22 12.06C22 6.53 17.5 2.04 12 2.04z"/></svg>
             <span class="text-sm font-medium">Meta</span>
           </div>
           <!-- Google -->
-          <div class="flex items-center gap-2 text-od-text-secondary">
+          <div class="flex items-center gap-2 text-od-text-secondary hover:text-od-text transition-colors">
             <svg class="w-6 h-6" viewBox="0 0 24 24" fill="currentColor"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18A11.96 11.96 0 0 0 1 12c0 1.94.46 3.77 1.18 5.07l3.66-2.98z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
             <span class="text-sm font-medium">Google</span>
           </div>
           <!-- TikTok -->
-          <div class="flex items-center gap-2 text-od-text-secondary">
+          <div class="flex items-center gap-2 text-od-text-secondary hover:text-od-text transition-colors">
             <svg class="w-6 h-6" viewBox="0 0 24 24" fill="currentColor"><path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-2.88 2.5 2.89 2.89 0 0 1 0-5.78c.27 0 .54.04.8.1V9a6.33 6.33 0 1 0 5.43 6.28V9.4a8.16 8.16 0 0 0 3.87.97V6.98a4.85 4.85 0 0 1-.01-.29z"/></svg>
             <span class="text-sm font-medium">TikTok</span>
           </div>
           <!-- Shopify -->
-          <div class="flex items-center gap-2 text-od-text-secondary">
+          <div class="flex items-center gap-2 text-od-text-secondary hover:text-od-text transition-colors">
             <svg class="w-6 h-6" viewBox="0 0 24 24" fill="currentColor"><path d="M15.34 2.61a.42.42 0 0 0-.37-.07 5.87 5.87 0 0 0-.8.27c-.1-.3-.23-.62-.39-.93-.56-1.08-1.38-1.65-2.37-1.66h-.02c-.07 0-.13 0-.2.02-.03-.03-.05-.07-.08-.1C10.67-.31 10.1-.07 9.6.23A5.72 5.72 0 0 0 7.9 2.67c-.54 1.55-.42 2.8-.28 3.44l-.38.12S6.1 6.56 6.08 6.58A1.24 1.24 0 0 0 5.2 7.6L2.93 21.2l11.18 1.92.07-.04L15.34 2.6zM11.3 4.68l-.7.22c0-.06.01-.12.01-.18.01-.45-.06-.82-.18-1.12.45.06.72.57.87.98v.1zm-1.7.53.48-.15-.48.15zm-.53.16L9.73 3a3.43 3.43 0 0 1 .32-1.06c.12-.2.27-.36.43-.45a4.5 4.5 0 0 1 .24 1.51c0 .08 0 .17-.01.27l-1.64.5z"/><path d="M15.6 2.57s-.32-.06-.72-.05c-.39.02-.88.08-1.35.38.11.12.31.37.48.77.16.37.27.82.26 1.37l-.01.18 1.47-.45-.13-2.2z"/><path d="m15.83 2.88-.35 19.27 5.63-1.22L18.04 2.3c-.04-.16-.19-.28-.36-.26a22.8 22.8 0 0 0-1.85.84z"/></svg>
             <span class="text-sm font-medium">Shopify</span>
           </div>
           <!-- Klaviyo -->
-          <div class="flex items-center gap-2 text-od-text-secondary">
+          <div class="flex items-center gap-2 text-od-text-secondary hover:text-od-text transition-colors">
             <svg class="w-6 h-6" viewBox="0 0 24 24" fill="currentColor"><path d="M3 3v18h13.2l4.8-6V3H3zm12 14H7v-2h8v2zm4-4H7V11h12v2zm0-4H7V7h12v2z"/></svg>
             <span class="text-sm font-medium">Klaviyo</span>
           </div>
           <!-- Checkout Champ -->
-          <div class="flex items-center gap-2 text-od-text-secondary">
+          <div class="flex items-center gap-2 text-od-text-secondary hover:text-od-text transition-colors">
             <svg class="w-6 h-6" viewBox="0 0 24 24" fill="currentColor"><path d="M7 18c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm10 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zM7.16 14.26l.04-.12.96-1.74h7.45c.75 0 1.41-.41 1.75-1.03l3.58-6.49A1 1 0 0 0 20.07 4H5.21l-.94-2H1v2h2l3.6 7.59-1.35 2.44C4.52 15.37 5.48 17 7 17h12v-2H7.42a.25.25 0 0 1-.26-.24v-.5z"/></svg>
             <span class="text-sm font-medium">Checkout Champ</span>
           </div>
@@ -141,10 +353,10 @@
     <!-- ===== TAGLINE ===== -->
     <section class="py-24 sm:py-32">
       <div class="section-container text-center">
-        <h2 class="text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight uppercase">
+        <h2 class="text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight uppercase animate-on-scroll">
           Intelligence Unlocks <span class="gradient-text">Everything</span>
         </h2>
-        <p class="text-od-text-secondary text-lg mt-4 max-w-xl mx-auto">
+        <p class="text-od-text-secondary text-lg mt-4 max-w-xl mx-auto animate-on-scroll">
           Enterprise-grade AI that actually takes action on your data.
         </p>
       </div>
@@ -155,41 +367,41 @@
       <div class="section-container max-w-3xl">
         <div class="space-y-4">
           <!-- Layer 1 -->
-          <div class="card group hover:border-od-accent/40 transition-colors">
+          <div class="card group hover:border-od-accent/40 transition-colors animate-on-scroll">
             <div class="flex items-start gap-4">
               <div class="flex-shrink-0 w-10 h-10 rounded-lg bg-od-accent/10 flex items-center justify-center text-od-accent font-bold text-sm">01</div>
               <div>
-                <h3 class="font-semibold text-white mb-1">Integration Layer</h3>
+                <h3 class="font-semibold text-od-text mb-1">Integration Layer</h3>
                 <p class="text-sm text-od-text-secondary">Connect Meta, Google, TikTok, Shopify, Klaviyo, and Checkout Champ in minutes. OAuth-based, encrypted tokens, automatic sync.</p>
               </div>
             </div>
           </div>
           <!-- Layer 2 -->
-          <div class="card group hover:border-od-accent/40 transition-colors">
+          <div class="card group hover:border-od-accent/40 transition-colors animate-on-scroll">
             <div class="flex items-start gap-4">
               <div class="flex-shrink-0 w-10 h-10 rounded-lg bg-od-accent/10 flex items-center justify-center text-od-accent font-bold text-sm">02</div>
               <div>
-                <h3 class="font-semibold text-white mb-1">Intelligence Layer</h3>
+                <h3 class="font-semibold text-od-text mb-1">Intelligence Layer</h3>
                 <p class="text-sm text-od-text-secondary">AI Operator with 15+ tools analyzes your data in real-time — attribution, creative performance, cohort analysis, anomaly detection.</p>
               </div>
             </div>
           </div>
           <!-- Layer 3 -->
-          <div class="card group hover:border-od-accent/40 transition-colors">
+          <div class="card group hover:border-od-accent/40 transition-colors animate-on-scroll">
             <div class="flex items-start gap-4">
               <div class="flex-shrink-0 w-10 h-10 rounded-lg bg-od-accent/10 flex items-center justify-center text-od-accent font-bold text-sm">03</div>
               <div>
-                <h3 class="font-semibold text-white mb-1">Automation Layer</h3>
+                <h3 class="font-semibold text-od-text mb-1">Automation Layer</h3>
                 <p class="text-sm text-od-text-secondary">Rules engine monitors KPIs 24/7. Auto-pause bleeders, scale winners, get Slack alerts — all without lifting a finger.</p>
               </div>
             </div>
           </div>
           <!-- Layer 4 -->
-          <div class="card group hover:border-od-accent/40 transition-colors">
+          <div class="card group hover:border-od-accent/40 transition-colors animate-on-scroll">
             <div class="flex items-start gap-4">
               <div class="flex-shrink-0 w-10 h-10 rounded-lg bg-od-accent/10 flex items-center justify-center text-od-accent font-bold text-sm">04</div>
               <div>
-                <h3 class="font-semibold text-white mb-1">Action Layer</h3>
+                <h3 class="font-semibold text-od-text mb-1">Action Layer</h3>
                 <p class="text-sm text-od-text-secondary">Pause, enable, adjust budgets — hands-free. OpticData doesn't just report, it executes.</p>
               </div>
             </div>
@@ -202,13 +414,13 @@
     <section id="features" class="py-24 border-t border-od-border">
       <div class="section-container">
         <div class="text-center mb-16">
-          <h2 class="text-3xl sm:text-4xl font-extrabold tracking-tight">Everything You Need to <span class="gradient-text">Win</span></h2>
-          <p class="text-od-text-secondary mt-4 max-w-xl mx-auto">Six capabilities that replace an entire analytics stack.</p>
+          <h2 class="text-3xl sm:text-4xl font-extrabold tracking-tight animate-on-scroll">Everything You Need to <span class="gradient-text">Win</span></h2>
+          <p class="text-od-text-secondary mt-4 max-w-xl mx-auto animate-on-scroll">Six capabilities that replace an entire analytics stack.</p>
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
           <!-- Card 1: AI Operator -->
-          <div class="card hover:border-od-accent/40 transition-colors">
+          <div class="card hover:border-od-accent/40 transition-colors animate-on-scroll">
             <div class="w-10 h-10 rounded-lg bg-blue-500/10 flex items-center justify-center mb-4">
               <svg class="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg>
             </div>
@@ -217,7 +429,7 @@
           </div>
 
           <!-- Card 2: Hey Optics Voice -->
-          <div class="card hover:border-od-accent/40 transition-colors">
+          <div class="card hover:border-od-accent/40 transition-colors animate-on-scroll">
             <div class="w-10 h-10 rounded-lg bg-purple-500/10 flex items-center justify-center mb-4">
               <svg class="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/></svg>
             </div>
@@ -226,7 +438,7 @@
           </div>
 
           <!-- Card 3: Automation Rules -->
-          <div class="card hover:border-od-accent/40 transition-colors">
+          <div class="card hover:border-od-accent/40 transition-colors animate-on-scroll">
             <div class="w-10 h-10 rounded-lg bg-green-500/10 flex items-center justify-center mb-4">
               <svg class="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
             </div>
@@ -235,7 +447,7 @@
           </div>
 
           <!-- Card 4: Slack Bot -->
-          <div class="card hover:border-od-accent/40 transition-colors">
+          <div class="card hover:border-od-accent/40 transition-colors animate-on-scroll">
             <div class="w-10 h-10 rounded-lg bg-yellow-500/10 flex items-center justify-center mb-4">
               <svg class="w-5 h-5 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z"/></svg>
             </div>
@@ -244,7 +456,7 @@
           </div>
 
           <!-- Card 5: Creative Studio -->
-          <div class="card hover:border-od-accent/40 transition-colors">
+          <div class="card hover:border-od-accent/40 transition-colors animate-on-scroll">
             <div class="w-10 h-10 rounded-lg bg-pink-500/10 flex items-center justify-center mb-4">
               <svg class="w-5 h-5 text-pink-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
             </div>
@@ -253,7 +465,7 @@
           </div>
 
           <!-- Card 6: Checkout Champ Native -->
-          <div class="card hover:border-od-accent/40 transition-colors">
+          <div class="card hover:border-od-accent/40 transition-colors animate-on-scroll">
             <div class="w-10 h-10 rounded-lg bg-cyan-500/10 flex items-center justify-center mb-4">
               <svg class="w-5 h-5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 100 4 2 2 0 000-4z"/></svg>
             </div>
@@ -269,7 +481,7 @@
       <div class="section-container">
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
           <!-- Chat mockup -->
-          <div class="card bg-od-bg border-od-border">
+          <div class="card bg-od-bg border-od-border animate-on-scroll">
             <div class="flex items-center gap-2 mb-4 pb-3 border-b border-od-border">
               <div class="w-3 h-3 rounded-full bg-od-red"></div>
               <div class="w-3 h-3 rounded-full bg-od-yellow"></div>
@@ -306,7 +518,7 @@
           </div>
 
           <!-- Copy -->
-          <div>
+          <div class="animate-on-scroll">
             <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-od-card border border-od-border text-xs text-od-text-muted mb-6">
               Powered by Claude AI
             </div>
@@ -347,11 +559,11 @@
     <section class="py-24">
       <div class="section-container">
         <div class="text-center mb-16">
-          <h2 class="text-3xl sm:text-4xl font-extrabold tracking-tight">Why OpticData <span class="gradient-text">Actually Delivers</span></h2>
+          <h2 class="text-3xl sm:text-4xl font-extrabold tracking-tight animate-on-scroll">Why OpticData <span class="gradient-text">Actually Delivers</span></h2>
         </div>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-6 max-w-4xl mx-auto">
-          <div class="card">
+          <div class="card animate-on-scroll">
             <div class="w-10 h-10 rounded-lg bg-green-500/10 flex items-center justify-center mb-4">
               <svg class="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
             </div>
@@ -359,7 +571,7 @@
             <p class="text-sm text-od-text-secondary">No stale dashboards. Live data streams directly to your screen the moment platforms report it.</p>
           </div>
 
-          <div class="card">
+          <div class="card animate-on-scroll">
             <div class="w-10 h-10 rounded-lg bg-purple-500/10 flex items-center justify-center mb-4">
               <svg class="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/></svg>
             </div>
@@ -367,7 +579,7 @@
             <p class="text-sm text-od-text-secondary">Competitors don't have this. Say "Hey Optics" and manage your entire ad stack hands-free.</p>
           </div>
 
-          <div class="card">
+          <div class="card animate-on-scroll">
             <div class="w-10 h-10 rounded-lg bg-yellow-500/10 flex items-center justify-center mb-4">
               <svg class="w-5 h-5 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z"/></svg>
             </div>
@@ -375,7 +587,7 @@
             <p class="text-sm text-od-text-secondary">Manage ads without logging in. <code class="text-xs bg-od-surface px-1.5 py-0.5 rounded">/optic</code> commands bring your data to where your team already lives.</p>
           </div>
 
-          <div class="card">
+          <div class="card animate-on-scroll">
             <div class="w-10 h-10 rounded-lg bg-cyan-500/10 flex items-center justify-center mb-4">
               <svg class="w-5 h-5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 100 4 2 2 0 000-4z"/></svg>
             </div>
@@ -387,16 +599,20 @@
     </section>
 
     <!-- ===== CTA ===== -->
-    <section class="py-24 border-t border-od-border">
-      <div class="section-container text-center">
-        <h2 class="text-3xl sm:text-4xl font-extrabold tracking-tight mb-4">
-          Ready to see your data <span class="gradient-text">differently</span>?
+    <section class="relative py-24 border-t border-od-border overflow-hidden">
+      <!-- Background glow -->
+      <div class="absolute inset-0 pointer-events-none" aria-hidden="true">
+        <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[300px] bg-od-accent/[0.05] rounded-full blur-[100px]"></div>
+      </div>
+      <div class="section-container text-center relative z-10">
+        <h2 class="text-3xl sm:text-4xl font-extrabold tracking-tight mb-4 animate-on-scroll">
+          Stop Refreshing Dashboards.<br /><span class="gradient-text">Start Scaling.</span>
         </h2>
-        <p class="text-od-text-secondary text-lg mb-10 max-w-xl mx-auto">
-          Join the media buyers who are scaling faster with AI-powered intelligence.
+        <p class="text-od-text-secondary text-lg mb-10 max-w-xl mx-auto animate-on-scroll">
+          Join the media buyers who reclaimed their time with AI-powered intelligence — right from their pocket.
         </p>
-        <div class="flex flex-col sm:flex-row items-center justify-center gap-4">
-          <a href="https://cal.com/above-top-secret/debrief" target="_blank" rel="noopener" class="btn-primary text-base px-8 py-3.5">Talk to Us</a>
+        <div class="flex flex-col sm:flex-row items-center justify-center gap-4 animate-on-scroll">
+          <a href="https://cal.com/above-top-secret/debrief" target="_blank" rel="noopener" class="btn-primary text-base px-8 py-3.5 shadow-lg shadow-od-accent/25">Talk to Us</a>
           <a href="https://app.optic-data.com" class="btn-secondary text-base px-8 py-3.5">Launch Dashboard &rarr;</a>
         </div>
       </div>
@@ -409,7 +625,7 @@
           <!-- Brand -->
           <div class="sm:col-span-2 lg:col-span-1">
             <a href="/" class="flex items-center gap-1 text-xl font-bold mb-3">
-              <span class="text-od-accent">Optic</span><span class="text-white">Data</span>
+              <span class="text-od-accent">Optic</span><span class="text-od-text">Data</span>
             </a>
             <p class="text-sm text-od-text-muted leading-relaxed">AI-powered command center for media buyers and ecommerce brands.</p>
           </div>
@@ -418,9 +634,9 @@
           <div>
             <h4 class="text-sm font-semibold uppercase tracking-wider text-od-text-muted mb-4">Product</h4>
             <ul class="space-y-2">
-              <li><a href="#features" class="text-sm text-od-text-secondary hover:text-white transition-colors">Features</a></li>
-              <li><a href="#integrations" class="text-sm text-od-text-secondary hover:text-white transition-colors">Integrations</a></li>
-              <li><a href="https://app.optic-data.com" class="text-sm text-od-text-secondary hover:text-white transition-colors">Dashboard</a></li>
+              <li><a href="#features" class="text-sm text-od-text-secondary hover:text-od-text transition-colors">Features</a></li>
+              <li><a href="#integrations" class="text-sm text-od-text-secondary hover:text-od-text transition-colors">Integrations</a></li>
+              <li><a href="https://app.optic-data.com" class="text-sm text-od-text-secondary hover:text-od-text transition-colors">Dashboard</a></li>
             </ul>
           </div>
 
@@ -428,9 +644,9 @@
           <div>
             <h4 class="text-sm font-semibold uppercase tracking-wider text-od-text-muted mb-4">Legal</h4>
             <ul class="space-y-2">
-              <li><a href="/privacy" class="text-sm text-od-text-secondary hover:text-white transition-colors">Privacy Policy</a></li>
-              <li><a href="/terms" class="text-sm text-od-text-secondary hover:text-white transition-colors">Terms of Service</a></li>
-              <li><a href="/data-deletion" class="text-sm text-od-text-secondary hover:text-white transition-colors">Data Deletion</a></li>
+              <li><a href="/privacy" class="text-sm text-od-text-secondary hover:text-od-text transition-colors">Privacy Policy</a></li>
+              <li><a href="/terms" class="text-sm text-od-text-secondary hover:text-od-text transition-colors">Terms of Service</a></li>
+              <li><a href="/data-deletion" class="text-sm text-od-text-secondary hover:text-od-text transition-colors">Data Deletion</a></li>
             </ul>
           </div>
 
@@ -438,8 +654,8 @@
           <div>
             <h4 class="text-sm font-semibold uppercase tracking-wider text-od-text-muted mb-4">Contact</h4>
             <ul class="space-y-2">
-              <li><a href="mailto:hello@abovetopsecret.io" class="text-sm text-od-text-secondary hover:text-white transition-colors">hello@abovetopsecret.io</a></li>
-              <li><a href="https://cal.com/above-top-secret/debrief" target="_blank" rel="noopener" class="text-sm text-od-text-secondary hover:text-white transition-colors">Book a Call</a></li>
+              <li><a href="mailto:hello@abovetopsecret.io" class="text-sm text-od-text-secondary hover:text-od-text transition-colors">hello@abovetopsecret.io</a></li>
+              <li><a href="https://cal.com/above-top-secret/debrief" target="_blank" rel="noopener" class="text-sm text-od-text-secondary hover:text-od-text transition-colors">Book a Call</a></li>
             </ul>
           </div>
         </div>

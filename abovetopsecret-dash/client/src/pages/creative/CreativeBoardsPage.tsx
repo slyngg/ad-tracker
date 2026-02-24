@@ -12,7 +12,7 @@ function CreateBoardModal({ onClose, onSubmit }: { onClose: () => void; onSubmit
   const [description, setDescription] = useState('');
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
+    <div className="fixed inset-0 flex items-center justify-center z-50 p-4" style={{ backgroundColor: 'var(--overlay-bg)' }} onClick={onClose}>
       <div className={`${cardCls} w-full max-w-sm`} onClick={e => e.stopPropagation()}>
         <h3 className="text-sm font-semibold text-ats-text mb-3">Create Board</h3>
         <div className="space-y-2">
@@ -33,7 +33,7 @@ function CreateBoardModal({ onClose, onSubmit }: { onClose: () => void; onSubmit
 
 function AddToBoardModal({ boards, onClose, onSelect }: { boards: Board[]; onClose: () => void; onSelect: (boardId: number) => void }) {
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
+    <div className="fixed inset-0 flex items-center justify-center z-50 p-4" style={{ backgroundColor: 'var(--overlay-bg)' }} onClick={onClose}>
       <div className={`${cardCls} w-full max-w-sm`} onClick={e => e.stopPropagation()}>
         <h3 className="text-sm font-semibold text-ats-text mb-3">Add to Board</h3>
         <div className="space-y-1">

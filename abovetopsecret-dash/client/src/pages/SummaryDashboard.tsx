@@ -314,7 +314,7 @@ export default function SummaryDashboard() {
                   <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs sm:text-[11px]">
                     <div><span className="text-ats-text-muted">Spend</span><div className="font-mono text-ats-text">{fmt.currency(acct.spend)}</div></div>
                     <div><span className="text-ats-text-muted">Revenue</span><div className="font-mono text-ats-green">{fmt.currency(acct.revenue)}</div></div>
-                    <div><span className="text-ats-text-muted">ROAS</span><div className="font-mono" style={{ color: roas >= 2 ? '#22c55e' : roas >= 1 ? '#f59e0b' : '#ef4444' }}>{fmt.ratio(roas)}</div></div>
+                    <div><span className="text-ats-text-muted">ROAS</span><div className="font-mono" style={{ color: roas >= 2 ? 'var(--color-positive)' : roas >= 1 ? 'var(--color-warning)' : 'var(--color-negative)' }}>{fmt.ratio(roas)}</div></div>
                     <div><span className="text-ats-text-muted">Conv</span><div className="font-mono text-ats-text">{acct.conversions}</div></div>
                   </div>
                 </button>
@@ -379,7 +379,7 @@ export default function SummaryDashboard() {
                     <td className="py-1.5 text-ats-text">{r.source}</td>
                     <td className="py-1.5 text-right text-ats-text font-mono">{fmt.currency(r.spend)}</td>
                     <td className="py-1.5 text-right text-ats-green font-mono">{fmt.currency(r.revenue)}</td>
-                    <td className="py-1.5 text-right font-mono" style={{ color: roas >= 2 ? '#22c55e' : roas >= 1 ? '#f59e0b' : '#ef4444' }}>{fmt.ratio(roas)}</td>
+                    <td className="py-1.5 text-right font-mono" style={{ color: roas >= 2 ? 'var(--color-positive)' : roas >= 1 ? 'var(--color-warning)' : 'var(--color-negative)' }}>{fmt.ratio(roas)}</td>
                   </tr>
                   );
                 })}</tbody>

@@ -2,6 +2,43 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Dark theme (default) ── */
+:root,
+.dark {
+  --od-bg: 3 7 18;
+  --od-card: 17 24 39;
+  --od-border: 31 41 55;
+  --od-surface: 10 15 26;
+  --od-hover: 26 35 50;
+  --od-text: 249 250 251;
+  --od-text-secondary: 209 213 219;
+  --od-text-muted: 107 114 128;
+  --od-accent: 59 130 246;
+  --od-accent-hover: 37 99 235;
+  --od-green: 16 185 129;
+  --od-yellow: 245 158 11;
+  --od-red: 239 68 68;
+  color-scheme: dark;
+}
+
+/* ── Light theme ── */
+.light {
+  --od-bg: 248 250 252;
+  --od-card: 255 255 255;
+  --od-border: 226 232 240;
+  --od-surface: 241 245 249;
+  --od-hover: 226 232 240;
+  --od-text: 15 23 42;
+  --od-text-secondary: 71 85 105;
+  --od-text-muted: 148 163 184;
+  --od-accent: 37 99 235;
+  --od-accent-hover: 29 78 216;
+  --od-green: 5 150 105;
+  --od-yellow: 217 119 6;
+  --od-red: 220 38 38;
+  color-scheme: light;
+}
+
 @layer base {
   html {
     scroll-behavior: smooth;
@@ -14,7 +51,7 @@
   }
 
   ::selection {
-    @apply bg-od-accent/30 text-white;
+    @apply bg-od-accent/30 text-od-text;
   }
 }
 
@@ -28,7 +65,7 @@
   .btn-secondary {
     @apply inline-flex items-center justify-center px-6 py-3 rounded-lg
            border border-od-border hover:border-od-text-muted text-od-text-secondary
-           hover:text-white transition-all duration-200 text-sm;
+           hover:text-od-text transition-all duration-200 text-sm;
   }
 
   .section-container {
@@ -66,4 +103,116 @@
   .legal-page a {
     @apply text-od-accent hover:underline;
   }
+}
+
+/* ===== Light mode: gradient text uses darker cyan ===== */
+.light .gradient-text {
+  --tw-gradient-to: #0891b2; /* cyan-600 for better light-mode contrast */
+}
+
+/* ===== Hero background grid ===== */
+.hero-grid {
+  background-image:
+    linear-gradient(rgb(var(--od-accent) / 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(var(--od-accent) / 0.04) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(ellipse 60% 60% at 50% 40%, black 20%, transparent 70%);
+  -webkit-mask-image: radial-gradient(ellipse 60% 60% at 50% 40%, black 20%, transparent 70%);
+}
+
+/* ===== Floating notification cards ===== */
+.floating-card {
+  animation: float 6s ease-in-out infinite;
+  opacity: 0;
+  animation-fill-mode: forwards;
+}
+
+.floating-card.delay-0 {
+  animation: float 6s ease-in-out 0.3s infinite, card-appear 0.8s ease-out 0.5s forwards;
+}
+
+.floating-card.delay-1 {
+  animation: float 5.5s ease-in-out 1s infinite, card-appear 0.8s ease-out 0.8s forwards;
+}
+
+.floating-card.delay-2 {
+  animation: float 7s ease-in-out 0.6s infinite, card-appear 0.8s ease-out 1.1s forwards;
+}
+
+.floating-card.delay-3 {
+  animation: float 6.5s ease-in-out 1.5s infinite, card-appear 0.8s ease-out 1.4s forwards;
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-8px); }
+}
+
+@keyframes card-appear {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* ===== Hero entrance animations ===== */
+.animate-fade-in {
+  animation: fade-in 0.6s ease-out both;
+}
+
+.animate-fade-in-up {
+  animation: fade-in-up 0.7s ease-out both;
+}
+
+.animate-fade-in-up.delay-1 {
+  animation-delay: 0.15s;
+}
+
+.animate-fade-in-up.delay-2 {
+  animation-delay: 0.3s;
+}
+
+.animate-fade-in-up.delay-3 {
+  animation-delay: 0.45s;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ===== Scroll-triggered animations ===== */
+.animate-on-scroll {
+  opacity: 0;
+  transform: translateY(24px);
+  transition: opacity 0.6s ease-out, transform 0.6s ease-out;
+}
+
+.animate-on-scroll.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* ===== Light mode: softer shadows ===== */
+.light .shadow-2xl {
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.12);
+}
+
+.light .shadow-xl {
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.08);
 }

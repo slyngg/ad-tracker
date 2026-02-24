@@ -60,8 +60,8 @@ router.post('/compute', async (req: Request, res: Response) => {
       FROM (
         SELECT
           customer_email,
-          DATE_TRUNC('month', MIN(created_at))::DATE AS cohort_month,
-          ROW_NUMBER() OVER (PARTITION BY customer_email ORDER BY created_at) AS order_number,
+          DATE_TRUNC('month', MIN(conversion_time))::DATE AS cohort_month,
+          ROW_NUMBER() OVER (PARTITION BY customer_email ORDER BY conversion_time) AS order_number,
           COALESCE(subtotal, revenue) AS revenue
         FROM cc_orders_today
         WHERE order_status = 'completed' AND (is_test = false OR is_test IS NULL) AND customer_email IS NOT NULL AND user_id = $1

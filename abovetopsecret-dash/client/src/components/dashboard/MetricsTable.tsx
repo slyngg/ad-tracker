@@ -16,7 +16,7 @@ const COLUMNS: Column[] = [
   { key: 'account_name', label: 'Account', format: (v) => String(v) },
   { key: 'spend', label: 'Spend', format: (v) => fmt.currency(v as number), mobilePriority: true },
   { key: 'revenue', label: 'Revenue', format: (v) => fmt.currency(v as number), mobilePriority: true },
-  { key: 'roi', label: 'ROI', format: (v) => fmt.ratio(v as number), color: (v) => v >= 2 ? '#10b981' : v >= 1 ? '#f59e0b' : '#ef4444', mobilePriority: true },
+  { key: 'roi', label: 'ROI', format: (v) => fmt.ratio(v as number), color: (v) => v >= 2 ? 'var(--color-positive)' : v >= 1 ? 'var(--color-warning)' : 'var(--color-negative)', mobilePriority: true },
   { key: 'cpa', label: 'CPA', format: (v) => fmt.currency(v as number) },
   { key: 'aov', label: 'AOV', format: (v) => fmt.currency(v as number) },
   { key: 'ctr', label: 'CTR', format: (v) => fmt.pct(v as number) },
@@ -81,7 +81,7 @@ export default function MetricsTable({ data, sortCol, sortDir, onSort }: Metrics
                         ? `sticky left-0 z-[1] shadow-[2px_0_4px_rgba(0,0,0,0.3)] ${i % 2 === 0 ? 'bg-ats-bg' : 'bg-ats-row-alt'}`
                         : ''
                     } ${mobileHiddenCls(col)}`}
-                    style={{ color: col.color && numVal != null ? col.color(numVal) : '#d1d5db' }}
+                    style={{ color: col.color && numVal != null ? col.color(numVal) : 'var(--ats-text-secondary)' }}
                     title={overrideInfo ? `Original: ${col.format(overrideInfo.original)} → Override: ${col.format(overrideInfo.override)} by ${overrideInfo.set_by}` : undefined}
                   >
                     {overrideInfo && (

@@ -12,7 +12,7 @@ function SaveModal({ onClose, onSave }: { onClose: () => void; onSave: (data: an
   const [form, setForm] = useState({ brand_name: '', platform: 'meta', ad_copy: '', headline: '', thumbnail_url: '', notes: '' });
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
+    <div className="fixed inset-0 flex items-center justify-center z-50 p-4" style={{ backgroundColor: 'var(--overlay-bg)' }} onClick={onClose}>
       <div className={`${cardCls} w-full max-w-md`} onClick={e => e.stopPropagation()}>
         <h3 className="text-sm font-semibold text-ats-text mb-3">Save Creative</h3>
         <div className="space-y-2">
@@ -43,7 +43,7 @@ function FollowModal({ onClose, onFollow }: { onClose: () => void; onFollow: (da
   const [form, setForm] = useState({ brand_name: '', platform: 'meta', platform_page_id: '' });
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
+    <div className="fixed inset-0 flex items-center justify-center z-50 p-4" style={{ backgroundColor: 'var(--overlay-bg)' }} onClick={onClose}>
       <div className={`${cardCls} w-full max-w-sm`} onClick={e => e.stopPropagation()}>
         <h3 className="text-sm font-semibold text-ats-text mb-3">Follow Brand</h3>
         <div className="space-y-2">

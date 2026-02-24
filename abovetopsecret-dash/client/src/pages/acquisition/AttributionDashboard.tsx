@@ -234,9 +234,9 @@ export default function AttributionDashboard() {
                       <td className="py-2 text-right text-ats-text font-mono">{fmt.currency(r.spend)}</td>
                       <td className="py-2 text-right text-ats-green font-mono">{fmt.currency(r.revenue)}</td>
                       <td className="py-2 text-right text-ats-text font-mono">{r.purchases}</td>
-                      <td className="py-2 text-right font-mono" style={{ color: roas >= 2 ? '#22c55e' : roas >= 1 ? '#f59e0b' : '#ef4444' }}>{fmt.ratio(roas)}</td>
+                      <td className="py-2 text-right font-mono" style={{ color: roas >= 2 ? 'var(--color-positive)' : roas >= 1 ? 'var(--color-warning)' : 'var(--color-negative)' }}>{fmt.ratio(roas)}</td>
                       <td className="py-2 text-right text-ats-text font-mono">{fmt.currency(r.cpa)}</td>
-                      <td className="py-2 text-right font-mono" style={{ color: ncCpa > 50 ? '#ef4444' : '#22c55e' }}>{fmt.currency(ncCpa)}</td>
+                      <td className="py-2 text-right font-mono" style={{ color: ncCpa > 50 ? 'var(--color-negative)' : 'var(--color-positive)' }}>{fmt.currency(ncCpa)}</td>
                       <td className="py-2 text-right text-blue-400 font-mono">{fmt.ratio(parseFloat(String(r.nc_roas)) || 0)}</td>
                     </tr>
                   );
@@ -347,7 +347,7 @@ export default function AttributionDashboard() {
         </div>
 
         <div className="mt-4 mb-4"><LiveOrderFeed /></div>
-        <div className="text-center pb-4"><div className="text-[10px] text-[#374151] font-mono">{filtered.length} rows · auto-refresh 60s</div></div>
+        <div className="text-center pb-4"><div className="text-[10px] text-ats-text-muted font-mono">{filtered.length} rows · auto-refresh 60s</div></div>
       </PageShell>
     </div>
   );

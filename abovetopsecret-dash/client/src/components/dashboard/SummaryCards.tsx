@@ -68,8 +68,8 @@ function SummaryCard({ label, value, format, color, delta, invertColors }: {
       </div>
       <div className="flex items-baseline">
         <div
-          className="text-[22px] font-bold font-mono"
-          style={{ color: color || '#f9fafb' }}
+          className="text-[22px] font-bold font-mono text-ats-text"
+          style={color ? { color } : undefined}
         >
           <AnimatedNumber value={value} format={format} />
         </div>
@@ -83,7 +83,7 @@ function SummaryCard({ label, value, format, color, delta, invertColors }: {
 export default function SummaryCards({ summary }: { summary: SummaryData | null }) {
   if (!summary) return null;
 
-  const roiColor = summary.total_roi >= 2 ? '#10b981' : summary.total_roi >= 1 ? '#f59e0b' : '#ef4444';
+  const roiColor = summary.total_roi >= 2 ? 'var(--color-positive)' : summary.total_roi >= 1 ? 'var(--color-warning)' : 'var(--color-negative)';
   const prev = summary.previous;
 
   const spendDelta = calcDelta(summary.total_spend, prev?.total_spend);
@@ -94,7 +94,7 @@ export default function SummaryCards({ summary }: { summary: SummaryData | null 
   return (
     <div data-tour="summary-cards" className="px-4 py-3 flex gap-2 overflow-x-auto">
       <SummaryCard label="Spend" value={summary.total_spend} format={fmt.currency} delta={spendDelta} invertColors />
-      <SummaryCard label="Revenue" value={summary.total_revenue} format={fmt.currency} color="#10b981" delta={revenueDelta} />
+      <SummaryCard label="Revenue" value={summary.total_revenue} format={fmt.currency} color="var(--color-positive)" delta={revenueDelta} />
       <SummaryCard label="ROI" value={summary.total_roi} format={fmt.ratio} color={roiColor} delta={roiDelta} />
       <SummaryCard label="Orders" value={summary.total_conversions} format={fmt.num} delta={ordersDelta} />
     </div>

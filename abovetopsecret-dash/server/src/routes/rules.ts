@@ -11,7 +11,7 @@ router.get('/', async (req: Request, res: Response) => {
     const af = parseAccountFilter(req.query as Record<string, any>, 2);
     const result = await pool.query(
       `SELECT id, name, description, trigger_type, trigger_config, action_type, action_config,
-              enabled, last_fired_at, created_at, updated_at
+              action_meta, enabled, cooldown_minutes, last_fired_at, created_at, updated_at
        FROM automation_rules
        WHERE user_id = $1 ${af.clause}
        ORDER BY created_at DESC`,
@@ -28,7 +28,7 @@ router.get('/', async (req: Request, res: Response) => {
 router.post('/', async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
-    const { name, description, trigger_type, trigger_config, action_type, action_config } = req.body;
+    const { name, description, trigger_type, trigger_config, action_type, action_config, action_meta, cooldown_minutes } = req.body;
 
     if (!name || !trigger_type || !action_type) {
       res.status(400).json({ error: 'name, trigger_type, and action_type are required' });
@@ -36,8 +36,8 @@ router.post('/', async (req: Request, res: Response) => {
     }
 
     const result = await pool.query(
-      `INSERT INTO automation_rules (user_id, name, description, trigger_type, trigger_config, action_type, action_config)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `INSERT INTO automation_rules (user_id, name, description, trigger_type, trigger_config, action_type, action_config, action_meta, cooldown_minutes)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        RETURNING *`,
       [
         userId,
@@ -47,6 +47,8 @@ router.post('/', async (req: Request, res: Response) => {
         trigger_config ? JSON.stringify(trigger_config) : '{}',
         action_type,
         action_config ? JSON.stringify(action_config) : '{}',
+        action_meta ? JSON.stringify(action_meta) : '{}',
+        cooldown_minutes || 0,
       ]
     );
 
@@ -62,7 +64,7 @@ router.put('/:id', async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
     const { id } = req.params;
-    const { name, description, trigger_type, trigger_config, action_type, action_config } = req.body;
+    const { name, description, trigger_type, trigger_config, action_type, action_config, action_meta, cooldown_minutes } = req.body;
 
     if (!name || !trigger_type || !action_type) {
       res.status(400).json({ error: 'name, trigger_type, and action_type are required' });
@@ -72,8 +74,8 @@ router.put('/:id', async (req: Request, res: Response) => {
     const result = await pool.query(
       `UPDATE automation_rules
        SET name = $1, description = $2, trigger_type = $3, trigger_config = $4,
-           action_type = $5, action_config = $6, updated_at = NOW()
-       WHERE id = $7 AND user_id = $8
+           action_type = $5, action_config = $6, action_meta = $7, cooldown_minutes = $8, updated_at = NOW()
+       WHERE id = $9 AND user_id = $10
        RETURNING *`,
       [
         name,
@@ -82,6 +84,8 @@ router.put('/:id', async (req: Request, res: Response) => {
         trigger_config ? JSON.stringify(trigger_config) : '{}',
         action_type,
         action_config ? JSON.stringify(action_config) : '{}',
+        action_meta ? JSON.stringify(action_meta) : '{}',
+        cooldown_minutes || 0,
         id,
         userId,
       ]
@@ -146,7 +150,7 @@ router.get('/:id/logs', async (req: Request, res: Response) => {
     }
 
     const result = await pool.query(
-      `SELECT id, status, trigger_data, action_result, error_message, triggered_at
+      `SELECT id, status, trigger_data, action_result, action_detail, error_message, triggered_at
        FROM rule_execution_log
        WHERE rule_id = $1
        ORDER BY triggered_at DESC
@@ -171,7 +175,7 @@ router.post('/:id/toggle', async (req: Request, res: Response) => {
       `UPDATE automation_rules
        SET enabled = NOT enabled, updated_at = NOW()
        WHERE id = $1 AND user_id = $2
-       RETURNING id, name, enabled`,
+       RETURNING *`,
       [id, userId]
     );
 

@@ -53,7 +53,7 @@ export default function MobileMoreSheet({ open, onClose }: MobileMoreSheetProps)
   return (
     <>
       {/* Backdrop */}
-      <div className="fixed inset-0 bg-black/60 z-[60] lg:hidden" onClick={onClose} />
+      <div className="fixed inset-0 z-[60] lg:hidden" style={{ backgroundColor: 'var(--overlay-bg)' }} onClick={onClose} />
 
       {/* Sheet */}
       <div

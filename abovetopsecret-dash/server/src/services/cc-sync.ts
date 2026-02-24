@@ -95,17 +95,29 @@ export async function syncCCOrders(userId?: number): Promise<{ synced: number }>
           const newCustomer = (o as any).isNewCustomer ?? false;
           const quantity = items.reduce((sum: number, i: any) => sum + (parseInt(i.qty || '1') || 1), 0) || 1;
 
+          const firstName = (o as any).firstName || (o as any).first_name || '';
+          const lastName = (o as any).lastName || (o as any).last_name || '';
+          const customerName = [firstName, lastName].filter(Boolean).join(' ') || null;
+          const conversionTime = o.dateCreated || (o as any).date_created || null;
+          const subscriptionId = items[0]?.recurringStatus === 'active'
+            ? (items[0]?.subscriptionId || items[0]?.purchaseId || (o as any).purchaseId || null)
+            : ((o as any).subscriptionId || (o as any).subscription_id || null);
+
           await dbClient.query('SAVEPOINT row_insert');
           await dbClient.query(
-            `INSERT INTO cc_orders_today (order_id, offer_name, revenue, subtotal, tax_amount, order_status, new_customer, utm_campaign, fbclid, subscription_id, quantity, is_core_sku, source, utm_source, utm_medium, utm_content, utm_term, user_id, is_test)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NULL, $10, true, 'checkout_champ', $11, $12, $13, $14, $15, $16)
+            `INSERT INTO cc_orders_today (order_id, offer_name, revenue, subtotal, tax_amount, order_status, new_customer, utm_campaign, fbclid, subscription_id, quantity, is_core_sku, source, utm_source, utm_medium, utm_content, utm_term, user_id, is_test, customer_email, customer_name, conversion_time)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, true, 'checkout_champ', $12, $13, $14, $15, $16, $17, $18, $19, $20)
              ON CONFLICT (user_id, order_id) DO UPDATE SET
                revenue = EXCLUDED.revenue, subtotal = EXCLUDED.subtotal, tax_amount = EXCLUDED.tax_amount,
                order_status = EXCLUDED.order_status, new_customer = EXCLUDED.new_customer,
                quantity = EXCLUDED.quantity, utm_source = EXCLUDED.utm_source,
                utm_medium = EXCLUDED.utm_medium, utm_content = EXCLUDED.utm_content,
-               utm_term = EXCLUDED.utm_term, is_test = EXCLUDED.is_test`,
-            [orderId, offerName, total, subtotal, tax, orderStatus, newCustomer, utmCampaign, fbclid, quantity, utmSource, utmMedium, utmContent, utmTerm, userId || null, isTest],
+               utm_term = EXCLUDED.utm_term, is_test = EXCLUDED.is_test,
+               customer_email = COALESCE(EXCLUDED.customer_email, cc_orders_today.customer_email),
+               customer_name = COALESCE(EXCLUDED.customer_name, cc_orders_today.customer_name),
+               conversion_time = COALESCE(EXCLUDED.conversion_time, cc_orders_today.conversion_time),
+               subscription_id = COALESCE(EXCLUDED.subscription_id, cc_orders_today.subscription_id)`,
+            [orderId, offerName, total, subtotal, tax, orderStatus, newCustomer, utmCampaign, fbclid, subscriptionId, quantity, utmSource, utmMedium, utmContent, utmTerm, userId || null, isTest, email || null, customerName, conversionTime],
           );
           await dbClient.query('RELEASE SAVEPOINT row_insert');
           synced++;

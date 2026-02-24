@@ -229,17 +229,23 @@ async function handleSaleEvent(
     campaign_name: fields.campaignName,
   }) : null;
 
+  const customerName = [fields.firstName, fields.lastName].filter(Boolean).join(' ') || null;
+  const conversionTime = body.dateCreated || body.date_created || null;
+
   await pool.query(
-    `INSERT INTO cc_orders_today (order_id, offer_name, revenue, subtotal, tax_amount, order_status, new_customer, utm_campaign, fbclid, subscription_id, quantity, is_core_sku, source, utm_source, utm_medium, utm_content, utm_term, user_id, is_test, account_id, offer_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'checkout_champ', $13, $14, $15, $16, $17, $18, $19, $20)
+    `INSERT INTO cc_orders_today (order_id, offer_name, revenue, subtotal, tax_amount, order_status, new_customer, utm_campaign, fbclid, subscription_id, quantity, is_core_sku, source, utm_source, utm_medium, utm_content, utm_term, user_id, is_test, account_id, offer_id, customer_email, customer_name, conversion_time)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'checkout_champ', $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
      ON CONFLICT (user_id, order_id) DO UPDATE SET
        revenue = EXCLUDED.revenue, subtotal = EXCLUDED.subtotal, tax_amount = EXCLUDED.tax_amount,
        order_status = EXCLUDED.order_status, new_customer = EXCLUDED.new_customer,
        subscription_id = EXCLUDED.subscription_id, quantity = EXCLUDED.quantity,
        utm_source = EXCLUDED.utm_source, utm_medium = EXCLUDED.utm_medium,
        utm_content = EXCLUDED.utm_content, utm_term = EXCLUDED.utm_term,
-       is_test = EXCLUDED.is_test, account_id = EXCLUDED.account_id, offer_id = EXCLUDED.offer_id`,
-    [fields.orderId, fields.offerName, rev.total, rev.subtotal, rev.taxAmount, orderStatus, newCustomer, fields.utmCampaign, fields.fbclid, fields.subscriptionId, quantity, isCoreSku, fields.utmSource, fields.utmMedium, fields.utmContent, fields.utmTerm, userId, isTest, accountId, offerId],
+       is_test = EXCLUDED.is_test, account_id = EXCLUDED.account_id, offer_id = EXCLUDED.offer_id,
+       customer_email = COALESCE(EXCLUDED.customer_email, cc_orders_today.customer_email),
+       customer_name = COALESCE(EXCLUDED.customer_name, cc_orders_today.customer_name),
+       conversion_time = COALESCE(EXCLUDED.conversion_time, cc_orders_today.conversion_time)`,
+    [fields.orderId, fields.offerName, rev.total, rev.subtotal, rev.taxAmount, orderStatus, newCustomer, fields.utmCampaign, fields.fbclid, fields.subscriptionId, quantity, isCoreSku, fields.utmSource, fields.utmMedium, fields.utmContent, fields.utmTerm, userId, isTest, accountId, offerId, fields.email || null, customerName, conversionTime],
   );
 
   // Handle upsell data if embedded in the sale event

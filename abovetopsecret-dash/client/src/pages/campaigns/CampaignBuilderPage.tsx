@@ -425,7 +425,7 @@ function ConfirmModal({
 
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center px-4" style={{ backgroundColor: 'var(--overlay-bg)' }}>
       <div className="bg-ats-card border border-ats-border rounded-xl p-6 max-w-md w-full shadow-2xl">
         <h3 className="text-lg font-bold text-ats-text mb-2">{title}</h3>
         <p className="text-sm text-ats-text-muted mb-6">{message}</p>

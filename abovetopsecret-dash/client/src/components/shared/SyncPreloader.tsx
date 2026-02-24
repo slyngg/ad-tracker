@@ -13,7 +13,7 @@ const PLATFORM_META: Record<string, { label: string; icon: string; color: string
 };
 
 function PlatformRow({ platform, syncState }: { platform: string; syncState?: 'idle' | 'syncing' | 'done' | 'error' }) {
-  const meta = PLATFORM_META[platform] || { label: platform, icon: '🔌', color: '#6b7280' };
+  const meta = PLATFORM_META[platform] || { label: platform, icon: '🔌', color: 'var(--ats-text-muted)' };
   const state = syncState || 'syncing';
 
   return (
@@ -47,7 +47,7 @@ function PlatformRow({ platform, syncState }: { platform: string; syncState?: 'i
         )}
         {state === 'idle' && (
           <>
-            <span className="w-2 h-2 rounded-full bg-gray-600" />
+            <span className="w-2 h-2 rounded-full bg-ats-text-muted" />
             <span className="text-xs text-ats-text-muted font-mono">Waiting</span>
           </>
         )}

@@ -5,6 +5,7 @@ import AnimatedNumber from '../../components/shared/AnimatedNumber';
 import { fmt } from '../../lib/formatters';
 import { getAuthToken } from '../../stores/authStore';
 import { useLiveRefresh } from '../../hooks/useLiveRefresh';
+import { useChartTheme } from '../../hooks/useChartTheme';
 
 const BASE = '/api';
 async function apiFetch<T>(path: string): Promise<T> {
@@ -21,6 +22,7 @@ interface PageRow { page_path: string; page_title: string; sessions: number; pag
 const COLORS = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444'];
 
 export default function WebsitePerformancePage() {
+  const ct = useChartTheme();
   const [overview, setOverview] = useState<GA4Overview | null>(null);
   const [daily, setDaily] = useState<SessionRow[]>([]);
   const [byDevice, setByDevice] = useState<SessionRow[]>([]);
@@ -117,10 +119,10 @@ export default function WebsitePerformancePage() {
               <linearGradient id="gSessions" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} /><stop offset="95%" stopColor="#3b82f6" stopOpacity={0} /></linearGradient>
               <linearGradient id="gConv" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#10b981" stopOpacity={0.3} /><stop offset="95%" stopColor="#10b981" stopOpacity={0} /></linearGradient>
             </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
-            <XAxis dataKey="group_key" tick={{ fill: '#6b7280', fontSize: 11 }} tickLine={false} />
-            <YAxis tick={{ fill: '#6b7280', fontSize: 11 }} tickLine={false} axisLine={false} />
-            <Tooltip contentStyle={{ backgroundColor: '#1f2937', border: '1px solid #374151', borderRadius: 8, color: '#f9fafb', fontSize: 12 }} />
+            <CartesianGrid strokeDasharray="3 3" stroke={ct.grid} vertical={false} />
+            <XAxis dataKey="group_key" tick={{ fill: ct.axisText, fontSize: 11 }} tickLine={false} />
+            <YAxis tick={{ fill: ct.axisText, fontSize: 11 }} tickLine={false} axisLine={false} />
+            <Tooltip contentStyle={{ backgroundColor: ct.tooltipBg, border: `1px solid ${ct.tooltipBorder}`, borderRadius: 8, color: ct.tooltipText, fontSize: 12 }} />
             <Area type="monotone" dataKey="sessions" stroke="#3b82f6" strokeWidth={2} fill="url(#gSessions)" name="Sessions" />
             <Area type="monotone" dataKey="conversions" stroke="#10b981" strokeWidth={2} fill="url(#gConv)" name="Conversions" />
           </AreaChart>

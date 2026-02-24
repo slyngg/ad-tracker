@@ -28,7 +28,7 @@ export async function computeRFMScores(userId: number): Promise<{ computed: numb
 
   const customersResult = await pool.query(`
     WITH all_orders AS (
-      SELECT customer_email, customer_name, COALESCE(subtotal, revenue) AS revenue, created_at, user_id
+      SELECT customer_email, customer_name, COALESCE(subtotal, revenue) AS revenue, conversion_time AS created_at, user_id
       FROM cc_orders_today WHERE order_status = 'completed' AND (is_test = false OR is_test IS NULL) ${uf}
       UNION ALL
       SELECT order_data->>'customer_email', order_data->>'customer_name',

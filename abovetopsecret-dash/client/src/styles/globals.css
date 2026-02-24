@@ -2,18 +2,79 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --bg-primary: #030712;
-  --bg-card: #111827;
-  --bg-row-alt: #0a0f1a;
-  --border: #1f2937;
-  --text-primary: #f9fafb;
-  --text-secondary: #d1d5db;
-  --text-muted: #6b7280;
-  --accent: #3b82f6;
-  --green: #10b981;
-  --yellow: #f59e0b;
-  --red: #ef4444;
+/* ── Dark theme (default) ── */
+:root,
+.dark {
+  --ats-bg: #030712;
+  --ats-card: #111827;
+  --ats-border: #1f2937;
+  --ats-row-alt: #0a0f1a;
+  --ats-surface: #0a0f1a;
+  --ats-hover: #1a2332;
+  --ats-text: #f9fafb;
+  --ats-text-secondary: #d1d5db;
+  --ats-text-muted: #6b7280;
+  --ats-accent: #3b82f6;
+  --ats-green: #10b981;
+  --ats-yellow: #f59e0b;
+  --ats-red: #ef4444;
+
+  /* Scrollbar */
+  --scrollbar-track: #030712;
+  --scrollbar-thumb: #374151;
+  --scrollbar-thumb-hover: #4b5563;
+
+  /* Overlays & misc */
+  --overlay-bg: rgba(0, 0, 0, 0.6);
+  --success-bg: rgba(6, 78, 59, 0.5);
+  --success-text: #6ee7b7;
+  --error-bg: rgba(127, 29, 29, 0.5);
+  --error-text: #fca5a5;
+  --kbd-bg: #030712;
+
+  /* Semantic status colors for data viz */
+  --color-positive: #22c55e;
+  --color-warning: #f59e0b;
+  --color-negative: #ef4444;
+
+  color-scheme: dark;
+}
+
+/* ── Light theme ── */
+.light {
+  --ats-bg: #f8fafc;
+  --ats-card: #ffffff;
+  --ats-border: #e2e8f0;
+  --ats-row-alt: #f1f5f9;
+  --ats-surface: #f1f5f9;
+  --ats-hover: #e2e8f0;
+  --ats-text: #0f172a;
+  --ats-text-secondary: #475569;
+  --ats-text-muted: #94a3b8;
+  --ats-accent: #2563eb;
+  --ats-green: #059669;
+  --ats-yellow: #d97706;
+  --ats-red: #dc2626;
+
+  /* Scrollbar */
+  --scrollbar-track: #f8fafc;
+  --scrollbar-thumb: #cbd5e1;
+  --scrollbar-thumb-hover: #94a3b8;
+
+  /* Overlays & misc */
+  --overlay-bg: rgba(0, 0, 0, 0.3);
+  --success-bg: rgba(209, 250, 229, 0.7);
+  --success-text: #065f46;
+  --error-bg: rgba(254, 226, 226, 0.7);
+  --error-text: #991b1b;
+  --kbd-bg: #f1f5f9;
+
+  /* Semantic status colors for data viz */
+  --color-positive: #16a34a;
+  --color-warning: #d97706;
+  --color-negative: #dc2626;
+
+  color-scheme: light;
 }
 
 * {
@@ -30,8 +91,8 @@ html {
 }
 
 body {
-  background: var(--bg-primary);
-  color: var(--text-primary);
+  background: var(--ats-bg);
+  color: var(--ats-text);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -45,16 +106,16 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--bg-primary);
+  background: var(--scrollbar-track);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #374151;
+  background: var(--scrollbar-thumb);
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #4b5563;
+  background: var(--scrollbar-thumb-hover);
 }
 
 /* Select dropdown styling */
@@ -64,6 +125,9 @@ select {
   background-position: right 12px center;
   padding-right: 32px !important;
 }
+.light select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2394a3b8' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+}
 
 /* Sidebar transition utilities */
 @layer utilities {
@@ -71,3 +135,111 @@ select {
     transition: margin-left 200ms ease, width 200ms ease;
   }
 }
+
+/* ── Theme-aware alert/badge utilities ── */
+@layer components {
+  .alert-success {
+    background: var(--success-bg);
+    color: var(--success-text);
+  }
+  .alert-error {
+    background: var(--error-bg);
+    color: var(--error-text);
+  }
+}
+
+/* ── Light-mode overrides for Tailwind color utilities ── */
+.light .bg-emerald-900\/50 { background: rgba(209, 250, 229, 0.6); }
+.light .bg-emerald-900\/30 { background: rgba(209, 250, 229, 0.45); }
+.light .bg-emerald-900\/20 { background: rgba(209, 250, 229, 0.35); }
+.light .text-emerald-300 { color: #065f46; }
+.light .text-emerald-400 { color: #059669; }
+.light .border-emerald-700\/50 { border-color: rgba(5, 150, 105, 0.3); }
+
+.light .bg-red-900\/50 { background: rgba(254, 226, 226, 0.7); }
+.light .bg-red-900\/30 { background: rgba(254, 226, 226, 0.5); }
+.light .bg-red-900\/20 { background: rgba(254, 226, 226, 0.4); }
+.light .text-red-300 { color: #991b1b; }
+.light .text-red-400 { color: #dc2626; }
+.light .border-red-700\/50 { border-color: rgba(220, 38, 38, 0.3); }
+.light .border-red-800 { border-color: rgba(220, 38, 38, 0.25); }
+.light .border-red-800\/30 { border-color: rgba(220, 38, 38, 0.15); }
+.light .border-red-800\/50 { border-color: rgba(220, 38, 38, 0.2); }
+.light .border-red-900\/40 { border-color: rgba(220, 38, 38, 0.2); }
+.light .hover\:bg-red-900\/20:hover { background: rgba(254, 226, 226, 0.5); }
+.light .hover\:bg-red-900\/40:hover { background: rgba(254, 226, 226, 0.6); }
+.light .hover\:bg-red-900\/50:hover { background: rgba(254, 226, 226, 0.8); }
+.light .hover\:text-red-300:hover { color: #991b1b; }
+.light .hover\:bg-red-900:hover { background: rgba(254, 226, 226, 0.9); }
+
+.light .bg-amber-900\/50 { background: rgba(254, 243, 199, 0.6); }
+.light .bg-amber-700\/20 { background: rgba(254, 243, 199, 0.4); }
+.light .text-amber-300 { color: #92400e; }
+.light .text-amber-400 { color: #d97706; }
+
+.light .bg-blue-900\/50 { background: rgba(219, 234, 254, 0.6); }
+.light .text-blue-300 { color: #1e40af; }
+.light .text-blue-400 { color: #2563eb; }
+
+.light .bg-gray-700\/50 { background: rgba(226, 232, 240, 0.6); }
+.light .text-gray-300 { color: #475569; }
+.light .text-gray-500 { color: #64748b; }
+.light .text-gray-600 { color: #475569; }
+
+.light .text-green-400 { color: #059669; }
+.light .text-yellow-400 { color: #d97706; }
+.light .bg-yellow-400 { background: #d97706; }
+
+/* Purple badges */
+.light .bg-purple-900\/50 { background: rgba(243, 232, 255, 0.7); }
+.light .bg-purple-900\/30 { background: rgba(243, 232, 255, 0.5); }
+.light .text-purple-300 { color: #6b21a8; }
+.light .border-purple-700\/50 { border-color: rgba(126, 34, 206, 0.25); }
+
+/* Gray badges (inactive / default state) */
+.light .bg-gray-700 { background: #e2e8f0; }
+.light .bg-gray-700\/50 { background: rgba(226, 232, 240, 0.7); }
+.light .bg-gray-800\/50 { background: rgba(226, 232, 240, 0.6); }
+.light .border-gray-700\/50 { border-color: rgba(148, 163, 184, 0.3); }
+
+/* Heatmap / retention colors */
+.light .bg-emerald-800\/60 { background: rgba(167, 243, 208, 0.6); }
+.light .bg-emerald-700\/40 { background: rgba(167, 243, 208, 0.4); }
+.light .bg-emerald-600\/20 { background: rgba(167, 243, 208, 0.25); }
+.light .bg-red-800\/20 { background: rgba(254, 226, 226, 0.45); }
+
+/* Amber borders/backgrounds */
+.light .border-amber-700\/50 { border-color: rgba(217, 119, 6, 0.25); }
+.light .border-amber-700\/40 { border-color: rgba(217, 119, 6, 0.2); }
+.light .bg-amber-900\/20 { background: rgba(254, 243, 199, 0.5); }
+
+/* Blue borders */
+.light .border-blue-700\/50 { border-color: rgba(37, 99, 235, 0.25); }
+
+/* Gray status dots and fallback badges */
+.light .bg-gray-600 { background: #cbd5e1; }
+.light .bg-gray-500\/20 { background: rgba(148, 163, 184, 0.2); }
+.light .text-gray-400 { color: #64748b; }
+
+/* 500-level status badges */
+.light .bg-emerald-500\/20 { background: rgba(16, 185, 129, 0.12); }
+.light .bg-red-500\/20 { background: rgba(239, 68, 68, 0.1); }
+.light .bg-blue-500\/20 { background: rgba(59, 130, 246, 0.1); }
+.light .bg-yellow-500\/20 { background: rgba(234, 179, 8, 0.12); }
+
+/* Overlays — softer in light mode */
+.light .bg-black\/50 { background: rgba(0, 0, 0, 0.25); }
+.light .bg-black\/60 { background: rgba(0, 0, 0, 0.3); }
+
+/* White-on-dark hover → dark-on-light hover */
+.light .hover\:bg-white\/5:hover { background: rgba(0, 0, 0, 0.04); }
+.light .hover\:bg-white\/10:hover { background: rgba(0, 0, 0, 0.06); }
+.light .bg-white\/5 { background: rgba(0, 0, 0, 0.04); }
+.light .bg-white\/10 { background: rgba(0, 0, 0, 0.06); }
+
+/* Misc */
+.light .bg-red-600 { background: #dc2626; }
+.light .hover\:bg-blue-600:hover { background: #1d4ed8; }
+
+/* Light mode shadow for cards */
+.light .shadow-2xl { box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.15); }

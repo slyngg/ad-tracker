@@ -169,6 +169,27 @@ export default function ConnectionsPage() {
     catch { flash('Failed to disconnect', 'error'); }
   };
 
+  const handleDisconnectManual = async (platformKey: string) => {
+    if (!confirm(`Disconnect ${platformKey}? You can reconnect anytime.`)) return;
+    try {
+      const data: Record<string, string> = {};
+      if (platformKey === 'meta') { data.fb_access_token = ''; data.fb_ad_account_ids = ''; }
+      else if (platformKey === 'google') { data.ga4_property_id = ''; data.ga4_credentials_json = ''; }
+      else if (platformKey === 'shopify') { data.shopify_webhook_secret = ''; data.shopify_store_url = ''; }
+      else if (platformKey === 'checkoutchamp') { data.cc_login_id = ''; data.cc_password = ''; data.cc_api_url = ''; data.cc_webhook_secret = ''; }
+      else if (platformKey === 'newsbreak') { data.newsbreak_api_key = ''; data.newsbreak_account_id = ''; }
+      await updateSettings(data);
+      if (platformKey === 'meta') { setFbToken(''); setFbAccountIds(''); }
+      else if (platformKey === 'google') { setGa4PropertyId(''); setGa4CredentialsJson(''); }
+      else if (platformKey === 'shopify') { setShopifySecret(''); setShopifyStoreUrl(''); }
+      else if (platformKey === 'checkoutchamp') { setCcLoginId(''); setCcPassword(''); setCcApiUrl(''); setCcWebhookSecret(''); }
+      else if (platformKey === 'newsbreak') { setNbApiKey(''); setNbAccountId(''); }
+      await loadSettings();
+      setExpanded(p => ({ ...p, [platformKey]: false }));
+      flash('Disconnected', 'success');
+    } catch { flash('Failed to disconnect', 'error'); }
+  };
+
   const handleTestFB = async () => {
     setFbTestStatus('testing');
     try {
@@ -211,6 +232,7 @@ export default function ConnectionsPage() {
   const inputCls = 'w-full px-3 py-2 bg-ats-bg border border-ats-border rounded-lg text-ats-text text-xs font-mono outline-none focus:border-ats-accent focus:ring-1 focus:ring-ats-accent/30 transition-all';
   const labelCls = 'text-[10px] text-ats-text-muted block mb-1 uppercase tracking-widest font-mono';
   const btnSecondary = 'px-3 py-1.5 bg-ats-surface border border-ats-border rounded-lg text-xs text-ats-text font-medium hover:bg-ats-hover active:scale-[0.98] transition-all';
+  const btnDanger = 'px-3 py-1.5 rounded-lg text-xs font-medium text-red-400 border border-red-900/40 hover:bg-red-900/20 active:scale-[0.98] transition-all';
 
   const statusDot = (platform: string) => {
     const connected = isAnyConnected(platform);
@@ -233,7 +255,7 @@ export default function ConnectionsPage() {
 
     return (
       <span className="flex items-center gap-1">
-        <span className={`w-1.5 h-1.5 rounded-full ${connected ? 'bg-emerald-500' : 'bg-gray-600'}`} />
+        <span className={`w-1.5 h-1.5 rounded-full ${connected ? 'bg-emerald-500' : 'bg-ats-text-muted'}`} />
         <span className={`text-[10px] ${connected ? 'text-emerald-400' : 'text-ats-text-muted'}`}>
           {connected ? 'Connected' : 'Not connected'}
         </span>
@@ -257,7 +279,7 @@ export default function ConnectionsPage() {
         <div className="flex items-center gap-3 flex-wrap text-xs text-ats-text-muted">
           {PLATFORMS.map(p => (
             <span key={p.key} className="flex items-center gap-1">
-              <span className={`w-1.5 h-1.5 rounded-full ${isAnyConnected(p.oauthPlatform || p.key) ? 'bg-emerald-500' : isExpired(p.oauthPlatform || p.key) ? 'bg-red-500' : 'bg-gray-600'}`} />
+              <span className={`w-1.5 h-1.5 rounded-full ${isAnyConnected(p.oauthPlatform || p.key) ? 'bg-emerald-500' : isExpired(p.oauthPlatform || p.key) ? 'bg-red-500' : 'bg-ats-text-muted'}`} />
               {p.key === 'checkoutchamp' ? 'CC' : p.key.charAt(0).toUpperCase() + p.key.slice(1)}
             </span>
           ))}
@@ -309,17 +331,18 @@ export default function ConnectionsPage() {
                 <div className="mt-3 flex items-center gap-2 flex-wrap">
                   {connected && !expired ? (
                     <>
-                      {hasManual && (
+                      {hasManual && !oauthConnected && (
                         <button onClick={() => toggle(platform.key)} className={btnSecondary}>
                           {isExpanded ? 'Hide' : 'Settings'}
                         </button>
                       )}
-                      {oauthConnected && platform.oauthPlatform && (
-                        <button onClick={() => handleDisconnect(platform.oauthPlatform!)}
-                          className="px-3 py-1.5 rounded-lg text-xs font-medium text-red-400 border border-red-900/40 hover:bg-red-900/20 active:scale-[0.98] transition-all">
-                          Disconnect
-                        </button>
-                      )}
+                      <button
+                        onClick={() => oauthConnected && platform.oauthPlatform
+                          ? handleDisconnect(platform.oauthPlatform!)
+                          : handleDisconnectManual(platform.key)}
+                        className={btnDanger}>
+                        Disconnect
+                      </button>
                       {oauth?.tokenExpiresAt && (
                         <span className="text-[10px] text-ats-text-muted font-mono ml-auto">
                           expires {new Date(oauth.tokenExpiresAt).toLocaleDateString()}
@@ -385,10 +408,16 @@ export default function ConnectionsPage() {
                   )}
 
                   {/* Meta manual */}
-                  {platform.manualFields === 'meta' && (
+                  {platform.manualFields === 'meta' && !oauthConnected && (
                     <>
                       <div>
-                        <label className={labelCls}>Access Token</label>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-[10px] text-ats-text-muted uppercase tracking-widest font-mono">Access Token</label>
+                          <a href="https://developers.facebook.com/tools/explorer/" target="_blank" rel="noopener noreferrer"
+                            className="text-[10px] text-ats-accent hover:underline transition-colors">
+                            Generate token &rarr;
+                          </a>
+                        </div>
                         <input type="password" value={fbToken} onChange={e => { setFbToken(e.target.value); autoSave({ fb_access_token: e.target.value }); }}
                           placeholder={settings.fb_access_token ? '••••••••' : 'EAAxxxxxxxx...'} className={inputCls} />
                       </div>

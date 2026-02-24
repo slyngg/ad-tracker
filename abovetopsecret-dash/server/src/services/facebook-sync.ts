@@ -12,6 +12,7 @@ interface FBAction {
 interface FBInsightRow {
   account_name: string;
   campaign_name: string;
+  campaign_id?: string;
   adset_name: string;
   adset_id: string;
   ad_name: string;
@@ -175,7 +176,7 @@ export async function syncFacebook(userId?: number): Promise<{ synced: number; a
 
   for (const accountId of accounts) {
     try {
-      const url = `https://graph.facebook.com/v21.0/${accountId}/insights?fields=account_name,campaign_name,adset_name,adset_id,ad_name,spend,clicks,impressions,actions&date_preset=today&level=ad&access_token=${accessToken}`;
+      const url = `https://graph.facebook.com/v21.0/${accountId}/insights?fields=account_name,campaign_name,campaign_id,adset_name,adset_id,ad_name,spend,clicks,impressions,actions&date_preset=today&level=ad&access_token=${accessToken}`;
 
       const rows = await fetchAllPages(url);
 
@@ -191,17 +192,19 @@ export async function syncFacebook(userId?: number): Promise<{ synced: number; a
 
             await dbClient.query('SAVEPOINT row_insert');
             await dbClient.query(
-              `INSERT INTO fb_ads_today (account_name, campaign_name, ad_set_name, ad_set_id, ad_name, spend, clicks, impressions, landing_page_views, synced_at, user_id)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), $10)
+              `INSERT INTO fb_ads_today (account_name, campaign_name, campaign_id, ad_set_name, ad_set_id, ad_name, spend, clicks, impressions, landing_page_views, synced_at, user_id)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), $11)
                ON CONFLICT (user_id, ad_set_id, ad_name) DO UPDATE SET
                  spend = EXCLUDED.spend,
                  clicks = EXCLUDED.clicks,
                  impressions = EXCLUDED.impressions,
                  landing_page_views = EXCLUDED.landing_page_views,
+                 campaign_id = COALESCE(EXCLUDED.campaign_id, fb_ads_today.campaign_id),
                  synced_at = NOW()`,
               [
                 row.account_name,
                 row.campaign_name,
+                row.campaign_id || null,
                 row.adset_name,
                 row.adset_id,
                 row.ad_name,
@@ -249,7 +252,7 @@ export async function syncFacebook(userId?: number): Promise<{ synced: number; a
         try {
           const acctToken = decrypt(acct.access_token_encrypted);
           const acctId = acct.platform_account_id;
-          const url = `https://graph.facebook.com/v21.0/${acctId}/insights?fields=account_name,campaign_name,adset_name,adset_id,ad_name,spend,clicks,impressions,actions&date_preset=today&level=ad&access_token=${acctToken}`;
+          const url = `https://graph.facebook.com/v21.0/${acctId}/insights?fields=account_name,campaign_name,campaign_id,adset_name,adset_id,ad_name,spend,clicks,impressions,actions&date_preset=today&level=ad&access_token=${acctToken}`;
 
           const rows = await fetchAllPages(url);
 
@@ -265,17 +268,18 @@ export async function syncFacebook(userId?: number): Promise<{ synced: number; a
 
                 await dbClient.query('SAVEPOINT row_insert');
                 await dbClient.query(
-                  `INSERT INTO fb_ads_today (account_name, campaign_name, ad_set_name, ad_set_id, ad_name, spend, clicks, impressions, landing_page_views, synced_at, user_id, account_id)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), $10, $11)
+                  `INSERT INTO fb_ads_today (account_name, campaign_name, campaign_id, ad_set_name, ad_set_id, ad_name, spend, clicks, impressions, landing_page_views, synced_at, user_id, account_id)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), $11, $12)
                    ON CONFLICT (user_id, ad_set_id, ad_name) DO UPDATE SET
                      spend = EXCLUDED.spend,
                      clicks = EXCLUDED.clicks,
                      impressions = EXCLUDED.impressions,
                      landing_page_views = EXCLUDED.landing_page_views,
+                     campaign_id = COALESCE(EXCLUDED.campaign_id, fb_ads_today.campaign_id),
                      synced_at = NOW(),
                      account_id = EXCLUDED.account_id`,
                   [
-                    row.account_name, row.campaign_name, row.adset_name, row.adset_id, row.ad_name,
+                    row.account_name, row.campaign_name, row.campaign_id || null, row.adset_name, row.adset_id, row.ad_name,
                     parseFloat(row.spend) || 0, parseInt(row.clicks) || 0, parseInt(row.impressions) || 0,
                     parseInt(lpViews) || 0, userId, acct.id,
                   ]

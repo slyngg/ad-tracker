@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import PageShell from '../../components/shared/PageShell';
+import { useChartTheme } from '../../hooks/useChartTheme';
 import {
   fetchTopPerforming, fetchComparative, fetchLaunchAnalysis,
   CreativeItem, ComparativeRow, createSnapshot,
@@ -90,6 +91,7 @@ function AIPanel({ filters, dateFrom, dateTo }: { filters: Record<string, string
 }
 
 export default function CreativeAnalyticsPage() {
+  const ct = useChartTheme();
   const [tab, setTab] = useState<'top' | 'comparative' | 'launch'>('top');
   const [loading, setLoading] = useState(true);
   const [creatives, setCreatives] = useState<CreativeItem[]>([]);
@@ -243,10 +245,10 @@ export default function CreativeAnalyticsPage() {
             <div className={`${cardCls} mb-4`}>
               <div className="h-[200px] sm:h-[300px]"><ResponsiveContainer width="100%" height="100%">
                 <BarChart data={comparative} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                  <CartesianGrid stroke="#374151" strokeDasharray="3 3" />
-                  <XAxis dataKey="dimension_value" tick={{ fontSize: 11, fill: '#9ca3af' }} />
-                  <YAxis tick={{ fontSize: 11, fill: '#9ca3af' }} />
-                  <Tooltip contentStyle={{ background: '#1f2937', border: '1px solid #374151', borderRadius: 8 }} />
+                  <CartesianGrid stroke={ct.grid} strokeDasharray="3 3" />
+                  <XAxis dataKey="dimension_value" tick={{ fontSize: 11, fill: ct.axisText }} />
+                  <YAxis tick={{ fontSize: 11, fill: ct.axisText }} />
+                  <Tooltip contentStyle={{ background: ct.tooltipBg, border: `1px solid ${ct.tooltipBorder}`, borderRadius: 8 }} />
                   <Bar dataKey={`avg_${compMetric}`} fill="#3b82f6" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer></div>
