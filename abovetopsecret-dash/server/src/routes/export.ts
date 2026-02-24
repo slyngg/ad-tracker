@@ -30,18 +30,22 @@ router.get('/csv', async (req: Request, res: Response) => {
           SUM(spend) AS spend,
           SUM(clicks) AS clicks,
           SUM(impressions) AS impressions,
-          SUM(landing_page_views) AS landing_page_views
+          SUM(landing_page_views) AS landing_page_views,
+          0::NUMERIC AS platform_conversion_value,
+          0 AS platform_conversions
         FROM fb_ads_today
         WHERE 1=1 ${userFilter} ${af.clause}
         GROUP BY ad_set_name, account_name
         UNION ALL
         SELECT
           adgroup_name AS adset_key,
-          a.name AS account_name,
+          COALESCE(a.name, 'TikTok') AS account_name,
           SUM(t.spend) AS spend,
           SUM(t.clicks) AS clicks,
           SUM(t.impressions) AS impressions,
-          0 AS landing_page_views
+          0 AS landing_page_views,
+          COALESCE(SUM(t.conversion_value), 0) AS platform_conversion_value,
+          COALESCE(SUM(t.conversions), 0) AS platform_conversions
         FROM tiktok_ads_today t
         LEFT JOIN accounts a ON a.id = t.account_id
         WHERE 1=1 ${userFilter.replace('user_id', 't.user_id')} ${af.clause}
@@ -49,11 +53,13 @@ router.get('/csv', async (req: Request, res: Response) => {
         UNION ALL
         SELECT
           adset_name AS adset_key,
-          a.name AS account_name,
+          COALESCE(a.name, 'NewsBreak') AS account_name,
           SUM(n.spend) AS spend,
           SUM(n.clicks) AS clicks,
           SUM(n.impressions) AS impressions,
-          0 AS landing_page_views
+          0 AS landing_page_views,
+          COALESCE(SUM(n.conversion_value), 0) AS platform_conversion_value,
+          COALESCE(SUM(n.conversions), 0) AS platform_conversions
         FROM newsbreak_ads_today n
         LEFT JOIN accounts a ON a.platform = 'newsbreak' AND a.user_id = n.user_id
         WHERE 1=1 ${userFilter.replace('user_id', 'n.user_id')} ${af.clause}
@@ -74,15 +80,15 @@ router.get('/csv', async (req: Request, res: Response) => {
         ads.account_name,
         COALESCE(cc.offer_name, 'Unattributed') AS offer_name,
         SUM(ads.spend) AS spend,
-        COALESCE(SUM(cc.revenue), 0) AS revenue,
-        CASE WHEN SUM(ads.spend) > 0 THEN COALESCE(SUM(cc.revenue), 0) / SUM(ads.spend) ELSE 0 END AS roi,
-        CASE WHEN COALESCE(SUM(cc.conversions), 0) > 0 THEN SUM(ads.spend) / SUM(cc.conversions) ELSE 0 END AS cpa,
-        CASE WHEN COALESCE(SUM(cc.conversions), 0) > 0 THEN SUM(cc.revenue) / SUM(cc.conversions) ELSE 0 END AS aov,
+        GREATEST(COALESCE(SUM(cc.revenue), 0), SUM(ads.platform_conversion_value)) AS revenue,
+        CASE WHEN SUM(ads.spend) > 0 THEN GREATEST(COALESCE(SUM(cc.revenue), 0), SUM(ads.platform_conversion_value)) / SUM(ads.spend) ELSE 0 END AS roi,
+        CASE WHEN GREATEST(COALESCE(SUM(cc.conversions), 0), SUM(ads.platform_conversions)) > 0 THEN SUM(ads.spend) / GREATEST(COALESCE(SUM(cc.conversions), 0), SUM(ads.platform_conversions)) ELSE 0 END AS cpa,
+        CASE WHEN GREATEST(COALESCE(SUM(cc.conversions), 0), SUM(ads.platform_conversions)) > 0 THEN GREATEST(COALESCE(SUM(cc.revenue), 0), SUM(ads.platform_conversion_value)) / GREATEST(COALESCE(SUM(cc.conversions), 0), SUM(ads.platform_conversions)) ELSE 0 END AS aov,
         CASE WHEN SUM(ads.impressions) > 0 THEN SUM(ads.clicks)::FLOAT / SUM(ads.impressions) ELSE 0 END AS ctr,
         CASE WHEN SUM(ads.impressions) > 0 THEN (SUM(ads.spend) / SUM(ads.impressions)) * 1000 ELSE 0 END AS cpm,
         CASE WHEN SUM(ads.clicks) > 0 THEN SUM(ads.spend) / SUM(ads.clicks) ELSE 0 END AS cpc,
-        CASE WHEN SUM(ads.clicks) > 0 THEN COALESCE(SUM(cc.conversions), 0)::FLOAT / SUM(ads.clicks) ELSE 0 END AS cvr,
-        COALESCE(SUM(cc.conversions), 0) AS conversions,
+        CASE WHEN SUM(ads.clicks) > 0 THEN GREATEST(COALESCE(SUM(cc.conversions), 0), SUM(ads.platform_conversions))::FLOAT / SUM(ads.clicks) ELSE 0 END AS cvr,
+        GREATEST(COALESCE(SUM(cc.conversions), 0), SUM(ads.platform_conversions)) AS conversions,
         CASE WHEN COALESCE(SUM(cc.conversions), 0) > 0
           THEN SUM(cc.new_customers)::FLOAT / SUM(cc.conversions)
           ELSE 0 END AS new_customer_pct,

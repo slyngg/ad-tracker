@@ -64,10 +64,10 @@ router.get('/summary', async (req: Request, res: Response) => {
     const result = await pool.query(
       `SELECT a.id, a.name, a.platform, a.color, a.status,
         COALESCE(ad_spend.spend, 0) + COALESCE(nb.spend, 0) AS spend,
-        COALESCE(cc.revenue, 0) AS revenue,
-        COALESCE(cc.conversions, 0) AS conversions,
+        GREATEST(COALESCE(cc.revenue, 0), COALESCE(nb.platform_revenue, 0)) AS revenue,
+        GREATEST(COALESCE(cc.conversions, 0), COALESCE(nb.platform_conversions, 0)) AS conversions,
         CASE WHEN (COALESCE(ad_spend.spend, 0) + COALESCE(nb.spend, 0)) > 0
-          THEN COALESCE(cc.revenue, 0) / (COALESCE(ad_spend.spend, 0) + COALESCE(nb.spend, 0))
+          THEN GREATEST(COALESCE(cc.revenue, 0), COALESCE(nb.platform_revenue, 0)) / (COALESCE(ad_spend.spend, 0) + COALESCE(nb.spend, 0))
           ELSE 0 END AS roas
        FROM accounts a
        LEFT JOIN (
@@ -79,7 +79,9 @@ router.get('/summary', async (req: Request, res: Response) => {
          GROUP BY account_id
        ) ad_spend ON ad_spend.account_id = a.id
        LEFT JOIN LATERAL (
-         SELECT SUM(spend) AS spend
+         SELECT SUM(spend) AS spend,
+           COALESCE(SUM(conversion_value), 0) AS platform_revenue,
+           COALESCE(SUM(conversions), 0) AS platform_conversions
          FROM newsbreak_ads_today
          WHERE user_id = $1 AND account_id = a.platform_account_id
        ) nb ON a.platform = 'newsbreak'

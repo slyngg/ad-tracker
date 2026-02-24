@@ -102,19 +102,20 @@ async function fetchCampaignDetail(userId: number | null): Promise<DetailRow[]> 
 
   const result = await pool.query(`
     WITH all_ads AS (
-      SELECT campaign_name, ad_set_name, ad_name, spend, clicks, impressions, landing_page_views AS lp_views
+      SELECT campaign_name, ad_set_name, ad_name, spend, clicks, impressions, landing_page_views AS lp_views, 0::numeric AS platform_conversions, 0::numeric AS platform_revenue
       FROM fb_ads_today ${uf}
       UNION ALL
-      SELECT campaign_name, adgroup_name AS ad_set_name, ad_name, spend, clicks, impressions, 0 AS lp_views
+      SELECT campaign_name, adgroup_name AS ad_set_name, ad_name, spend, clicks, impressions, 0 AS lp_views, COALESCE(conversions,0)::numeric, COALESCE(conversion_value,0)::numeric
       FROM tiktok_ads_today ${uf}
       UNION ALL
-      SELECT campaign_name, adset_name AS ad_set_name, ad_name, spend, clicks, impressions, 0 AS lp_views
+      SELECT campaign_name, adset_name AS ad_set_name, ad_name, spend, clicks, impressions, 0 AS lp_views, COALESCE(conversions,0)::numeric, COALESCE(conversion_value,0)::numeric
       FROM newsbreak_ads_today ${uf}
     ),
     ad_agg AS (
       SELECT campaign_name,
              SUM(spend) AS spend, SUM(clicks) AS clicks,
              SUM(impressions) AS impressions, SUM(lp_views) AS lp_views,
+             SUM(platform_conversions) AS platform_conversions, SUM(platform_revenue) AS platform_revenue,
              COUNT(DISTINCT ad_set_name) AS ad_sets, COUNT(DISTINCT ad_name) AS ads
       FROM all_ads
       GROUP BY campaign_name
@@ -129,11 +130,11 @@ async function fetchCampaignDetail(userId: number | null): Promise<DetailRow[]> 
     )
     SELECT ad_agg.campaign_name AS label,
            COALESCE(ad_agg.spend,0)::float AS spend,
-           COALESCE(cc.revenue,0)::float AS revenue,
+           GREATEST(COALESCE(cc.revenue,0), COALESCE(ad_agg.platform_revenue,0))::float AS revenue,
            COALESCE(ad_agg.clicks,0)::int AS clicks,
            COALESCE(ad_agg.impressions,0)::int AS impressions,
            COALESCE(ad_agg.lp_views,0)::int AS lp_views,
-           COALESCE(cc.conversions,0)::int AS conversions,
+           GREATEST(COALESCE(cc.conversions,0), COALESCE(ad_agg.platform_conversions,0))::int AS conversions,
            COALESCE(cc.new_customers,0)::int AS new_customers,
            COALESCE(ad_agg.ad_sets,0)::int AS ad_sets,
            COALESCE(ad_agg.ads,0)::int AS ads
@@ -231,14 +232,14 @@ async function fetchAccountDetail(userId: number | null): Promise<DetailRow[]> {
 
   const result = await pool.query(`
     WITH all_ads AS (
-      SELECT account_name, campaign_name, ad_set_name, ad_name, spend, clicks, impressions, landing_page_views AS lp_views
+      SELECT account_name, campaign_name, ad_set_name, ad_name, spend, clicks, impressions, landing_page_views AS lp_views, 0::numeric AS platform_conversions, 0::numeric AS platform_revenue
       FROM fb_ads_today ${uf}
       UNION ALL
-      SELECT a.name AS account_name, t.campaign_name, t.adgroup_name AS ad_set_name, t.ad_name, t.spend, t.clicks, t.impressions, 0 AS lp_views
+      SELECT COALESCE(a.name, 'TikTok') AS account_name, t.campaign_name, t.adgroup_name AS ad_set_name, t.ad_name, t.spend, t.clicks, t.impressions, 0 AS lp_views, COALESCE(t.conversions,0)::numeric, COALESCE(t.conversion_value,0)::numeric
       FROM tiktok_ads_today t LEFT JOIN accounts a ON a.id = t.account_id
       ${uf.replace('WHERE', 'WHERE t.')}
       UNION ALL
-      SELECT a.name AS account_name, n.campaign_name, n.adset_name AS ad_set_name, n.ad_name, n.spend, n.clicks, n.impressions, 0 AS lp_views
+      SELECT COALESCE(a.name, 'NewsBreak') AS account_name, n.campaign_name, n.adset_name AS ad_set_name, n.ad_name, n.spend, n.clicks, n.impressions, 0 AS lp_views, COALESCE(n.conversions,0)::numeric, COALESCE(n.conversion_value,0)::numeric
       FROM newsbreak_ads_today n LEFT JOIN accounts a ON a.platform = 'newsbreak' AND a.user_id = n.user_id
       ${uf.replace('WHERE', 'WHERE n.')}
     ),
@@ -246,13 +247,14 @@ async function fetchAccountDetail(userId: number | null): Promise<DetailRow[]> {
       SELECT account_name,
              SUM(spend) AS spend, SUM(clicks) AS clicks,
              SUM(impressions) AS impressions, SUM(lp_views) AS lp_views,
+             SUM(platform_conversions) AS platform_conversions, SUM(platform_revenue) AS platform_revenue,
              COUNT(DISTINCT campaign_name) AS campaigns,
              COUNT(DISTINCT ad_set_name) AS ad_sets, COUNT(DISTINCT ad_name) AS ads
       FROM all_ads
       GROUP BY account_name
     ),
     totals AS (
-      SELECT COALESCE(SUM(spend),0) AS total_spend FROM all_ads
+      SELECT COALESCE(SUM(spend),0) AS total_spend, COALESCE(SUM(platform_revenue),0) AS total_platform_revenue, COALESCE(SUM(platform_conversions),0) AS total_platform_conversions FROM all_ads
     ),
     rev AS (
       SELECT COALESCE(SUM(COALESCE(subtotal,revenue)),0) AS total_revenue,
@@ -263,12 +265,18 @@ async function fetchAccountDetail(userId: number | null): Promise<DetailRow[]> {
     SELECT ad_agg.account_name AS label,
            ad_agg.spend::float, ad_agg.clicks::int, ad_agg.impressions::int, ad_agg.lp_views::int,
            ad_agg.campaigns::int, ad_agg.ad_sets::int, ad_agg.ads::int,
-           CASE WHEN totals.total_spend > 0
-             THEN (ad_agg.spend / totals.total_spend * rev.total_revenue) ELSE 0 END::float AS revenue,
-           CASE WHEN totals.total_spend > 0
-             THEN ROUND(ad_agg.spend / totals.total_spend * rev.total_conversions) ELSE 0 END::int AS conversions,
-           CASE WHEN totals.total_spend > 0
-             THEN ROUND(ad_agg.spend / totals.total_spend * rev.total_new) ELSE 0 END::int AS new_customers
+           GREATEST(
+             CASE WHEN totals.total_spend > 0 THEN (ad_agg.spend / totals.total_spend * rev.total_revenue) ELSE 0 END,
+             ad_agg.platform_revenue
+           )::float AS revenue,
+           GREATEST(
+             CASE WHEN totals.total_spend > 0 THEN ROUND(ad_agg.spend / totals.total_spend * rev.total_conversions) ELSE 0 END,
+             ad_agg.platform_conversions
+           )::int AS conversions,
+           GREATEST(
+             CASE WHEN totals.total_spend > 0 THEN ROUND(ad_agg.spend / totals.total_spend * rev.total_new) ELSE 0 END,
+             0
+           )::int AS new_customers
     FROM ad_agg, totals, rev
     ORDER BY ad_agg.spend DESC LIMIT 8
   `, params);

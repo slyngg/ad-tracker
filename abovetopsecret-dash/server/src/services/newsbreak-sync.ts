@@ -83,6 +83,25 @@ export async function syncNewsBreakAds(userId?: number): Promise<{ synced: numbe
   if (!auth) return { synced: 0, skipped: true };
 
   const { accessToken, accountId } = auth;
+
+  // Auto-create accounts row if missing (so accounts summary + other pages work)
+  if (userId && accountId && accountId !== 'default') {
+    try {
+      const existing = await pool.query(
+        `SELECT id FROM accounts WHERE user_id = $1 AND platform = 'newsbreak' AND platform_account_id = $2`,
+        [userId, accountId]
+      );
+      if (existing.rows.length === 0) {
+        await pool.query(
+          `INSERT INTO accounts (user_id, name, platform, platform_account_id, currency, timezone, color, status)
+           VALUES ($1, 'NewsBreak', 'newsbreak', $2, 'USD', 'America/New_York', '#e11d48', 'active')`,
+          [userId, accountId]
+        );
+        log.info({ userId, accountId }, 'Auto-created NewsBreak account row');
+      }
+    } catch { /* ignore — duplicate or constraint error */ }
+  }
+
   const today = new Date().toISOString().split('T')[0];
   const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
 

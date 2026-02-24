@@ -494,8 +494,8 @@ export async function executeTool(
       const accounts = await pool.query(
         `SELECT a.id, a.name, a.platform, a.platform_account_id, a.status, a.color,
            COALESCE(ad_spend.spend, 0) + COALESCE(nb.spend, 0) AS today_spend,
-           COALESCE(cc.revenue, 0) AS today_revenue,
-           COALESCE(cc.conversions, 0) AS today_conversions
+           GREATEST(COALESCE(cc.revenue, 0), COALESCE(nb.platform_revenue, 0)) AS today_revenue,
+           GREATEST(COALESCE(cc.conversions, 0), COALESCE(nb.platform_conversions, 0)) AS today_conversions
          FROM accounts a
          LEFT JOIN (
            SELECT account_id, SUM(spend) AS spend FROM (
@@ -506,7 +506,9 @@ export async function executeTool(
            GROUP BY account_id
          ) ad_spend ON ad_spend.account_id = a.id
          LEFT JOIN LATERAL (
-           SELECT SUM(spend) AS spend
+           SELECT SUM(spend) AS spend,
+             COALESCE(SUM(conversion_value), 0) AS platform_revenue,
+             COALESCE(SUM(conversions), 0) AS platform_conversions
            FROM newsbreak_ads_today
            WHERE user_id = $1 AND account_id = a.platform_account_id
          ) nb ON a.platform = 'newsbreak'
