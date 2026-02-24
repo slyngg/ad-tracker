@@ -208,6 +208,21 @@
   transform: translateY(0);
 }
 
+/* ===== Footer theme toggle ===== */
+.theme-btn {
+  color: rgb(var(--od-text-muted));
+}
+
+.theme-btn:hover {
+  color: rgb(var(--od-text));
+  background: rgb(var(--od-hover));
+}
+
+.theme-btn.active {
+  color: rgb(var(--od-accent));
+  background: rgb(var(--od-accent) / 0.1);
+}
+
 /* ===== Light mode: softer shadows ===== */
 .light .shadow-2xl {
   box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.12);
