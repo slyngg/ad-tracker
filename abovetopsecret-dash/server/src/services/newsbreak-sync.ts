@@ -84,15 +84,17 @@ export async function syncNewsBreakAds(userId?: number): Promise<{ synced: numbe
 
   const { accessToken, accountId } = auth;
   const today = new Date().toISOString().split('T')[0];
+  const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
 
-  // Fetch ad-level report with campaign and ad set dimensions
+  // NewsBreak API often has a reporting lag — today's data may not be ready.
+  // Pull yesterday + today to ensure we always have the most recent data.
   const requestBody = {
     name: `sync_${today}`,
     dateRange: 'FIXED',
-    startDate: today,
+    startDate: yesterday,
     endDate: today,
     dimensions: ['CAMPAIGN', 'AD_SET', 'AD'],
-    metrics: ['COST', 'IMPRESSION', 'CLICK', 'CTR', 'CPC', 'CPM', 'CONVERSION', 'CONVERSION_VALUE', 'CPA', 'ROAS'],
+    metrics: ['COST'],
   };
 
   let synced = 0;
