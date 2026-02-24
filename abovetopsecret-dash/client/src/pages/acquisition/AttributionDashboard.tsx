@@ -18,7 +18,7 @@ async function apiFetch<T>(path: string): Promise<T> {
   return res.json();
 }
 
-interface AttrRow { channel: string; spend: number; revenue: number; conversions: number; roas: number; nc_revenue: number; nc_conversions: number; }
+interface AttrRow { source: string; spend: number; revenue: number; purchases: number; roas: number; cpa: number; nc_cpa: number; nc_roas: number; clicks: number; impressions: number; ctr: number; cpm: number; cpc: number; }
 interface OverlapRow { channel_a: string; channel_b: string; shared_conversions: number; }
 interface AdRow {
   platform: string; ad_id: string; ad_name: string; campaign_name: string; adset_name: string;
@@ -62,7 +62,7 @@ export default function AttributionDashboard() {
 
   // Load attribution model data
   const loadAttr = useCallback(() => {
-    apiFetch<AttrRow[]>(`/attribution-models/data?model=${model}`).then(setAttrData).catch(() => {});
+    apiFetch<{ model: string; data: AttrRow[] }>(`/attribution-models/data?model=${model}`).then(r => setAttrData(r.data || [])).catch(() => {});
     apiFetch<OverlapRow[]>('/attribution-models/overlap').then(setOverlap).catch(() => {});
     apiFetch<AdRow[]>('/attribution-models/ads').then(setAdRows).catch(() => {});
   }, [model]);
@@ -219,24 +219,25 @@ export default function AttributionDashboard() {
                   <th className="text-left pb-2 font-mono">Channel</th>
                   <th className="text-right pb-2 font-mono">Spend</th>
                   <th className="text-right pb-2 font-mono">Revenue</th>
-                  <th className="text-right pb-2 font-mono">Conv</th>
+                  <th className="text-right pb-2 font-mono">Purchases</th>
                   <th className="text-right pb-2 font-mono">ROAS</th>
-                  <th className="text-right pb-2 font-mono">NC Revenue</th>
-                  <th className="text-right pb-2 font-mono">NC Conv</th>
+                  <th className="text-right pb-2 font-mono">CPA</th>
                   <th className="text-right pb-2 font-mono">NC CPA</th>
+                  <th className="text-right pb-2 font-mono">NC ROAS</th>
                 </tr></thead>
                 <tbody>{attrData.map((r, i) => {
-                  const ncCpa = r.nc_conversions > 0 ? r.spend / r.nc_conversions : 0;
+                  const roas = parseFloat(String(r.roas)) || 0;
+                  const ncCpa = parseFloat(String(r.nc_cpa)) || 0;
                   return (
                     <tr key={i} className="border-t border-ats-border hover:bg-ats-hover">
-                      <td className="py-2 text-ats-text font-semibold">{r.channel}</td>
+                      <td className="py-2 text-ats-text font-semibold">{r.source}</td>
                       <td className="py-2 text-right text-ats-text font-mono">{fmt.currency(r.spend)}</td>
                       <td className="py-2 text-right text-ats-green font-mono">{fmt.currency(r.revenue)}</td>
-                      <td className="py-2 text-right text-ats-text font-mono">{r.conversions}</td>
-                      <td className="py-2 text-right font-mono" style={{ color: r.roas >= 2 ? '#22c55e' : r.roas >= 1 ? '#f59e0b' : '#ef4444' }}>{fmt.ratio(r.roas)}</td>
-                      <td className="py-2 text-right text-blue-400 font-mono">{fmt.currency(r.nc_revenue)}</td>
-                      <td className="py-2 text-right text-blue-400 font-mono">{r.nc_conversions}</td>
+                      <td className="py-2 text-right text-ats-text font-mono">{r.purchases}</td>
+                      <td className="py-2 text-right font-mono" style={{ color: roas >= 2 ? '#22c55e' : roas >= 1 ? '#f59e0b' : '#ef4444' }}>{fmt.ratio(roas)}</td>
+                      <td className="py-2 text-right text-ats-text font-mono">{fmt.currency(r.cpa)}</td>
                       <td className="py-2 text-right font-mono" style={{ color: ncCpa > 50 ? '#ef4444' : '#22c55e' }}>{fmt.currency(ncCpa)}</td>
+                      <td className="py-2 text-right text-blue-400 font-mono">{fmt.ratio(parseFloat(String(r.nc_roas)) || 0)}</td>
                     </tr>
                   );
                 })}</tbody>
@@ -300,12 +301,12 @@ export default function AttributionDashboard() {
                     <td className="py-1.5 text-right text-ats-text font-mono">{fmt.currency(r.cpm)}</td>
                     <td className="py-1.5 text-right text-ats-text font-mono">{fmt.num(r.clicks)}</td>
                     <td className="py-1.5 text-right text-ats-text font-mono">{fmt.currency(r.cpc)}</td>
-                    <td className="py-1.5 text-right text-ats-text font-mono">{(r.ctr * 100).toFixed(2)}%</td>
+                    <td className="py-1.5 text-right text-ats-text font-mono">{(parseFloat(String(r.ctr)) * 100).toFixed(2)}%</td>
                     <td className="py-1.5 text-right text-ats-text font-mono">{r.conversions}</td>
-                    <td className="py-1.5 text-right text-ats-text font-mono">{r.cpa > 0 ? fmt.currency(r.cpa) : '—'}</td>
-                    <td className="py-1.5 text-right text-ats-text font-mono">{(r.cvr * 100).toFixed(2)}%</td>
+                    <td className="py-1.5 text-right text-ats-text font-mono">{parseFloat(String(r.cpa)) > 0 ? fmt.currency(r.cpa) : '—'}</td>
+                    <td className="py-1.5 text-right text-ats-text font-mono">{(parseFloat(String(r.cvr)) * 100).toFixed(2)}%</td>
                     <td className="py-1.5 text-right text-ats-green font-mono">{fmt.currency(r.total_conversion_value)}</td>
-                    <td className="py-1.5 text-right text-ats-text font-mono">{r.value_per_conversion > 0 ? fmt.currency(r.value_per_conversion) : '—'}</td>
+                    <td className="py-1.5 text-right text-ats-text font-mono">{parseFloat(String(r.value_per_conversion)) > 0 ? fmt.currency(r.value_per_conversion) : '—'}</td>
                   </tr>
                 ))}</tbody>
               </table>
