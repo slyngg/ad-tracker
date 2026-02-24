@@ -61,7 +61,7 @@ export default function CreativeAnalysisPage() {
         <div className="text-4xl mb-4">🎨</div>
         <h3 className="text-lg font-bold text-ats-text mb-2">No Creative Data Yet</h3>
         <p className="text-sm text-ats-text-muted mb-4">Connect your ad accounts to see creative performance. Currently supported: Meta Ads.</p>
-        <a href="/data/integrations" className="inline-block px-6 py-3 bg-ats-accent text-white rounded-lg text-sm font-semibold">View Integrations</a>
+        <a href="/settings/connections" className="inline-block px-6 py-3 bg-ats-accent text-white rounded-lg text-sm font-semibold">View Connections</a>
       </div>
     </PageShell>
   );

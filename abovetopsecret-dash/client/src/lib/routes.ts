@@ -26,7 +26,6 @@ export const ROUTES = {
   SOCIAL_MONITORING: '/discovery/social',
   AI_VISIBILITY: '/discovery/ai-visibility',
   KEYWORD_INTELLIGENCE: '/discovery/keywords',
-  INTEGRATIONS: '/data/integrations',
   SQL_BUILDER: '/data/sql-builder',
   API_KEYS: '/data/api-keys',
   DATA_UPLOAD: '/data/upload',
@@ -168,7 +167,6 @@ export const NAV_SECTIONS: NavSectionConfig[] = [
     label: 'Data',
     icon: Database,
     children: [
-      { label: 'Integrations', path: ROUTES.INTEGRATIONS, icon: Plug },
       { label: 'SQL Builder', path: ROUTES.SQL_BUILDER, icon: Code },
       { label: 'API Keys', path: ROUTES.API_KEYS, icon: FileKey },
       { label: 'Data Upload', path: ROUTES.DATA_UPLOAD, icon: Upload },

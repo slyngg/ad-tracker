@@ -20,7 +20,6 @@ const LTVAnalysisPage = lazy(() => import('./pages/customers/LTVAnalysisPage'));
 const SocialMonitoringPage = lazy(() => import('./pages/discovery/SocialMonitoringPage'));
 const AIVisibilityPage = lazy(() => import('./pages/discovery/AIVisibilityPage'));
 const KeywordIntelligencePage = lazy(() => import('./pages/discovery/KeywordIntelligencePage'));
-const IntegrationsPage = lazy(() => import('./pages/data/IntegrationsPage'));
 const SQLBuilderPage = lazy(() => import('./pages/data/SQLBuilderPage'));
 const APIKeysPage = lazy(() => import('./pages/data/APIKeysPage'));
 const DataUploadPage = lazy(() => import('./pages/data/DataUploadPage'));
@@ -187,7 +186,6 @@ export default function App() {
               <Route path="/discovery/keywords" element={<KeywordIntelligencePage />} />
 
               {/* Data */}
-              <Route path="/data/integrations" element={<IntegrationsPage />} />
               <Route path="/data/sql-builder" element={<SQLBuilderPage />} />
               <Route path="/data/api-keys" element={<APIKeysPage />} />
               <Route path="/data/upload" element={<DataUploadPage />} />

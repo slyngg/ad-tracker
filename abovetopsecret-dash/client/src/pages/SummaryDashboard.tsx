@@ -24,7 +24,7 @@ async function apiFetch<T>(path: string): Promise<T> {
 
 interface Favorite { id: number; metric_key: string; label: string; format: string; position: number; }
 interface GA4Overview { sessions: number; pageviews: number; bounce_rate: number; avg_duration: number; }
-interface AttrRow { channel: string; spend: number; revenue: number; conversions: number; roas: number; nc_revenue: number; nc_conversions: number; }
+interface AttrRow { source: string; spend: number; revenue: number; purchases: number; roas: number; cpa: number; nc_cpa: number; nc_roas: number; }
 
 const WORKSPACES = [
   { label: 'Attribution', desc: 'Campaign performance & ROI', icon: '🎯', path: ROUTES.ATTRIBUTION },
@@ -72,7 +72,7 @@ export default function SummaryDashboard() {
   useEffect(() => {
     apiFetch<Favorite[]>('/favorites').then(setFavorites).catch(() => {});
     apiFetch<GA4Overview>('/ga4/overview').then(setGa4).catch(() => {});
-    apiFetch<AttrRow[]>('/attribution-models/data').then(setAttrData).catch(() => {});
+    apiFetch<{ model: string; data: AttrRow[] }>('/attribution-models/data').then(r => setAttrData(r.data || [])).catch(() => {});
     fetchAccountSummary().then(setAccountSummaries).catch(() => {});
   }, []);
 
@@ -372,14 +372,17 @@ export default function SummaryDashboard() {
                   <th className="text-right pb-2 font-mono">Revenue</th>
                   <th className="text-right pb-2 font-mono">ROAS</th>
                 </tr></thead>
-                <tbody>{attrData.slice(0, 5).map((r, i) => (
+                <tbody>{attrData.slice(0, 5).map((r, i) => {
+                  const roas = parseFloat(String(r.roas)) || 0;
+                  return (
                   <tr key={i} className="border-t border-ats-border">
-                    <td className="py-1.5 text-ats-text">{r.channel}</td>
+                    <td className="py-1.5 text-ats-text">{r.source}</td>
                     <td className="py-1.5 text-right text-ats-text font-mono">{fmt.currency(r.spend)}</td>
                     <td className="py-1.5 text-right text-ats-green font-mono">{fmt.currency(r.revenue)}</td>
-                    <td className="py-1.5 text-right font-mono" style={{ color: r.roas >= 2 ? '#22c55e' : r.roas >= 1 ? '#f59e0b' : '#ef4444' }}>{fmt.ratio(r.roas)}</td>
+                    <td className="py-1.5 text-right font-mono" style={{ color: roas >= 2 ? '#22c55e' : roas >= 1 ? '#f59e0b' : '#ef4444' }}>{fmt.ratio(roas)}</td>
                   </tr>
-                ))}</tbody>
+                  );
+                })}</tbody>
               </table>
             </div>
           ) : (
