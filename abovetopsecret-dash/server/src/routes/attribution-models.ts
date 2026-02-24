@@ -109,6 +109,58 @@ router.get('/data', async (req: Request, res: Response) => {
   }
 });
 
+// GET /api/attribution/ads — ad-level performance data across platforms
+router.get('/ads', async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    const uf = userId ? 'WHERE user_id = $1' : '';
+    const params = userId ? [userId] : [];
+
+    const result = await pool.query(`
+      SELECT
+        'newsbreak' AS platform,
+        ad_id, ad_name, campaign_name, adset_name,
+        spend AS cost, impressions, cpm, clicks, cpc, ctr, conversions, cpa,
+        COALESCE(cvr, 0) AS cvr,
+        conversion_value AS total_conversion_value,
+        CASE WHEN conversions > 0 THEN conversion_value / conversions ELSE 0 END AS value_per_conversion,
+        synced_at
+      FROM newsbreak_ads_today ${uf}
+      UNION ALL
+      SELECT
+        'meta' AS platform,
+        id::TEXT AS ad_id, ad_name, campaign_name, ad_set_name AS adset_name,
+        spend AS cost, impressions,
+        CASE WHEN impressions > 0 THEN spend / impressions * 1000 ELSE 0 END AS cpm,
+        clicks,
+        CASE WHEN clicks > 0 THEN spend / clicks ELSE 0 END AS cpc,
+        CASE WHEN impressions > 0 THEN clicks::NUMERIC / impressions ELSE 0 END AS ctr,
+        0 AS conversions, 0 AS cpa, 0 AS cvr,
+        0 AS total_conversion_value, 0 AS value_per_conversion,
+        synced_at
+      FROM fb_ads_today ${uf}
+      UNION ALL
+      SELECT
+        'tiktok' AS platform,
+        ad_id, ad_name, campaign_name, adgroup_name AS adset_name,
+        spend AS cost, impressions, cpm, clicks, cpc, ctr,
+        COALESCE(conversions, 0) AS conversions,
+        CASE WHEN COALESCE(conversions, 0) > 0 THEN spend / conversions ELSE 0 END AS cpa,
+        CASE WHEN clicks > 0 THEN COALESCE(conversions, 0)::NUMERIC / clicks ELSE 0 END AS cvr,
+        COALESCE(conversion_value, 0) AS total_conversion_value,
+        CASE WHEN COALESCE(conversions, 0) > 0 THEN COALESCE(conversion_value, 0) / conversions ELSE 0 END AS value_per_conversion,
+        synced_at
+      FROM tiktok_ads_today ${uf}
+      ORDER BY cost DESC
+    `, params);
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error fetching ad-level data:', err);
+    res.status(500).json({ error: 'Failed to fetch ad data' });
+  }
+});
+
 // GET /api/attribution/overlap — channel overlap
 router.get('/overlap', async (req: Request, res: Response) => {
   try {

@@ -20,6 +20,12 @@ async function apiFetch<T>(path: string): Promise<T> {
 
 interface AttrRow { channel: string; spend: number; revenue: number; conversions: number; roas: number; nc_revenue: number; nc_conversions: number; }
 interface OverlapRow { channel_a: string; channel_b: string; shared_conversions: number; }
+interface AdRow {
+  platform: string; ad_id: string; ad_name: string; campaign_name: string; adset_name: string;
+  cost: number; impressions: number; cpm: number; clicks: number; cpc: number; ctr: number;
+  conversions: number; cpa: number; cvr: number; total_conversion_value: number; value_per_conversion: number;
+  synced_at: string;
+}
 const MODELS = [
   { id: 'last_click', label: 'Last Click' },
   { id: 'first_click', label: 'First Click' },
@@ -39,6 +45,9 @@ export default function AttributionDashboard() {
   const [model, setModel] = useState('last_click');
   const [attrData, setAttrData] = useState<AttrRow[]>([]);
   const [overlap, setOverlap] = useState<OverlapRow[]>([]);
+  const [adRows, setAdRows] = useState<AdRow[]>([]);
+  const [adSort, setAdSort] = useState<{ col: string; dir: 'asc' | 'desc' }>({ col: 'cost', dir: 'desc' });
+  const [adPlatformFilter, setAdPlatformFilter] = useState('all');
   const [showOverlap, setShowOverlap] = useState(false);
 
   // Pull-to-refresh state
@@ -55,6 +64,7 @@ export default function AttributionDashboard() {
   const loadAttr = useCallback(() => {
     apiFetch<AttrRow[]>(`/attribution-models/data?model=${model}`).then(setAttrData).catch(() => {});
     apiFetch<OverlapRow[]>('/attribution-models/overlap').then(setOverlap).catch(() => {});
+    apiFetch<AdRow[]>('/attribution-models/ads').then(setAdRows).catch(() => {});
   }, [model]);
 
   useEffect(() => { loadAttr(); }, [loadAttr]);
@@ -115,6 +125,27 @@ export default function AttributionDashboard() {
 
   // Channel overlap max for scaling
   const overlapMax = useMemo(() => Math.max(...overlap.map(o => o.shared_conversions), 1), [overlap]);
+
+  // Ad-level data: filter + sort
+  const adPlatforms = useMemo(() => {
+    const set = new Set(adRows.map(r => r.platform));
+    return ['all', ...Array.from(set)];
+  }, [adRows]);
+
+  const sortedAds = useMemo(() => {
+    let rows = adPlatformFilter === 'all' ? [...adRows] : adRows.filter(r => r.platform === adPlatformFilter);
+    rows.sort((a, b) => {
+      const av = (a as any)[adSort.col] ?? 0;
+      const bv = (b as any)[adSort.col] ?? 0;
+      if (typeof av === 'string') return adSort.dir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
+      return adSort.dir === 'asc' ? av - bv : bv - av;
+    });
+    return rows;
+  }, [adRows, adPlatformFilter, adSort]);
+
+  const handleAdSort = useCallback((col: string) => {
+    setAdSort(prev => prev.col === col ? { col, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { col, dir: 'desc' });
+  }, []);
 
   return (
     <div
@@ -211,6 +242,75 @@ export default function AttributionDashboard() {
                 })}</tbody>
               </table>
             </div>
+          </div>
+        )}
+
+        {/* Ad-Level Performance Table */}
+        {sortedAds.length > 0 && (
+          <div className={`${cardCls} mb-4`}>
+            <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+              <h3 className="text-sm font-semibold text-ats-text">Ad Performance</h3>
+              <div className="flex gap-1">
+                {adPlatforms.map(p => (
+                  <button key={p} onClick={() => setAdPlatformFilter(p)}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors ${adPlatformFilter === p ? 'bg-ats-accent text-white' : 'bg-ats-bg border border-ats-border text-ats-text-muted hover:border-ats-accent'}`}>
+                    {p === 'all' ? 'All' : p.charAt(0).toUpperCase() + p.slice(1)}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs whitespace-nowrap">
+                <thead><tr className="text-ats-text-muted uppercase border-b border-ats-border">
+                  {[
+                    { key: 'platform', label: 'Src' },
+                    { key: 'ad_name', label: 'Ad' },
+                    { key: 'campaign_name', label: 'Campaign' },
+                    { key: 'cost', label: 'Cost' },
+                    { key: 'impressions', label: 'Impr' },
+                    { key: 'cpm', label: 'CPM' },
+                    { key: 'clicks', label: 'Clicks' },
+                    { key: 'cpc', label: 'CPC' },
+                    { key: 'ctr', label: 'CTR' },
+                    { key: 'conversions', label: 'Conv' },
+                    { key: 'cpa', label: 'CPA' },
+                    { key: 'cvr', label: 'CVR' },
+                    { key: 'total_conversion_value', label: 'Conv Value' },
+                    { key: 'value_per_conversion', label: 'Val/Conv' },
+                  ].map(col => (
+                    <th key={col.key} onClick={() => handleAdSort(col.key)}
+                      className={`pb-2 font-mono cursor-pointer hover:text-ats-accent ${col.key === 'ad_name' || col.key === 'campaign_name' || col.key === 'platform' ? 'text-left' : 'text-right'} ${adSort.col === col.key ? 'text-ats-accent' : ''}`}>
+                      {col.label}{adSort.col === col.key ? (adSort.dir === 'desc' ? ' ↓' : ' ↑') : ''}
+                    </th>
+                  ))}
+                </tr></thead>
+                <tbody>{sortedAds.map((r, i) => (
+                  <tr key={`${r.platform}-${r.ad_id}-${i}`} className="border-t border-ats-border hover:bg-ats-hover">
+                    <td className="py-1.5 text-ats-text-muted">
+                      <span className={`inline-block px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${
+                        r.platform === 'newsbreak' ? 'bg-orange-600/20 text-orange-400' :
+                        r.platform === 'meta' ? 'bg-blue-600/20 text-blue-400' :
+                        'bg-pink-600/20 text-pink-400'
+                      }`}>{r.platform === 'newsbreak' ? 'NB' : r.platform === 'meta' ? 'FB' : 'TT'}</span>
+                    </td>
+                    <td className="py-1.5 text-ats-text max-w-[200px] truncate" title={r.ad_name}>{r.ad_name || '—'}</td>
+                    <td className="py-1.5 text-ats-text-muted max-w-[160px] truncate" title={r.campaign_name}>{r.campaign_name || '—'}</td>
+                    <td className="py-1.5 text-right text-ats-text font-mono">{fmt.currency(r.cost)}</td>
+                    <td className="py-1.5 text-right text-ats-text font-mono">{fmt.num(r.impressions)}</td>
+                    <td className="py-1.5 text-right text-ats-text font-mono">{fmt.currency(r.cpm)}</td>
+                    <td className="py-1.5 text-right text-ats-text font-mono">{fmt.num(r.clicks)}</td>
+                    <td className="py-1.5 text-right text-ats-text font-mono">{fmt.currency(r.cpc)}</td>
+                    <td className="py-1.5 text-right text-ats-text font-mono">{(r.ctr * 100).toFixed(2)}%</td>
+                    <td className="py-1.5 text-right text-ats-text font-mono">{r.conversions}</td>
+                    <td className="py-1.5 text-right text-ats-text font-mono">{r.cpa > 0 ? fmt.currency(r.cpa) : '—'}</td>
+                    <td className="py-1.5 text-right text-ats-text font-mono">{(r.cvr * 100).toFixed(2)}%</td>
+                    <td className="py-1.5 text-right text-ats-green font-mono">{fmt.currency(r.total_conversion_value)}</td>
+                    <td className="py-1.5 text-right text-ats-text font-mono">{r.value_per_conversion > 0 ? fmt.currency(r.value_per_conversion) : '—'}</td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            </div>
+            <div className="text-[10px] text-ats-text-muted mt-2 font-mono">{sortedAds.length} ads</div>
           </div>
         )}
 

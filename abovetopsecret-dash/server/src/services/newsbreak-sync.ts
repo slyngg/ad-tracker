@@ -129,6 +129,7 @@ export async function syncNewsBreakAds(userId?: number): Promise<{ synced: numbe
 
         // CTR/CVR are in per-10000 format — convert to raw ratio
         const ctr = (parseInt(row.ctr) || 0) / 10000;
+        const cvr = (parseInt(row.cvr) || 0) / 10000;
         // CPC/CPM/CPA are in cents
         const cpc = (parseFloat(row.cpcDecimal) || row.cpc || 0) / 100;
         const cpm = (parseFloat(row.cpmDecimal) || row.cpm || 0) / 100;
@@ -137,8 +138,8 @@ export async function syncNewsBreakAds(userId?: number): Promise<{ synced: numbe
 
         await dbClient.query('SAVEPOINT row_insert');
         await dbClient.query(
-          `INSERT INTO newsbreak_ads_today (user_id, account_id, campaign_id, campaign_name, adset_id, adset_name, ad_id, ad_name, spend, impressions, clicks, conversions, conversion_value, ctr, cpc, cpm, cpa, roas, synced_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, NOW())
+          `INSERT INTO newsbreak_ads_today (user_id, account_id, campaign_id, campaign_name, adset_id, adset_name, ad_id, ad_name, spend, impressions, clicks, conversions, conversion_value, ctr, cpc, cpm, cpa, roas, cvr, synced_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, NOW())
            ON CONFLICT (COALESCE(user_id, -1), ad_id) DO UPDATE SET
              account_id = EXCLUDED.account_id, campaign_id = EXCLUDED.campaign_id,
              campaign_name = EXCLUDED.campaign_name, adset_id = EXCLUDED.adset_id,
@@ -146,14 +147,14 @@ export async function syncNewsBreakAds(userId?: number): Promise<{ synced: numbe
              spend = EXCLUDED.spend, impressions = EXCLUDED.impressions, clicks = EXCLUDED.clicks,
              conversions = EXCLUDED.conversions, conversion_value = EXCLUDED.conversion_value,
              ctr = EXCLUDED.ctr, cpc = EXCLUDED.cpc, cpm = EXCLUDED.cpm, cpa = EXCLUDED.cpa,
-             roas = EXCLUDED.roas, synced_at = NOW()`,
+             roas = EXCLUDED.roas, cvr = EXCLUDED.cvr, synced_at = NOW()`,
           [
             userId || null, accountId,
             row.campaignId || null, row.campaign || null,
             row.adSetId || null, row.adSet || null,
             adId, row.ad || null,
             spend, impressions, clicks, conversions, conversionValue,
-            ctr, cpc, cpm, cpa, roas,
+            ctr, cpc, cpm, cpa, roas, cvr,
           ]
         );
         await dbClient.query('RELEASE SAVEPOINT row_insert');
