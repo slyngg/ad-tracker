@@ -173,55 +173,129 @@ export default function AttributionDashboard() {
         subtitle={<><span className={syncAge.color}>{syncAge.text}</span>{refreshing ? ' · syncing...' : ''}</>}
         actions={
           <div className="flex items-center gap-2">
-            <button onClick={() => setViewMode((v) => (v === 'table' ? 'cards' : 'table'))} className="bg-ats-border text-ats-text-muted px-3.5 py-2.5 rounded-md text-xs cursor-pointer hover:bg-ats-hover transition-colors">
+            <button onClick={() => setViewMode((v) => (v === 'table' ? 'cards' : 'table'))} className="hidden md:block bg-ats-border text-ats-text-muted px-3.5 py-2.5 rounded-md text-xs cursor-pointer hover:bg-ats-hover transition-colors">
               {showTable ? 'Cards' : 'Table'}
             </button>
-            <ExportButton data={filtered} />
+            <div className="hidden md:block"><ExportButton data={filtered} /></div>
           </div>
         }
       >
-        {/* Model Selector */}
-        <div className={`${cardCls} mb-4`}>
-          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
-            <span className="text-xs text-ats-text-muted uppercase font-mono">Attribution Model:</span>
-            <div className="flex gap-1 overflow-x-auto pb-1 sm:pb-0">
-              {MODELS.map(m => (
-                <button key={m.id} onClick={() => setModel(m.id)} className={`px-3 py-2 sm:py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap min-h-[36px] sm:min-h-0 ${model === m.id ? 'bg-ats-accent text-white' : 'bg-ats-bg border border-ats-border text-ats-text-muted hover:border-ats-accent'}`}>
-                  {m.label}
-                </button>
-              ))}
-            </div>
-            <button onClick={() => setShowOverlap(!showOverlap)} className="sm:ml-auto text-xs text-ats-accent hover:underline text-left">
-              {showOverlap ? 'Hide' : 'Show'} Channel Overlap
-            </button>
+        {/* ==================== MOBILE LAYOUT (< md) ==================== */}
+        <div className="md:hidden space-y-3">
+          {/* Mobile Model Selector — compact pills */}
+          <div className="flex gap-1.5 overflow-x-auto pb-1">
+            {MODELS.map(m => (
+              <button key={m.id} onClick={() => setModel(m.id)} className={`px-3 py-2 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap ${model === m.id ? 'bg-ats-accent text-white' : 'bg-ats-card border border-ats-border text-ats-text-muted'}`}>
+                {m.label}
+              </button>
+            ))}
           </div>
+
+          {/* Mobile Channel Attribution Cards */}
+          {attrData.length > 0 && (
+            <div className="space-y-2">
+              {attrData.map((r, i) => {
+                const roas = parseFloat(String(r.roas)) || 0;
+                const roasColor = roas >= 2 ? 'text-ats-green' : roas >= 1 ? 'text-ats-yellow' : 'text-ats-red';
+                return (
+                  <div key={i} className={cardCls}>
+                    <div className="flex justify-between items-center mb-2">
+                      <div className="text-sm font-bold text-ats-text">{r.source}</div>
+                      <div className={`text-lg font-bold font-mono ${roasColor}`}>{fmt.ratio(roas)}</div>
+                    </div>
+                    <div className="flex gap-4">
+                      <div>
+                        <div className="text-[10px] text-ats-text-muted uppercase">Spend</div>
+                        <div className="text-sm font-semibold text-ats-text font-mono">{fmt.currency(r.spend)}</div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] text-ats-text-muted uppercase">Revenue</div>
+                        <div className="text-sm font-semibold text-ats-green font-mono">{fmt.currency(r.revenue)}</div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] text-ats-text-muted uppercase">CPA</div>
+                        <div className="text-sm font-semibold text-ats-text font-mono">{fmt.currency(r.cpa)}</div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Mobile Summary + Filters + Campaign Cards */}
+          <SummaryCards summary={summary} />
+
+          <Filters
+            offers={offers}
+            accounts={accounts}
+            filterOffer={filterOffer}
+            filterAccount={filterAccount}
+            onOfferChange={setFilterOffer}
+            onAccountChange={setFilterAccount}
+          />
+
+          {loading && data.length === 0 && (
+            <div>{[...Array(4)].map((_, i) => <div key={i} className="h-16 bg-ats-card rounded-xl mb-2 animate-pulse" style={{ opacity: 1 - i * 0.15 }} />)}</div>
+          )}
+
+          {error && <div className="text-center py-4 text-ats-red text-sm">{error}</div>}
+
+          {!loading && !error && data.length === 0 && (
+            <div className="text-center py-8 text-ats-text-muted">
+              <div className="text-base mb-1">No data yet</div>
+              <div className="text-sm">Waiting for ad sync or webhook data.</div>
+            </div>
+          )}
+
+          {filtered.length > 0 && (
+            <div>{filtered.map((row, i) => <MobileCard key={`${row.offer_name}-${row.account_name}-${i}`} row={row} expanded={expandedIdx === i} onToggle={() => setExpandedIdx(expandedIdx === i ? null : i)} />)}</div>
+          )}
+
+          <div className="text-center pb-3"><div className="text-[10px] text-ats-text-muted font-mono">{filtered.length} rows</div></div>
         </div>
 
-        {/* Channel Overlap Visualization */}
-        {showOverlap && overlap.length > 0 && (
+        {/* ==================== DESKTOP LAYOUT (>= md) ==================== */}
+        <div className="hidden md:block">
+          {/* Model Selector */}
           <div className={`${cardCls} mb-4`}>
-            <h3 className="text-sm font-semibold text-ats-text mb-3">Channel Overlap</h3>
-            <div className="space-y-2">
-              {overlap.slice(0, 10).map((o, i) => (
-                <div key={i} className="flex items-center gap-2 sm:gap-3">
-                  <div className="w-24 sm:w-48 text-[10px] sm:text-xs text-ats-text truncate">{o.channel_a} × {o.channel_b}</div>
-                  <div className="flex-1 bg-ats-bg rounded-full h-4 overflow-hidden">
-                    <div className="h-full bg-ats-accent/40 rounded-full transition-all" style={{ width: `${(o.shared_conversions / overlapMax) * 100}%` }} />
-                  </div>
-                  <div className="text-[10px] sm:text-xs text-ats-text font-mono w-12 sm:w-16 text-right">{o.shared_conversions}</div>
-                </div>
-              ))}
+            <div className="flex items-center gap-4">
+              <span className="text-xs text-ats-text-muted uppercase font-mono">Attribution Model:</span>
+              <div className="flex gap-1">
+                {MODELS.map(m => (
+                  <button key={m.id} onClick={() => setModel(m.id)} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${model === m.id ? 'bg-ats-accent text-white' : 'bg-ats-bg border border-ats-border text-ats-text-muted hover:border-ats-accent'}`}>
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+              <button onClick={() => setShowOverlap(!showOverlap)} className="ml-auto text-xs text-ats-accent hover:underline">
+                {showOverlap ? 'Hide' : 'Show'} Channel Overlap
+              </button>
             </div>
           </div>
-        )}
 
-        {/* Attribution by Model */}
-        {attrData.length > 0 && (
-          <div className="mb-4">
-            <h3 className="text-sm font-semibold text-ats-text mb-3">Attribution by Channel ({MODELS.find(m => m.id === model)?.label})</h3>
+          {/* Channel Overlap Visualization */}
+          {showOverlap && overlap.length > 0 && (
+            <div className={`${cardCls} mb-4`}>
+              <h3 className="text-sm font-semibold text-ats-text mb-3">Channel Overlap</h3>
+              <div className="space-y-2">
+                {overlap.slice(0, 10).map((o, i) => (
+                  <div key={i} className="flex items-center gap-3">
+                    <div className="w-48 text-xs text-ats-text truncate">{o.channel_a} × {o.channel_b}</div>
+                    <div className="flex-1 bg-ats-bg rounded-full h-4 overflow-hidden">
+                      <div className="h-full bg-ats-accent/40 rounded-full transition-all" style={{ width: `${(o.shared_conversions / overlapMax) * 100}%` }} />
+                    </div>
+                    <div className="text-xs text-ats-text font-mono w-16 text-right">{o.shared_conversions} conv</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
-            {/* Desktop table */}
-            <div className={`${cardCls} hidden md:block`}>
+          {/* Attribution by Model Table */}
+          {attrData.length > 0 && (
+            <div className={`${cardCls} mb-4`}>
+              <h3 className="text-sm font-semibold text-ats-text mb-3">Attribution by Channel ({MODELS.find(m => m.id === model)?.label})</h3>
               <div className="overflow-x-auto">
                 <table className="w-full text-xs">
                   <thead><tr className="text-ats-text-muted uppercase border-b border-ats-border">
@@ -253,72 +327,22 @@ export default function AttributionDashboard() {
                 </table>
               </div>
             </div>
+          )}
 
-            {/* Mobile cards */}
-            <div className="md:hidden space-y-2">
-              {attrData.map((r, i) => {
-                const roas = parseFloat(String(r.roas)) || 0;
-                const ncRoas = parseFloat(String(r.nc_roas)) || 0;
-                const roasColor = roas >= 2 ? 'text-ats-green' : roas >= 1 ? 'text-ats-yellow' : 'text-ats-red';
-                return (
-                  <div key={i} className={cardCls}>
-                    <div className="flex justify-between items-center mb-2">
-                      <div className="text-sm font-bold text-ats-text">{r.source}</div>
-                      <div className="text-right">
-                        <div className={`text-lg font-bold font-mono ${roasColor}`}>{fmt.ratio(roas)}</div>
-                        <div className="text-[10px] text-ats-text-muted">ROAS</div>
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-3 gap-x-3 gap-y-2">
-                      <div>
-                        <div className="text-[10px] text-ats-text-muted uppercase">Spend</div>
-                        <div className="text-sm font-semibold text-ats-text font-mono">{fmt.currency(r.spend)}</div>
-                      </div>
-                      <div>
-                        <div className="text-[10px] text-ats-text-muted uppercase">Revenue</div>
-                        <div className="text-sm font-semibold text-ats-green font-mono">{fmt.currency(r.revenue)}</div>
-                      </div>
-                      <div>
-                        <div className="text-[10px] text-ats-text-muted uppercase">Purchases</div>
-                        <div className="text-sm font-semibold text-ats-text font-mono">{r.purchases}</div>
-                      </div>
-                      <div>
-                        <div className="text-[10px] text-ats-text-muted uppercase">CPA</div>
-                        <div className="text-sm font-semibold text-ats-text font-mono">{fmt.currency(r.cpa)}</div>
-                      </div>
-                      <div>
-                        <div className="text-[10px] text-ats-text-muted uppercase">NC CPA</div>
-                        <div className="text-sm font-semibold text-ats-text font-mono">{fmt.currency(parseFloat(String(r.nc_cpa)) || 0)}</div>
-                      </div>
-                      <div>
-                        <div className="text-[10px] text-ats-text-muted uppercase">NC ROAS</div>
-                        <div className="text-sm font-semibold text-blue-400 font-mono">{fmt.ratio(ncRoas)}</div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* Ad-Level Performance */}
-        {sortedAds.length > 0 && (
-          <div className="mb-4">
-            <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-              <h3 className="text-sm font-semibold text-ats-text">Ad Performance</h3>
-              <div className="flex gap-1 overflow-x-auto">
-                {adPlatforms.map(p => (
-                  <button key={p} onClick={() => setAdPlatformFilter(p)}
-                    className={`px-2.5 py-1.5 sm:py-1 rounded-lg text-[11px] font-semibold transition-colors whitespace-nowrap ${adPlatformFilter === p ? 'bg-ats-accent text-white' : 'bg-ats-bg border border-ats-border text-ats-text-muted hover:border-ats-accent'}`}>
-                    {p === 'all' ? 'All' : p.charAt(0).toUpperCase() + p.slice(1)}
-                  </button>
-                ))}
+          {/* Ad-Level Performance Table */}
+          {sortedAds.length > 0 && (
+            <div className={`${cardCls} mb-4`}>
+              <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                <h3 className="text-sm font-semibold text-ats-text">Ad Performance</h3>
+                <div className="flex gap-1">
+                  {adPlatforms.map(p => (
+                    <button key={p} onClick={() => setAdPlatformFilter(p)}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors ${adPlatformFilter === p ? 'bg-ats-accent text-white' : 'bg-ats-bg border border-ats-border text-ats-text-muted hover:border-ats-accent'}`}>
+                      {p === 'all' ? 'All' : p.charAt(0).toUpperCase() + p.slice(1)}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
-
-            {/* Desktop table */}
-            <div className={`${cardCls} hidden md:block`}>
               <div className="overflow-x-auto">
                 <table className="w-full text-xs whitespace-nowrap">
                   <thead><tr className="text-ats-text-muted uppercase border-b border-ats-border">
@@ -372,99 +396,42 @@ export default function AttributionDashboard() {
               </div>
               <div className="text-[10px] text-ats-text-muted mt-2 font-mono">{sortedAds.length} ads</div>
             </div>
-
-            {/* Mobile cards */}
-            <div className="md:hidden space-y-2">
-              {sortedAds.map((r, i) => {
-                const roas = r.cost > 0 ? r.total_conversion_value / r.cost : 0;
-                const roasColor = roas >= 2 ? 'text-ats-green' : roas >= 1 ? 'text-ats-yellow' : 'text-ats-red';
-                const platformBadge = r.platform === 'newsbreak' ? { cls: 'bg-orange-600/20 text-orange-400', label: 'NB' } :
-                  r.platform === 'meta' ? { cls: 'bg-blue-600/20 text-blue-400', label: 'FB' } :
-                  { cls: 'bg-pink-600/20 text-pink-400', label: 'TT' };
-                return (
-                  <div key={`${r.platform}-${r.ad_id}-${i}`} className={cardCls}>
-                    {/* Header: platform badge + ad name + ROAS */}
-                    <div className="flex justify-between items-start gap-2 mb-2">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5 mb-0.5">
-                          <span className={`inline-block px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${platformBadge.cls}`}>{platformBadge.label}</span>
-                          <span className="text-sm font-bold text-ats-text truncate">{r.ad_name || '—'}</span>
-                        </div>
-                        <div className="text-[11px] text-ats-text-muted truncate">{r.campaign_name || '—'}</div>
-                      </div>
-                      <div className="text-right shrink-0">
-                        <div className={`text-lg font-bold font-mono ${roasColor}`}>{fmt.ratio(roas)}</div>
-                        <div className="text-[10px] text-ats-text-muted">ROAS</div>
-                      </div>
-                    </div>
-                    {/* Key metrics row */}
-                    <div className="grid grid-cols-3 gap-x-3 gap-y-2">
-                      <div>
-                        <div className="text-[10px] text-ats-text-muted uppercase">Cost</div>
-                        <div className="text-sm font-semibold text-ats-text font-mono">{fmt.currency(r.cost)}</div>
-                      </div>
-                      <div>
-                        <div className="text-[10px] text-ats-text-muted uppercase">Revenue</div>
-                        <div className="text-sm font-semibold text-ats-green font-mono">{fmt.currency(r.total_conversion_value)}</div>
-                      </div>
-                      <div>
-                        <div className="text-[10px] text-ats-text-muted uppercase">Conv</div>
-                        <div className="text-sm font-semibold text-ats-text font-mono">{r.conversions}</div>
-                      </div>
-                      <div>
-                        <div className="text-[10px] text-ats-text-muted uppercase">CPA</div>
-                        <div className="text-[13px] font-semibold text-ats-text font-mono">{parseFloat(String(r.cpa)) > 0 ? fmt.currency(r.cpa) : '—'}</div>
-                      </div>
-                      <div>
-                        <div className="text-[10px] text-ats-text-muted uppercase">CTR</div>
-                        <div className="text-[13px] font-semibold text-ats-text font-mono">{(parseFloat(String(r.ctr)) * 100).toFixed(2)}%</div>
-                      </div>
-                      <div>
-                        <div className="text-[10px] text-ats-text-muted uppercase">CPC</div>
-                        <div className="text-[13px] font-semibold text-ats-text font-mono">{fmt.currency(r.cpc)}</div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-              <div className="text-[10px] text-ats-text-muted text-center font-mono py-1">{sortedAds.length} ads</div>
-            </div>
-          </div>
-        )}
-
-        <Filters
-          offers={offers}
-          accounts={accounts}
-          filterOffer={filterOffer}
-          filterAccount={filterAccount}
-          onOfferChange={setFilterOffer}
-          onAccountChange={setFilterAccount}
-        />
-
-        <SummaryCards summary={summary} />
-
-        {loading && data.length === 0 && (
-          <div className="mt-4">{[...Array(6)].map((_, i) => <div key={i} className="h-16 bg-ats-card rounded-xl mb-3 animate-pulse" style={{ opacity: 1 - i * 0.12 }} />)}</div>
-        )}
-
-        {error && <div className="text-center py-5 text-ats-red text-sm">{error}</div>}
-
-        {!loading && !error && data.length === 0 && (
-          <div className="text-center py-10 text-ats-text-muted">
-            <div className="text-base mb-2">No data yet</div>
-            <div className="text-sm">Waiting for Meta ad sync or webhook data.</div>
-          </div>
-        )}
-
-        <div className="pb-4">
-          {filtered.length > 0 && showTable && <MetricsTable data={filtered} sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />}
-          {filtered.length > 0 && !showTable && (
-            <div className="mt-2">{filtered.map((row, i) => <MobileCard key={`${row.offer_name}-${row.account_name}-${i}`} row={row} expanded={expandedIdx === i} onToggle={() => setExpandedIdx(expandedIdx === i ? null : i)} />)}</div>
           )}
-        </div>
 
-        <div className="mt-4 mb-4"><LiveOrderFeed /></div>
-        <div className="text-center pb-4"><div className="text-[10px] text-ats-text-muted font-mono">{filtered.length} rows · auto-refresh 60s</div></div>
+          <Filters
+            offers={offers}
+            accounts={accounts}
+            filterOffer={filterOffer}
+            filterAccount={filterAccount}
+            onOfferChange={setFilterOffer}
+            onAccountChange={setFilterAccount}
+          />
+
+          <SummaryCards summary={summary} />
+
+          {loading && data.length === 0 && (
+            <div className="mt-4">{[...Array(6)].map((_, i) => <div key={i} className="h-16 bg-ats-card rounded-xl mb-3 animate-pulse" style={{ opacity: 1 - i * 0.12 }} />)}</div>
+          )}
+
+          {error && <div className="text-center py-5 text-ats-red text-sm">{error}</div>}
+
+          {!loading && !error && data.length === 0 && (
+            <div className="text-center py-10 text-ats-text-muted">
+              <div className="text-base mb-2">No data yet</div>
+              <div className="text-sm">Waiting for Meta ad sync or webhook data.</div>
+            </div>
+          )}
+
+          <div className="pb-4">
+            {filtered.length > 0 && showTable && <MetricsTable data={filtered} sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />}
+            {filtered.length > 0 && !showTable && (
+              <div className="mt-2">{filtered.map((row, i) => <MobileCard key={`${row.offer_name}-${row.account_name}-${i}`} row={row} expanded={expandedIdx === i} onToggle={() => setExpandedIdx(expandedIdx === i ? null : i)} />)}</div>
+            )}
+          </div>
+
+          <div className="mt-4 mb-4"><LiveOrderFeed /></div>
+          <div className="text-center pb-4"><div className="text-[10px] text-ats-text-muted font-mono">{filtered.length} rows · auto-refresh 60s</div></div>
+        </div>
       </PageShell>
     </div>
   );

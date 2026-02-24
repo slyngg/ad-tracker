@@ -481,5 +481,5 @@ export function startScheduler(): void {
     });
   });
 
-  console.log('[Scheduler] Cron jobs registered: Meta Ads (*/10), CC poll (* * *), GA4 (3,18,33,48), CC full sync (0 */4), Creative (5,35), Daily reset (0 *), OAuth refresh (0 *), Shopify (30 */6), TikTok (*/10), NewsBreak (7,22,37,52), Klaviyo (15 */2), Ad Library (45 */2)');
+  console.log('[Scheduler] Cron jobs registered: Meta Ads (*/2), CC poll (* * *), GA4 (3,18,33,48), CC full sync (0 */4), Creative (5,35), Daily reset (0 *), OAuth refresh (0 *), Shopify (30 */6), TikTok (*/2), NewsBreak (1/2), Klaviyo (15 */2), Ad Library (45 */2)');
 }
