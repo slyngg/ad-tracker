@@ -477,9 +477,14 @@ export function testNewsBreakConnection(): Promise<{ success: boolean; error?: s
 }
 
 // --- Analytics API ---
-export function fetchTimeseries(period?: string): Promise<TimeseriesPoint[]> {
+export function fetchTimeseries(period?: string, startDate?: string, endDate?: string): Promise<TimeseriesPoint[]> {
   const params = new URLSearchParams();
-  if (period) params.set('period', period);
+  if (startDate && endDate) {
+    params.set('startDate', startDate);
+    params.set('endDate', endDate);
+  } else if (period) {
+    params.set('period', period);
+  }
   const af = getAccountFilterParams();
   af.forEach((v, k) => { if (!params.has(k)) params.set(k, v); });
   const qs = params.toString();

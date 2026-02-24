@@ -2,7 +2,7 @@ import { ReactNode } from 'react';
 
 interface PageShellProps {
   title: string;
-  subtitle?: string;
+  subtitle?: ReactNode;
   actions?: ReactNode;
   children: ReactNode;
   hideHeaderOnMobile?: boolean;
@@ -15,7 +15,7 @@ export default function PageShell({ title, subtitle, actions, children, hideHead
       <div className={`flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4 sm:mb-6 ${hideHeaderOnMobile ? 'hidden lg:flex' : ''}`}>
         <div className="min-w-0">
           <h1 className="text-base sm:text-xl font-bold text-ats-text truncate">{title}</h1>
-          {subtitle && <p className="text-xs sm:text-sm text-ats-text-muted mt-0.5">{subtitle}</p>}
+          {subtitle && <div className="text-xs sm:text-sm text-ats-text-muted mt-0.5">{subtitle}</div>}
         </div>
         {actions && <div className="flex items-center gap-2 shrink-0">{actions}</div>}
       </div>

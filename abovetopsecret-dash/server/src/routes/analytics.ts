@@ -10,122 +10,111 @@ function userFilter(userId: number | null | undefined): { clause: string; params
   return { clause: '', params: [] };
 }
 
-// GET /api/analytics/timeseries?period=7d|30d|90d
+// GET /api/analytics/timeseries?period=7d|30d|90d  OR  ?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD
 router.get('/timeseries', async (req: Request, res: Response) => {
   try {
-    const period = (req.query.period as string) || '7d';
-    const days = period === '90d' ? 90 : period === '30d' ? 30 : 7;
     const userId = req.user?.id;
+    const startDate = req.query.startDate as string | undefined;
+    const endDate = req.query.endDate as string | undefined;
 
-    // Get archived data grouped by day
-    const uf = userId ? 'AND user_id = $2' : '';
-    const params: any[] = [days];
+    // Determine date filtering mode
+    const useDateRange = startDate && endDate && /^\d{4}-\d{2}-\d{2}$/.test(startDate) && /^\d{4}-\d{2}-\d{2}$/.test(endDate);
+
+    // Check if the range includes today
+    const todayStr = new Date().toISOString().split('T')[0];
+    const includeToday = useDateRange ? endDate! >= todayStr : true;
+    const isTodayOnly = useDateRange && startDate === todayStr && endDate === todayStr;
+
+    // Build the archive date filter
+    let dateFilterClause: string;
+    const params: any[] = [];
+    if (useDateRange) {
+      params.push(startDate, endDate);
+      dateFilterClause = `archived_date >= $1::DATE AND archived_date <= $2::DATE`;
+    } else {
+      const period = (req.query.period as string) || '7d';
+      const days = period === '90d' ? 90 : period === '30d' ? 30 : 7;
+      params.push(days);
+      dateFilterClause = `archived_date >= CURRENT_DATE - ($1 || ' days')::INTERVAL`;
+    }
+
+    const uf = userId ? `AND user_id = $${params.length + 1}` : '';
     if (userId) params.push(userId);
 
-    const result = await pool.query(`
-      WITH meta_ad_data AS (
+    // Skip archive query if only looking at today
+    let archiveRows: any[] = [];
+    if (!isTodayOnly) {
+      const result = await pool.query(`
+        WITH meta_ad_data AS (
+          SELECT
+            archived_date AS date,
+            COALESCE(SUM((ad_data->>'spend')::NUMERIC), 0) AS spend,
+            COALESCE(SUM((ad_data->>'clicks')::NUMERIC), 0) AS clicks,
+            COALESCE(SUM((ad_data->>'impressions')::NUMERIC), 0) AS impressions
+          FROM fb_ads_archive
+          WHERE ${dateFilterClause} ${uf}
+          GROUP BY archived_date
+        ),
+        tiktok_ad_data AS (
+          SELECT
+            archived_date AS date,
+            COALESCE(SUM((ad_data->>'spend')::NUMERIC), 0) AS spend,
+            COALESCE(SUM((ad_data->>'clicks')::NUMERIC), 0) AS clicks,
+            COALESCE(SUM((ad_data->>'impressions')::NUMERIC), 0) AS impressions
+          FROM tiktok_ads_archive
+          WHERE ${dateFilterClause} ${uf}
+          GROUP BY archived_date
+        ),
+        newsbreak_ad_data AS (
+          SELECT
+            archived_date AS date,
+            COALESCE(SUM((ad_data->>'spend')::NUMERIC), 0) AS spend,
+            COALESCE(SUM((ad_data->>'clicks')::NUMERIC), 0) AS clicks,
+            COALESCE(SUM((ad_data->>'impressions')::NUMERIC), 0) AS impressions
+          FROM newsbreak_ads_archive
+          WHERE ${dateFilterClause} ${uf}
+          GROUP BY archived_date
+        ),
+        ad_data AS (
+          SELECT
+            COALESCE(m.date, t.date, n.date) AS date,
+            COALESCE(m.spend, 0) + COALESCE(t.spend, 0) + COALESCE(n.spend, 0) AS spend,
+            COALESCE(m.clicks, 0) + COALESCE(t.clicks, 0) + COALESCE(n.clicks, 0) AS clicks,
+            COALESCE(m.impressions, 0) + COALESCE(t.impressions, 0) + COALESCE(n.impressions, 0) AS impressions
+          FROM meta_ad_data m
+          FULL OUTER JOIN tiktok_ad_data t ON m.date = t.date
+          FULL OUTER JOIN newsbreak_ad_data n ON COALESCE(m.date, t.date) = n.date
+        ),
+        order_data AS (
+          SELECT
+            archived_date AS date,
+            COALESCE(SUM(CASE WHEN order_data->>'order_status' = 'completed'
+              AND COALESCE((order_data->>'is_test')::BOOLEAN, false) = false
+              THEN COALESCE((order_data->>'subtotal')::NUMERIC, (order_data->>'revenue')::NUMERIC) ELSE 0 END), 0) AS revenue,
+            COUNT(DISTINCT CASE WHEN order_data->>'order_status' = 'completed'
+              AND COALESCE((order_data->>'is_test')::BOOLEAN, false) = false
+              THEN order_data->>'order_id' END) AS conversions
+          FROM orders_archive
+          WHERE ${dateFilterClause} ${uf}
+          GROUP BY archived_date
+        )
         SELECT
-          archived_date AS date,
-          COALESCE(SUM((ad_data->>'spend')::NUMERIC), 0) AS spend,
-          COALESCE(SUM((ad_data->>'clicks')::NUMERIC), 0) AS clicks,
-          COALESCE(SUM((ad_data->>'impressions')::NUMERIC), 0) AS impressions
-        FROM fb_ads_archive
-        WHERE archived_date >= CURRENT_DATE - ($1 || ' days')::INTERVAL ${uf}
-        GROUP BY archived_date
-      ),
-      tiktok_ad_data AS (
-        SELECT
-          archived_date AS date,
-          COALESCE(SUM((ad_data->>'spend')::NUMERIC), 0) AS spend,
-          COALESCE(SUM((ad_data->>'clicks')::NUMERIC), 0) AS clicks,
-          COALESCE(SUM((ad_data->>'impressions')::NUMERIC), 0) AS impressions
-        FROM tiktok_ads_archive
-        WHERE archived_date >= CURRENT_DATE - ($1 || ' days')::INTERVAL ${uf}
-        GROUP BY archived_date
-      ),
-      newsbreak_ad_data AS (
-        SELECT
-          archived_date AS date,
-          COALESCE(SUM((ad_data->>'spend')::NUMERIC), 0) AS spend,
-          COALESCE(SUM((ad_data->>'clicks')::NUMERIC), 0) AS clicks,
-          COALESCE(SUM((ad_data->>'impressions')::NUMERIC), 0) AS impressions
-        FROM newsbreak_ads_archive
-        WHERE archived_date >= CURRENT_DATE - ($1 || ' days')::INTERVAL ${uf}
-        GROUP BY archived_date
-      ),
-      ad_data AS (
-        SELECT
-          COALESCE(m.date, t.date, n.date) AS date,
-          COALESCE(m.spend, 0) + COALESCE(t.spend, 0) + COALESCE(n.spend, 0) AS spend,
-          COALESCE(m.clicks, 0) + COALESCE(t.clicks, 0) + COALESCE(n.clicks, 0) AS clicks,
-          COALESCE(m.impressions, 0) + COALESCE(t.impressions, 0) + COALESCE(n.impressions, 0) AS impressions
-        FROM meta_ad_data m
-        FULL OUTER JOIN tiktok_ad_data t ON m.date = t.date
-        FULL OUTER JOIN newsbreak_ad_data n ON COALESCE(m.date, t.date) = n.date
-      ),
-      order_data AS (
-        SELECT
-          archived_date AS date,
-          COALESCE(SUM(CASE WHEN order_data->>'order_status' = 'completed'
-            AND COALESCE((order_data->>'is_test')::BOOLEAN, false) = false
-            THEN COALESCE((order_data->>'subtotal')::NUMERIC, (order_data->>'revenue')::NUMERIC) ELSE 0 END), 0) AS revenue,
-          COUNT(DISTINCT CASE WHEN order_data->>'order_status' = 'completed'
-            AND COALESCE((order_data->>'is_test')::BOOLEAN, false) = false
-            THEN order_data->>'order_id' END) AS conversions
-        FROM orders_archive
-        WHERE archived_date >= CURRENT_DATE - ($1 || ' days')::INTERVAL ${uf}
-        GROUP BY archived_date
-      )
-      SELECT
-        COALESCE(a.date, o.date) AS date,
-        COALESCE(a.spend, 0) AS spend,
-        COALESCE(o.revenue, 0) AS revenue,
-        COALESCE(a.clicks, 0) AS clicks,
-        COALESCE(a.impressions, 0) AS impressions,
-        COALESCE(o.conversions, 0) AS conversions,
-        CASE WHEN COALESCE(a.spend, 0) > 0 THEN COALESCE(o.revenue, 0) / a.spend ELSE 0 END AS roas
-      FROM ad_data a
-      FULL OUTER JOIN order_data o ON a.date = o.date
-      ORDER BY date ASC
-    `, params);
+          COALESCE(a.date, o.date) AS date,
+          COALESCE(a.spend, 0) AS spend,
+          COALESCE(o.revenue, 0) AS revenue,
+          COALESCE(a.clicks, 0) AS clicks,
+          COALESCE(a.impressions, 0) AS impressions,
+          COALESCE(o.conversions, 0) AS conversions,
+          CASE WHEN COALESCE(a.spend, 0) > 0 THEN COALESCE(o.revenue, 0) / a.spend ELSE 0 END AS roas
+        FROM ad_data a
+        FULL OUTER JOIN order_data o ON a.date = o.date
+        ORDER BY date ASC
+      `, params);
 
-    // Also include today's data as the latest point (Meta + TikTok combined)
-    const todayAdsQ = userId
-      ? `SELECT
-          COALESCE((SELECT SUM(spend) FROM fb_ads_today WHERE user_id = $1), 0) +
-          COALESCE((SELECT SUM(spend) FROM tiktok_ads_today WHERE user_id = $1), 0) +
-          COALESCE((SELECT SUM(spend) FROM newsbreak_ads_today WHERE user_id = $1), 0) AS spend,
-          COALESCE((SELECT SUM(clicks) FROM fb_ads_today WHERE user_id = $1), 0) +
-          COALESCE((SELECT SUM(clicks) FROM tiktok_ads_today WHERE user_id = $1), 0) +
-          COALESCE((SELECT SUM(clicks) FROM newsbreak_ads_today WHERE user_id = $1), 0) AS clicks,
-          COALESCE((SELECT SUM(impressions) FROM fb_ads_today WHERE user_id = $1), 0) +
-          COALESCE((SELECT SUM(impressions) FROM tiktok_ads_today WHERE user_id = $1), 0) +
-          COALESCE((SELECT SUM(impressions) FROM newsbreak_ads_today WHERE user_id = $1), 0) AS impressions`
-      : `SELECT
-          COALESCE((SELECT SUM(spend) FROM fb_ads_today), 0) +
-          COALESCE((SELECT SUM(spend) FROM tiktok_ads_today), 0) +
-          COALESCE((SELECT SUM(spend) FROM newsbreak_ads_today), 0) AS spend,
-          COALESCE((SELECT SUM(clicks) FROM fb_ads_today), 0) +
-          COALESCE((SELECT SUM(clicks) FROM tiktok_ads_today), 0) +
-          COALESCE((SELECT SUM(clicks) FROM newsbreak_ads_today), 0) AS clicks,
-          COALESCE((SELECT SUM(impressions) FROM fb_ads_today), 0) +
-          COALESCE((SELECT SUM(impressions) FROM tiktok_ads_today), 0) +
-          COALESCE((SELECT SUM(impressions) FROM newsbreak_ads_today), 0) AS impressions`;
-    const todayOrdersQ = userId
-      ? "SELECT COALESCE(SUM(COALESCE(subtotal, revenue)), 0) AS revenue, COUNT(DISTINCT order_id) AS conversions FROM cc_orders_today WHERE order_status = 'completed' AND (is_test = false OR is_test IS NULL) AND user_id = $1"
-      : "SELECT COALESCE(SUM(COALESCE(subtotal, revenue)), 0) AS revenue, COUNT(DISTINCT order_id) AS conversions FROM cc_orders_today WHERE order_status = 'completed' AND (is_test = false OR is_test IS NULL)";
+      archiveRows = result.rows;
+    }
 
-    const [todayAds, todayOrders] = await Promise.all([
-      pool.query(todayAdsQ, userId ? [userId] : []),
-      pool.query(todayOrdersQ, userId ? [userId] : []),
-    ]);
-
-    const ta = todayAds.rows[0];
-    const to = todayOrders.rows[0];
-    const todaySpend = parseFloat(ta.spend) || 0;
-    const todayRevenue = parseFloat(to.revenue) || 0;
-
-    const rows = result.rows.map(r => ({
+    const rows = archiveRows.map(r => ({
       date: r.date,
       spend: parseFloat(r.spend) || 0,
       revenue: parseFloat(r.revenue) || 0,
@@ -135,16 +124,53 @@ router.get('/timeseries', async (req: Request, res: Response) => {
       roas: parseFloat(r.roas) || 0,
     }));
 
-    // Append today
-    rows.push({
-      date: new Date().toISOString().split('T')[0],
-      spend: todaySpend,
-      revenue: todayRevenue,
-      clicks: parseInt(ta.clicks) || 0,
-      impressions: parseInt(ta.impressions) || 0,
-      conversions: parseInt(to.conversions) || 0,
-      roas: todaySpend > 0 ? todayRevenue / todaySpend : 0,
-    });
+    // Append today's live data if the range includes today
+    if (includeToday) {
+      const todayAdsQ = userId
+        ? `SELECT
+            COALESCE((SELECT SUM(spend) FROM fb_ads_today WHERE user_id = $1), 0) +
+            COALESCE((SELECT SUM(spend) FROM tiktok_ads_today WHERE user_id = $1), 0) +
+            COALESCE((SELECT SUM(spend) FROM newsbreak_ads_today WHERE user_id = $1), 0) AS spend,
+            COALESCE((SELECT SUM(clicks) FROM fb_ads_today WHERE user_id = $1), 0) +
+            COALESCE((SELECT SUM(clicks) FROM tiktok_ads_today WHERE user_id = $1), 0) +
+            COALESCE((SELECT SUM(clicks) FROM newsbreak_ads_today WHERE user_id = $1), 0) AS clicks,
+            COALESCE((SELECT SUM(impressions) FROM fb_ads_today WHERE user_id = $1), 0) +
+            COALESCE((SELECT SUM(impressions) FROM tiktok_ads_today WHERE user_id = $1), 0) +
+            COALESCE((SELECT SUM(impressions) FROM newsbreak_ads_today WHERE user_id = $1), 0) AS impressions`
+        : `SELECT
+            COALESCE((SELECT SUM(spend) FROM fb_ads_today), 0) +
+            COALESCE((SELECT SUM(spend) FROM tiktok_ads_today), 0) +
+            COALESCE((SELECT SUM(spend) FROM newsbreak_ads_today), 0) AS spend,
+            COALESCE((SELECT SUM(clicks) FROM fb_ads_today), 0) +
+            COALESCE((SELECT SUM(clicks) FROM tiktok_ads_today), 0) +
+            COALESCE((SELECT SUM(clicks) FROM newsbreak_ads_today), 0) AS clicks,
+            COALESCE((SELECT SUM(impressions) FROM fb_ads_today), 0) +
+            COALESCE((SELECT SUM(impressions) FROM tiktok_ads_today), 0) +
+            COALESCE((SELECT SUM(impressions) FROM newsbreak_ads_today), 0) AS impressions`;
+      const todayOrdersQ = userId
+        ? "SELECT COALESCE(SUM(COALESCE(subtotal, revenue)), 0) AS revenue, COUNT(DISTINCT order_id) AS conversions FROM cc_orders_today WHERE order_status = 'completed' AND (is_test = false OR is_test IS NULL) AND user_id = $1"
+        : "SELECT COALESCE(SUM(COALESCE(subtotal, revenue)), 0) AS revenue, COUNT(DISTINCT order_id) AS conversions FROM cc_orders_today WHERE order_status = 'completed' AND (is_test = false OR is_test IS NULL)";
+
+      const [todayAds, todayOrders] = await Promise.all([
+        pool.query(todayAdsQ, userId ? [userId] : []),
+        pool.query(todayOrdersQ, userId ? [userId] : []),
+      ]);
+
+      const ta = todayAds.rows[0];
+      const to = todayOrders.rows[0];
+      const todaySpend = parseFloat(ta.spend) || 0;
+      const todayRevenue = parseFloat(to.revenue) || 0;
+
+      rows.push({
+        date: todayStr,
+        spend: todaySpend,
+        revenue: todayRevenue,
+        clicks: parseInt(ta.clicks) || 0,
+        impressions: parseInt(ta.impressions) || 0,
+        conversions: parseInt(to.conversions) || 0,
+        roas: todaySpend > 0 ? todayRevenue / todaySpend : 0,
+      });
+    }
 
     res.json(rows);
   } catch (err) {

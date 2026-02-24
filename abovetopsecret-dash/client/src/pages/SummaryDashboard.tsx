@@ -12,6 +12,7 @@ import MetricSparkline from '../components/charts/MetricSparkline';
 import AnimatedNumber from '../components/shared/AnimatedNumber';
 import LiveOrderFeed from '../components/dashboard/LiveOrderFeed';
 import SyncPreloader from '../components/shared/SyncPreloader';
+import DateRangePicker, { DateRangeSelection, getDefaultDateRange } from '../components/shared/DateRangePicker';
 import { Download, Share2 } from 'lucide-react';
 
 async function apiFetch<T>(path: string): Promise<T> {
@@ -46,18 +47,26 @@ export default function SummaryDashboard() {
   const [attrData, setAttrData] = useState<AttrRow[]>([]);
   const [accountSummaries, setAccountSummaries] = useState<AccountSummary[]>([]);
   const [fetchErrors, setFetchErrors] = useState<string[]>([]);
+  const [dateRange, setDateRange] = useState<DateRangeSelection>(getDefaultDateRange);
   const selectedAccountIds = useAccountStore((s) => s.selectedAccountIds);
   const setSelectedAccountIds = useAccountStore((s) => s.setSelectedAccountIds);
 
+  // Fetch timeseries whenever date range changes
   useEffect(() => {
     let cancelled = false;
     setTsLoading(true);
-    fetchTimeseries('7d')
+    const toIso = (d: Date) => d.toISOString().split('T')[0];
+
+    const promise = dateRange.isToday
+      ? fetchTimeseries('7d')
+      : fetchTimeseries(undefined, toIso(dateRange.from), toIso(dateRange.to));
+
+    promise
       .then((ts) => { if (!cancelled) setTimeseries(ts); })
       .catch((err) => { if (!cancelled) setFetchErrors(prev => [...prev, `Timeseries: ${err.message}`]); })
       .finally(() => { if (!cancelled) setTsLoading(false); });
     return () => { cancelled = true; };
-  }, []);
+  }, [dateRange]);
 
   // Load pinned metrics, GA4 overview, attribution summary, account summaries
   useEffect(() => {
@@ -79,11 +88,36 @@ export default function SummaryDashboard() {
     }
   }, [favorites]);
 
-  const roiColor = summary
-    ? summary.total_roi >= 2 ? 'text-ats-green' : summary.total_roi >= 1 ? 'text-ats-yellow' : 'text-ats-red'
-    : 'text-ats-text';
+  // Derive KPI totals: use live summary for Today, otherwise aggregate from timeseries
+  const kpi = useMemo(() => {
+    if (dateRange.isToday && summary) {
+      return {
+        spend: summary.total_spend,
+        revenue: summary.total_revenue,
+        roas: summary.total_roi,
+        conversions: summary.total_conversions,
+      };
+    }
+    // Aggregate from timeseries data
+    const totals = timeseries.reduce(
+      (acc, t) => ({
+        spend: acc.spend + t.spend,
+        revenue: acc.revenue + t.revenue,
+        conversions: acc.conversions + t.conversions,
+      }),
+      { spend: 0, revenue: 0, conversions: 0 },
+    );
+    return {
+      spend: totals.spend,
+      revenue: totals.revenue,
+      roas: totals.spend > 0 ? totals.revenue / totals.spend : 0,
+      conversions: totals.conversions,
+    };
+  }, [dateRange.isToday, summary, timeseries]);
 
-  const profit = summary ? summary.total_revenue - summary.total_spend : 0;
+  const roiColor = kpi.roas >= 2 ? 'text-ats-green' : kpi.roas >= 1 ? 'text-ats-yellow' : 'text-ats-red';
+
+  const profit = kpi.revenue - kpi.spend;
   const profitColor = profit >= 0 ? 'text-ats-green' : 'text-ats-red';
 
   const chartData = useMemo(
@@ -155,25 +189,25 @@ export default function SummaryDashboard() {
   const activityDotColor = (type: 'info' | 'success' | 'warning') => type === 'success' ? 'bg-ats-green' : type === 'warning' ? 'bg-ats-yellow' : 'bg-ats-accent';
 
   const pinnedMetrics = useMemo(() => {
-    if (!summary || favorites.length === 0) return [];
+    if (favorites.length === 0) return [];
     const metricMap: Record<string, { value: number; format: (n: number) => string }> = {
-      spend: { value: summary.total_spend, format: fmt.currency },
-      revenue: { value: summary.total_revenue, format: fmt.currency },
-      roas: { value: summary.total_roi, format: fmt.ratio },
-      conversions: { value: summary.total_conversions, format: fmt.num },
+      spend: { value: kpi.spend, format: fmt.currency },
+      revenue: { value: kpi.revenue, format: fmt.currency },
+      roas: { value: kpi.roas, format: fmt.ratio },
+      conversions: { value: kpi.conversions, format: fmt.num },
       profit: { value: profit, format: fmt.currency },
     };
     return favorites.map(f => ({ ...f, ...(metricMap[f.metric_key] || { value: 0, format: fmt.num }) }));
-  }, [summary, favorites, profit]);
+  }, [kpi, favorites, profit]);
 
   const cardCls = 'bg-ats-card rounded-xl p-3 sm:p-4 border border-ats-border';
 
-  const hasRealData = !!(summary && (summary.total_spend > 0 || summary.total_revenue > 0 || summary.total_conversions > 0));
+  const hasRealData = !!(kpi.spend > 0 || kpi.revenue > 0 || kpi.conversions > 0 || (summary && (summary.total_spend > 0 || summary.total_revenue > 0 || summary.total_conversions > 0)));
 
   return (
     <PageShell
       title="Command Center"
-      subtitle={new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+      subtitle={<DateRangePicker value={dateRange} onChange={setDateRange} />}
       actions={
         <div className="flex items-center gap-2">
           <button
@@ -226,14 +260,14 @@ export default function SummaryDashboard() {
       )}
 
       {/* KPI Cards */}
-      {summary && (
+      {(summary || !dateRange.isToday) && (
         <div data-tour="summary-cards" className="grid grid-cols-2 lg:grid-cols-5 gap-2 sm:gap-3 mb-6">
           <div className={cardCls}>
             <div className="flex items-center justify-between">
               <div className="text-[10px] sm:text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Spend</div>
               <button onClick={() => togglePin('spend', 'Spend')} className={`text-[10px] ${favorites.some(f => f.metric_key === 'spend') ? 'text-ats-accent' : 'text-ats-text-muted hover:text-ats-accent'}`}>📌</button>
             </div>
-            <div className="text-base sm:text-2xl font-bold text-ats-text font-mono truncate"><AnimatedNumber value={summary.total_spend} format={fmt.currency} /></div>
+            <div className="text-base sm:text-2xl font-bold text-ats-text font-mono truncate"><AnimatedNumber value={kpi.spend} format={fmt.currency} /></div>
             {spendSpark.length > 0 && <div className="mt-2"><MetricSparkline data={spendSpark} color="#ef4444" height={28} /></div>}
           </div>
           <div className={cardCls}>
@@ -241,16 +275,16 @@ export default function SummaryDashboard() {
               <div className="text-[10px] sm:text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Revenue</div>
               <button onClick={() => togglePin('revenue', 'Revenue')} className={`text-[10px] ${favorites.some(f => f.metric_key === 'revenue') ? 'text-ats-accent' : 'text-ats-text-muted hover:text-ats-accent'}`}>📌</button>
             </div>
-            <div className="text-base sm:text-2xl font-bold text-ats-green font-mono truncate"><AnimatedNumber value={summary.total_revenue} format={fmt.currency} /></div>
+            <div className="text-base sm:text-2xl font-bold text-ats-green font-mono truncate"><AnimatedNumber value={kpi.revenue} format={fmt.currency} /></div>
             {revenueSpark.length > 0 && <div className="mt-2"><MetricSparkline data={revenueSpark} color="#22c55e" height={28} /></div>}
           </div>
           <div className={cardCls}>
             <div className="text-[10px] sm:text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">ROAS</div>
-            <div className={`text-base sm:text-2xl font-bold font-mono truncate ${roiColor}`}><AnimatedNumber value={summary.total_roi} format={fmt.ratio} /></div>
+            <div className={`text-base sm:text-2xl font-bold font-mono truncate ${roiColor}`}><AnimatedNumber value={kpi.roas} format={fmt.ratio} /></div>
           </div>
           <div className={cardCls}>
             <div className="text-[10px] sm:text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Conversions</div>
-            <div className="text-base sm:text-2xl font-bold text-ats-text font-mono truncate"><AnimatedNumber value={summary.total_conversions} format={fmt.num} /></div>
+            <div className="text-base sm:text-2xl font-bold text-ats-text font-mono truncate"><AnimatedNumber value={kpi.conversions} format={fmt.num} /></div>
             {conversionSpark.length > 0 && <div className="mt-2"><MetricSparkline data={conversionSpark} color="#3b82f6" height={28} /></div>}
           </div>
           <div className={cardCls}>
@@ -292,7 +326,7 @@ export default function SummaryDashboard() {
 
       {/* Spend vs Revenue Chart */}
       <div className={`${cardCls} mb-6`}>
-        <h2 className="text-sm font-semibold text-ats-text mb-3">Spend vs Revenue (7-day)</h2>
+        <h2 className="text-sm font-semibold text-ats-text mb-3">Spend vs Revenue{dateRange.isToday ? ' (7-day)' : ` (${dateRange.label})`}</h2>
         {tsLoading ? (
           <div className="h-[280px] flex items-center justify-center"><div className="animate-pulse text-ats-text-muted text-sm">Loading chart...</div></div>
         ) : (

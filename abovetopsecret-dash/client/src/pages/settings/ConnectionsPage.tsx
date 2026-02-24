@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   fetchSettings,
   updateSettings,
@@ -77,6 +77,18 @@ export default function ConnectionsPage() {
   const [newTokenLabel, setNewTokenLabel] = useState('');
   const [creatingToken, setCreatingToken] = useState(false);
   const [showTokenSection, setShowTokenSection] = useState(false);
+
+  // Auto-save: debounce saving whenever manual fields change
+  const autoSaveRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autoSave = useCallback((data: Record<string, string>) => {
+    if (autoSaveRef.current) clearTimeout(autoSaveRef.current);
+    autoSaveRef.current = setTimeout(async () => {
+      try {
+        const updated = await updateSettings(data);
+        setSettings(updated);
+      } catch {}
+    }, 800);
+  }, []);
 
   const loadOAuthStatus = useCallback(async () => {
     try { setOauthStatuses(await getOAuthStatus()); } catch {}
@@ -376,12 +388,12 @@ export default function ConnectionsPage() {
                     <>
                       <div>
                         <label className={labelCls}>Access Token</label>
-                        <input type="password" value={fbToken} onChange={e => setFbToken(e.target.value)}
-                          placeholder={settings.fb_access_token || 'EAAxxxxxxxx...'} className={inputCls} />
+                        <input type="password" value={fbToken} onChange={e => { setFbToken(e.target.value); autoSave({ fb_access_token: e.target.value }); }}
+                          placeholder={settings.fb_access_token ? '••••••••' : 'EAAxxxxxxxx...'} className={inputCls} />
                       </div>
                       <div>
                         <label className={labelCls}>Ad Account IDs</label>
-                        <input type="text" value={fbAccountIds} onChange={e => setFbAccountIds(e.target.value)}
+                        <input type="text" value={fbAccountIds} onChange={e => { setFbAccountIds(e.target.value); autoSave({ fb_ad_account_ids: e.target.value }); }}
                           placeholder="act_123456789, act_987654321" className={inputCls} />
                         <div className="text-[10px] text-ats-text-muted mt-0.5">Comma-separated, include act_ prefix</div>
                       </div>
@@ -421,19 +433,24 @@ export default function ConnectionsPage() {
                         </div>
                       </div>
                       <div>
-                        <label className={labelCls}>API Key</label>
-                        <input type="password" value={ccLoginId} onChange={e => setCcLoginId(e.target.value)}
-                          placeholder={settings.cc_login_id || 'cc_api_...'} className={inputCls} />
+                        <label className={labelCls}>API Login ID</label>
+                        <input type="password" value={ccLoginId} onChange={e => { setCcLoginId(e.target.value); autoSave({ cc_login_id: e.target.value }); }}
+                          placeholder={settings.cc_login_id ? '••••••••' : 'Your CC API login ID'} className={inputCls} />
+                      </div>
+                      <div>
+                        <label className={labelCls}>API Password</label>
+                        <input type="password" value={ccPassword} onChange={e => { setCcPassword(e.target.value); autoSave({ cc_password: e.target.value }); }}
+                          placeholder={settings.cc_password ? '••••••••' : 'Your CC API password'} className={inputCls} />
                       </div>
                       <div>
                         <label className={labelCls}>API Base URL</label>
-                        <input type="text" value={ccApiUrl} onChange={e => setCcApiUrl(e.target.value)}
-                          placeholder={settings.cc_api_url || 'https://api.checkoutchamp.com/v1'} className={inputCls} />
+                        <input type="text" value={ccApiUrl} onChange={e => { setCcApiUrl(e.target.value); autoSave({ cc_api_url: e.target.value }); }}
+                          placeholder={settings.cc_api_url || 'https://api.checkoutchamp.com'} className={inputCls} />
                       </div>
                       <div>
                         <label className={labelCls}>Webhook Secret</label>
-                        <input type="password" value={ccWebhookSecret} onChange={e => setCcWebhookSecret(e.target.value)}
-                          placeholder={settings.cc_webhook_secret || 'whsec_...'} className={inputCls} />
+                        <input type="password" value={ccWebhookSecret} onChange={e => { setCcWebhookSecret(e.target.value); autoSave({ cc_webhook_secret: e.target.value }); }}
+                          placeholder={settings.cc_webhook_secret ? '••••••••' : 'whsec_...'} className={inputCls} />
                       </div>
                       <div className="flex items-center gap-2">
                         <button onClick={handleTestCC} className={btnSecondary}>
@@ -449,13 +466,13 @@ export default function ConnectionsPage() {
                     <>
                       <div>
                         <label className={labelCls}>API Key</label>
-                        <input type="password" value={nbApiKey} onChange={e => setNbApiKey(e.target.value)}
-                          placeholder={settings.newsbreak_api_key || 'Enter your NewsBreak API key'} className={inputCls} />
+                        <input type="password" value={nbApiKey} onChange={e => { setNbApiKey(e.target.value); autoSave({ newsbreak_api_key: e.target.value }); }}
+                          placeholder={settings.newsbreak_api_key ? '••••••••' : 'Enter your NewsBreak API key'} className={inputCls} />
                         <div className="text-[10px] text-ats-text-muted mt-0.5">From Ad Manager &gt; Resources &gt; API Access Tokens</div>
                       </div>
                       <div>
                         <label className={labelCls}>Account ID</label>
-                        <input type="text" value={nbAccountId} onChange={e => setNbAccountId(e.target.value)}
+                        <input type="text" value={nbAccountId} onChange={e => { setNbAccountId(e.target.value); autoSave({ newsbreak_account_id: e.target.value }); }}
                           placeholder={settings.newsbreak_account_id || 'Your advertiser/account ID'} className={inputCls} />
                       </div>
                       <div className="flex items-center gap-2">
