@@ -180,3 +180,108 @@ export async function syncTikTokAds(userId?: number): Promise<{ synced: number; 
 
   return { synced, skipped: false };
 }
+
+// ── Backfill historical data ──────────────────────────────────
+
+/**
+ * Backfill TikTok ad data for the past N days.
+ * Fetches day-by-day from the TikTok Reporting API and inserts directly into tiktok_ads_archive.
+ * TikTok allows up to 365 days of historical reporting data.
+ */
+export async function backfillTikTok(userId?: number, days = 90): Promise<{ backfilled: number; days: number }> {
+  const auth = await getTikTokAuth(userId);
+  if (!auth) return { backfilled: 0, days: 0 };
+
+  const { accessToken, advertiserId } = auth;
+  let backfilled = 0;
+
+  const dimensions = JSON.stringify(['ad_id', 'stat_time_day']);
+  const metrics = JSON.stringify([
+    'spend', 'impressions', 'clicks', 'conversion', 'total_complete_payment',
+    'ctr', 'cpc', 'cpm', 'cost_per_conversion', 'complete_payment_roas',
+    'video_play_actions', 'video_watched_2s', 'video_watched_6s', 'video_views_p100',
+    'campaign_id', 'campaign_name', 'adgroup_id', 'adgroup_name', 'ad_name',
+  ]);
+
+  for (let d = days; d >= 1; d--) {
+    const date = new Date(Date.now() - d * 86400000).toISOString().split('T')[0];
+
+    try {
+      let page = 1;
+      let dayRows = 0;
+
+      while (true) {
+        const url = `https://business-api.tiktok.com/open_api/v1.3/report/integrated/get/?advertiser_id=${advertiserId}&report_type=BASIC&data_level=AUCTION_AD&dimensions=${encodeURIComponent(dimensions)}&metrics=${encodeURIComponent(metrics)}&start_date=${date}&end_date=${date}&page=${page}&page_size=1000`;
+
+        const response = await fetchTikTokJSON(url, accessToken);
+
+        if (response.code !== 0) {
+          console.error(`[TikTok Backfill] API error on ${date}: ${response.message}`);
+          break;
+        }
+
+        const rows = response.data?.list || [];
+        if (rows.length === 0) break;
+
+        for (const row of rows) {
+          const dims = row.dimensions || {};
+          const m = row.metrics || {};
+          const adId = dims.ad_id;
+          if (!adId) continue;
+
+          const adData = {
+            ad_id: adId,
+            ad_name: m.ad_name || null,
+            campaign_id: m.campaign_id || null,
+            campaign_name: m.campaign_name || null,
+            adgroup_id: m.adgroup_id || null,
+            adgroup_name: m.adgroup_name || null,
+            advertiser_id: advertiserId,
+            spend: parseFloat(m.spend || '0') || 0,
+            impressions: parseInt(m.impressions || '0') || 0,
+            clicks: parseInt(m.clicks || '0') || 0,
+            conversions: parseInt(m.conversion || '0') || 0,
+            conversion_value: parseFloat(m.total_complete_payment || '0') || 0,
+            ctr: parseFloat(m.ctr || '0') || 0,
+            cpc: parseFloat(m.cpc || '0') || 0,
+            cpm: parseFloat(m.cpm || '0') || 0,
+            cpa: parseFloat(m.cost_per_conversion || '0') || 0,
+            roas: parseFloat(m.complete_payment_roas || '0') || 0,
+            video_views: parseInt(m.video_play_actions || '0') || 0,
+            video_watched_2s: parseInt(m.video_watched_2s || '0') || 0,
+            video_watched_6s: parseInt(m.video_watched_6s || '0') || 0,
+            video_watched_100pct: parseInt(m.video_views_p100 || '0') || 0,
+          };
+
+          try {
+            await pool.query(
+              `INSERT INTO tiktok_ads_archive (archived_date, ad_data, user_id)
+               VALUES ($1, $2, $3)
+               ON CONFLICT DO NOTHING`,
+              [date, JSON.stringify(adData), userId || null]
+            );
+            backfilled++;
+            dayRows++;
+          } catch (err) {
+            console.error(`[TikTok Backfill] Failed to insert archive row for ${date}/${adId}:`, err);
+          }
+        }
+
+        if (rows.length < 1000) break;
+        page++;
+      }
+
+      if (dayRows > 0) {
+        console.log(`[TikTok Backfill] ${date}: ${dayRows} rows`);
+      }
+    } catch (err) {
+      console.error(`[TikTok Backfill] Fetch failed for ${date}:`, err);
+    }
+
+    // Rate limit: 2s delay between days
+    await new Promise(resolve => setTimeout(resolve, 2000));
+  }
+
+  console.log(`[TikTok Backfill] Complete: ${backfilled} rows over ${days} days${userId ? ` for user ${userId}` : ''}`);
+  return { backfilled, days };
+}

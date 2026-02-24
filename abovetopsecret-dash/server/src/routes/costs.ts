@@ -8,7 +8,7 @@ const router = Router();
 router.get('/', async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
-    const af = parseAccountFilter(req.query as Record<string, any>, 2);
+    const af = await parseAccountFilter(req.query as Record<string, any>, 2, userId);
     const result = await pool.query(
       `SELECT id, offer_name, cost_type, cost_value, cost_unit, notes, created_at, updated_at
        FROM cost_settings

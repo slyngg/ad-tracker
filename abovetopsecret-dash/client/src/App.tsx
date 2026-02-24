@@ -1,10 +1,11 @@
-import { Suspense, lazy, Component, ReactNode, useEffect } from 'react';
+import { Suspense, lazy, Component, ReactNode } from 'react';
 import { Routes, Route, Navigate, Link } from 'react-router-dom';
 import AuthGate from './components/auth/AuthGate';
 import LoadingSpinner from './components/shared/LoadingSpinner';
 import AppLayout from './components/layout/AppLayout';
 import { useAuthStore } from './stores/authStore';
-import { useTourStore } from './stores/tourStore';
+
+const OnboardingWizard = lazy(() => import('./pages/onboarding/OnboardingWizard'));
 
 // Lazy-loaded pages
 const SummaryDashboard = lazy(() => import('./pages/SummaryDashboard'));
@@ -60,8 +61,6 @@ const GDPRPage = lazy(() => import('./pages/settings/GDPRPage'));
 
 // Data additions
 const DataDictionaryPage = lazy(() => import('./pages/data/DataDictionaryPage'));
-
-// Onboarding (legacy — now handled by guided tour)
 
 // Workspaces
 const WorkspacesListPage = lazy(() => import('./pages/workspaces/WorkspacesListPage'));
@@ -140,14 +139,11 @@ function NotFoundPage() {
 
 function OnboardingGate({ children }: { children: ReactNode }) {
   const user = useAuthStore(s => s.user);
-  const { active, start } = useTourStore();
 
-  useEffect(() => {
-    // Force tour for users who haven't completed onboarding — no escape
-    if (user && !user.onboardingCompleted && !active) {
-      start();
-    }
-  }, [user, active, start]);
+  // Block dashboard until onboarding is complete
+  if (user && !user.onboardingCompleted) {
+    return <OnboardingWizard />;
+  }
 
   return <>{children}</>;
 }
@@ -158,9 +154,6 @@ export default function App() {
       <AuthGate>
         <Suspense fallback={<LoadingSpinner />}>
           <Routes>
-            {/* Onboarding — redirect to summary (tour handles onboarding now) */}
-            <Route path="/onboarding" element={<Navigate to="/summary" replace />} />
-
             <Route element={<OnboardingGate><AppLayout /></OnboardingGate>}>
               <Route index element={<Navigate to="/summary" replace />} />
               <Route path="/summary" element={<SummaryDashboard />} />

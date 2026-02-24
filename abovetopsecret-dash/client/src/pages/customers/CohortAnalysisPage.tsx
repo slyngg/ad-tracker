@@ -56,10 +56,10 @@ export default function CohortAnalysisPage() {
     return 'bg-red-800/20';
   };
 
-  if (loading) return <PageShell title="Cohort Analysis" subtitle="Retention by cohort"><div className="h-20 bg-ats-card rounded-xl animate-pulse" /></PageShell>;
+  if (loading) return <PageShell title="Cohort Analysis" showDatePicker subtitle="Retention by cohort"><div className="h-20 bg-ats-card rounded-xl animate-pulse" /></PageShell>;
 
   return (
-    <PageShell title="Cohort Analysis" subtitle="Retention heatmap" actions={
+    <PageShell title="Cohort Analysis" showDatePicker subtitle="Retention heatmap" actions={
       <button onClick={async () => { await fetch('/api/repeat-purchases/compute', { method: 'POST', headers: { Authorization: `Bearer ${getAuthToken()}` } }); load(); }} className="px-4 py-1.5 bg-ats-accent text-white rounded-lg text-xs font-semibold">Recompute</button>
     }>
       {months.length === 0 ? (

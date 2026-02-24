@@ -125,6 +125,7 @@ export default function SourceMediumPage() {
   return (
     <PageShell
       title="Source / Medium"
+      showDatePicker
       subtitle="Traffic sources grouped by UTM source and medium"
     >
       {/* Loading */}

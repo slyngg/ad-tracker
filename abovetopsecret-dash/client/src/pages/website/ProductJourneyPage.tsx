@@ -30,10 +30,10 @@ export default function ProductJourneyPage() {
   const cardCls = 'bg-ats-card rounded-xl p-4 border border-ats-border';
   const selectedProduct = products.find(p => p.product_id === selected);
 
-  if (loading) return <PageShell title="Product Journey" subtitle="View → Cart → Purchase path"><div className="h-20 bg-ats-card rounded-xl animate-pulse" /></PageShell>;
+  if (loading) return <PageShell title="Product Journey" showDatePicker subtitle="View → Cart → Purchase path"><div className="h-20 bg-ats-card rounded-xl animate-pulse" /></PageShell>;
 
   if (!products.length) return (
-    <PageShell title="Product Journey" subtitle="View → Cart → Purchase path">
+    <PageShell title="Product Journey" showDatePicker subtitle="View → Cart → Purchase path">
       <div className={`${cardCls} text-center p-8`}>
         <div className="text-4xl mb-4">🛤️</div>
         <h3 className="text-lg font-bold text-ats-text mb-2">No Product Journey Data</h3>
@@ -43,7 +43,7 @@ export default function ProductJourneyPage() {
   );
 
   return (
-    <PageShell title="Product Journey" subtitle="View → Cart → Purchase path">
+    <PageShell title="Product Journey" showDatePicker subtitle="View → Cart → Purchase path">
       {/* Product selector */}
       <div className="mb-6">
         <select value={selected || ''} onChange={e => setSelected(e.target.value || null)} className="bg-ats-surface border border-ats-border rounded-lg px-4 py-2 text-sm text-ats-text">

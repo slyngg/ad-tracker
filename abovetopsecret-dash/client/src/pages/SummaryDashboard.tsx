@@ -12,7 +12,7 @@ import MetricSparkline from '../components/charts/MetricSparkline';
 import AnimatedNumber from '../components/shared/AnimatedNumber';
 import LiveOrderFeed from '../components/dashboard/LiveOrderFeed';
 import SyncPreloader from '../components/shared/SyncPreloader';
-import DateRangePicker, { DateRangeSelection, getDefaultDateRange } from '../components/shared/DateRangePicker';
+import { useDateRangeStore } from '../stores/dateRangeStore';
 import { Download, Share2 } from 'lucide-react';
 
 async function apiFetch<T>(path: string): Promise<T> {
@@ -47,7 +47,7 @@ export default function SummaryDashboard() {
   const [attrData, setAttrData] = useState<AttrRow[]>([]);
   const [accountSummaries, setAccountSummaries] = useState<AccountSummary[]>([]);
   const [fetchErrors, setFetchErrors] = useState<string[]>([]);
-  const [dateRange, setDateRange] = useState<DateRangeSelection>(getDefaultDateRange);
+  const dateRange = useDateRangeStore((s) => s.dateRange);
   const selectedAccountIds = useAccountStore((s) => s.selectedAccountIds);
   const setSelectedAccountIds = useAccountStore((s) => s.setSelectedAccountIds);
 
@@ -207,7 +207,7 @@ export default function SummaryDashboard() {
   return (
     <PageShell
       title="Command Center"
-      subtitle={<DateRangePicker value={dateRange} onChange={setDateRange} />}
+      showDatePicker
       actions={
         <div className="flex items-center gap-2">
           <button
@@ -268,7 +268,7 @@ export default function SummaryDashboard() {
               <button onClick={() => togglePin('spend', 'Spend')} className={`text-[10px] ${favorites.some(f => f.metric_key === 'spend') ? 'text-ats-accent' : 'text-ats-text-muted hover:text-ats-accent'}`}>📌</button>
             </div>
             <div className="text-base sm:text-2xl font-bold text-ats-text font-mono truncate"><AnimatedNumber value={kpi.spend} format={fmt.currency} /></div>
-            {spendSpark.length > 0 && <div className="mt-2"><MetricSparkline data={spendSpark} color="#ef4444" height={28} /></div>}
+            {spendSpark.length > 0 && <div className="mt-2 hidden sm:block"><MetricSparkline data={spendSpark} color="#ef4444" height={28} /></div>}
           </div>
           <div className={cardCls}>
             <div className="flex items-center justify-between">
@@ -276,7 +276,7 @@ export default function SummaryDashboard() {
               <button onClick={() => togglePin('revenue', 'Revenue')} className={`text-[10px] ${favorites.some(f => f.metric_key === 'revenue') ? 'text-ats-accent' : 'text-ats-text-muted hover:text-ats-accent'}`}>📌</button>
             </div>
             <div className="text-base sm:text-2xl font-bold text-ats-green font-mono truncate"><AnimatedNumber value={kpi.revenue} format={fmt.currency} /></div>
-            {revenueSpark.length > 0 && <div className="mt-2"><MetricSparkline data={revenueSpark} color="#22c55e" height={28} /></div>}
+            {revenueSpark.length > 0 && <div className="mt-2 hidden sm:block"><MetricSparkline data={revenueSpark} color="#22c55e" height={28} /></div>}
           </div>
           <div className={cardCls}>
             <div className="text-[10px] sm:text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">ROAS</div>
@@ -285,9 +285,9 @@ export default function SummaryDashboard() {
           <div className={cardCls}>
             <div className="text-[10px] sm:text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Conversions</div>
             <div className="text-base sm:text-2xl font-bold text-ats-text font-mono truncate"><AnimatedNumber value={kpi.conversions} format={fmt.num} /></div>
-            {conversionSpark.length > 0 && <div className="mt-2"><MetricSparkline data={conversionSpark} color="#3b82f6" height={28} /></div>}
+            {conversionSpark.length > 0 && <div className="mt-2 hidden sm:block"><MetricSparkline data={conversionSpark} color="#3b82f6" height={28} /></div>}
           </div>
-          <div className={cardCls}>
+          <div className={`${cardCls} col-span-2 lg:col-span-1`}>
             <div className="text-[10px] sm:text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Net Profit</div>
             <div className={`text-base sm:text-2xl font-bold font-mono truncate ${profitColor}`}><AnimatedNumber value={profit} format={fmt.currency} /></div>
           </div>
@@ -325,10 +325,10 @@ export default function SummaryDashboard() {
       )}
 
       {/* Spend vs Revenue Chart */}
-      <div className={`${cardCls} mb-6`}>
+      <div className={`${cardCls} mb-4 sm:mb-6`}>
         <h2 className="text-sm font-semibold text-ats-text mb-3">Spend vs Revenue{dateRange.isToday ? ' (7-day)' : ` (${dateRange.label})`}</h2>
         {tsLoading ? (
-          <div className="h-[280px] flex items-center justify-center"><div className="animate-pulse text-ats-text-muted text-sm">Loading chart...</div></div>
+          <div className="h-[200px] sm:h-[280px] flex items-center justify-center"><div className="animate-pulse text-ats-text-muted text-sm">Loading chart...</div></div>
         ) : (
           <SpendRevenueChart data={chartData} />
         )}

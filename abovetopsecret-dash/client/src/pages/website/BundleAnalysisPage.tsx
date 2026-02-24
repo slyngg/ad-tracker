@@ -28,10 +28,10 @@ export default function BundleAnalysisPage() {
 
   const cardCls = 'bg-ats-card rounded-xl p-4 border border-ats-border';
 
-  if (loading) return <PageShell title="Bundle Analysis" subtitle="Products frequently bought together"><div className="h-20 bg-ats-card rounded-xl animate-pulse" /></PageShell>;
+  if (loading) return <PageShell title="Bundle Analysis" showDatePicker subtitle="Products frequently bought together"><div className="h-20 bg-ats-card rounded-xl animate-pulse" /></PageShell>;
 
   if (!products.length) return (
-    <PageShell title="Bundle Analysis" subtitle="Products frequently bought together">
+    <PageShell title="Bundle Analysis" showDatePicker subtitle="Products frequently bought together">
       <div className={`${cardCls} text-center p-8`}>
         <div className="text-4xl mb-4">📦</div>
         <h3 className="text-lg font-bold text-ats-text mb-2">No Bundle Data Yet</h3>
@@ -41,7 +41,7 @@ export default function BundleAnalysisPage() {
   );
 
   return (
-    <PageShell title="Bundle Analysis" subtitle="Products frequently bought together">
+    <PageShell title="Bundle Analysis" showDatePicker subtitle="Products frequently bought together">
       <div className={`${cardCls} mb-6`}>
         <h3 className="text-sm font-semibold text-ats-text mb-2">Top Product Pairs</h3>
         <p className="text-xs text-ats-text-muted mb-4">Products most commonly purchased in the same session</p>

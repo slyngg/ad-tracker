@@ -19,10 +19,6 @@ export interface TourStep {
   route: string;
   title: string;
   description: string;
-  /** If true, step advances when user clicks the target element */
-  advanceOnClick?: boolean;
-  /** If true, wait for an external event (e.g. provider-connected) to advance */
-  waitForEvent?: boolean;
 }
 
 export const TOUR_STEPS: TourStep[] = [
@@ -31,46 +27,14 @@ export const TOUR_STEPS: TourStep[] = [
     target: 'summary-cards',
     route: '/summary',
     title: 'Welcome to Optic Data!',
-    description: "This is your command center. Let's connect your data so you can see real metrics.",
+    description: "Your data is syncing. This dashboard shows spend, revenue, ROAS, and profit at a glance.",
   },
   {
-    id: 'nav-settings',
-    target: 'nav-settings',
-    route: '/summary',
-    title: 'Open Settings',
-    description: 'Click Settings to get started with your integrations.',
-    advanceOnClick: true,
-  },
-  {
-    id: 'nav-connections',
-    target: 'nav-connections',
-    route: '/summary',
-    title: 'Go to Connections',
-    description: 'Now click Connections to link your first data source.',
-    advanceOnClick: true,
-  },
-  {
-    id: 'platform-card',
-    target: 'platform-card-first',
-    route: '/settings/connections',
-    title: 'Connect a Platform',
-    description: "Connect any platform below. We'll wait here while you complete the OAuth flow.",
-    waitForEvent: true,
-  },
-  {
-    id: 'connection-done',
-    target: 'connection-summary',
-    route: '/settings/connections',
-    title: "You're Connected!",
-    description: 'Your data will start syncing within a few minutes.',
-  },
-  {
-    id: 'nav-summary',
-    target: 'nav-summary',
-    route: '/settings/connections',
-    title: 'Back to Summary',
-    description: 'Click Summary to see your dashboard come to life.',
-    advanceOnClick: true,
+    id: 'meet-operator',
+    target: 'operator-empty-state',
+    route: '/operator',
+    title: 'Meet your AI Assistant',
+    description: 'Operator can analyze campaigns, suggest optimizations, and take actions — all from chat.',
   },
   {
     id: 'tour-complete',
@@ -81,29 +45,14 @@ export const TOUR_STEPS: TourStep[] = [
   },
 ];
 
-/** Streamlined mobile tour — skips sidebar interaction steps */
+/** Streamlined mobile tour — same steps, different final description */
 export const MOBILE_TOUR_STEPS: TourStep[] = [
   {
     id: 'welcome',
     target: 'summary-cards',
     route: '/summary',
     title: 'Welcome to Optic Data!',
-    description: "This is your command center. Let's connect your data so you can see real metrics.",
-  },
-  {
-    id: 'platform-card',
-    target: 'platform-card-first',
-    route: '/settings/connections',
-    title: 'Connect a Platform',
-    description: "Connect any platform below. We'll wait here while you complete the OAuth flow.",
-    waitForEvent: true,
-  },
-  {
-    id: 'connection-done',
-    target: 'connection-summary',
-    route: '/settings/connections',
-    title: "You're Connected!",
-    description: 'Your data will start syncing within a few minutes.',
+    description: "Your data is syncing. This dashboard shows spend, revenue, ROAS, and profit at a glance.",
   },
   {
     id: 'meet-operator',
@@ -133,7 +82,7 @@ interface TourState {
   back: () => void;
   skip: () => void;
   complete: () => void;
-  /** Called by external events (e.g. OAuth success) to advance waitForEvent steps */
+  /** No-op — kept for backward compatibility with ConnectionsPage */
   advanceEvent: () => void;
   reset: () => void;
 }
@@ -189,11 +138,6 @@ export const useTourStore = create<TourState>((set, get) => ({
   },
 
   skip: () => {
-    // Block skipping until data provider is connected (past the waitForEvent step)
-    const { currentStep, mobile } = get();
-    const steps = mobile ? MOBILE_TOUR_STEPS : TOUR_STEPS;
-    const connectionStepIdx = steps.findIndex(s => s.waitForEvent);
-    if (connectionStepIdx >= 0 && currentStep <= connectionStepIdx) return;
     const s = { active: false, currentStep: 0, skipped: true, mobile: false };
     persist(s);
     set(s);
@@ -208,13 +152,7 @@ export const useTourStore = create<TourState>((set, get) => ({
   },
 
   advanceEvent: () => {
-    const { active, currentStep, mobile } = get();
-    if (!active) return;
-    const steps = mobile ? MOBILE_TOUR_STEPS : TOUR_STEPS;
-    const step = steps[currentStep];
-    if (step?.waitForEvent) {
-      get().next();
-    }
+    // No-op — connection steps removed, kept for backward compatibility
   },
 
   reset: () => {

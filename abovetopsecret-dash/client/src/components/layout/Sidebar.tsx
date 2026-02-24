@@ -4,6 +4,7 @@ import { useSidebarStore } from '../../stores/sidebarStore';
 import { useAuthStore } from '../../stores/authStore';
 import { NAV_SECTIONS } from '../../lib/routes';
 import NavSection from './NavSection';
+import ClientBrandSwitcher from '../shared/ClientBrandSwitcher';
 
 export default function Sidebar() {
   const { collapsed, toggleCollapsed } = useSidebarStore();
@@ -67,6 +68,9 @@ export default function Sidebar() {
           )}
         </a>
       </div>
+
+      {/* Client / Brand switcher */}
+      {!collapsed && <ClientBrandSwitcher />}
 
       {/* Nav sections */}
       <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-1">

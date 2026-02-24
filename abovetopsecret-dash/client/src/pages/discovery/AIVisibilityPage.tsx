@@ -112,14 +112,14 @@ export default function AIVisibilityPage() {
 
   if (error) {
     return (
-      <PageShell title="AI Visibility" subtitle="Campaign Analysis by Detected Category">
+      <PageShell title="AI Visibility" showDatePicker subtitle="Campaign Analysis by Detected Category">
         <div className="px-3 py-2 rounded-md text-sm bg-red-900/50 text-red-300">{error}</div>
       </PageShell>
     );
   }
 
   return (
-    <PageShell title="AI Visibility" subtitle="Auto-grouped campaign analysis by naming pattern detection">
+    <PageShell title="AI Visibility" showDatePicker subtitle="Auto-grouped campaign analysis by naming pattern detection">
       {/* Summary */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
         <div className="bg-ats-card rounded-xl p-4 border border-ats-border">

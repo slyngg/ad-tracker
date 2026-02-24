@@ -53,10 +53,10 @@ export default function LTVAnalysisPage() {
 
   const cardCls = 'bg-ats-card rounded-xl p-4 border border-ats-border';
 
-  if (loading) return <PageShell title="LTV Analysis" subtitle="Customer lifetime value"><div className="h-20 bg-ats-card rounded-xl animate-pulse" /></PageShell>;
+  if (loading) return <PageShell title="LTV Analysis" showDatePicker subtitle="Customer lifetime value"><div className="h-20 bg-ats-card rounded-xl animate-pulse" /></PageShell>;
 
   return (
-    <PageShell title="LTV Analysis" subtitle="Customer lifetime value">
+    <PageShell title="LTV Analysis" showDatePicker subtitle="Customer lifetime value">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
         <div className={cardCls}><div className="text-xs sm:text-[11px] text-ats-text-muted uppercase font-mono mb-1">Total Customers</div><div className="text-2xl font-bold text-ats-text font-mono">{Number(overview?.total_customers || 0).toLocaleString()}</div></div>
         <div className={cardCls}><div className="text-xs sm:text-[11px] text-ats-text-muted uppercase font-mono mb-1">Average LTV</div><div className="text-2xl font-bold text-ats-accent font-mono">${parseFloat(String(overview?.avg_ltv || 0)).toFixed(2)}</div></div>

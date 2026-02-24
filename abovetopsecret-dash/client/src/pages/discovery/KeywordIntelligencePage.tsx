@@ -150,14 +150,14 @@ export default function KeywordIntelligencePage() {
 
   if (error) {
     return (
-      <PageShell title="Keyword Intelligence" subtitle="Extract insights from campaign naming patterns">
+      <PageShell title="Keyword Intelligence" showDatePicker subtitle="Extract insights from campaign naming patterns">
         <div className="px-3 py-2 rounded-md text-sm bg-red-900/50 text-red-300">{error}</div>
       </PageShell>
     );
   }
 
   return (
-    <PageShell title="Keyword Intelligence" subtitle="Performance analysis by extracted keywords from campaign names">
+    <PageShell title="Keyword Intelligence" showDatePicker subtitle="Performance analysis by extracted keywords from campaign names">
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
         <div className="bg-ats-card rounded-xl p-4 border border-ats-border">

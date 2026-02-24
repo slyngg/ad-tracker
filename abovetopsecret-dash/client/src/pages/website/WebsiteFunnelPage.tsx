@@ -41,10 +41,10 @@ export default function WebsiteFunnelPage() {
   const maxEvents = Math.max(...ordered.map(f => f.total_events), 1);
   const cardCls = 'bg-ats-card rounded-xl p-4 border border-ats-border';
 
-  if (loading) return <PageShell title="Website Funnel" subtitle="Conversion funnel analysis"><div className="space-y-3">{[...Array(4)].map((_, i) => <div key={i} className="h-16 bg-ats-card rounded-xl animate-pulse" />)}</div></PageShell>;
+  if (loading) return <PageShell title="Website Funnel" showDatePicker subtitle="Conversion funnel analysis"><div className="space-y-3">{[...Array(4)].map((_, i) => <div key={i} className="h-16 bg-ats-card rounded-xl animate-pulse" />)}</div></PageShell>;
 
   if (!hasData) return (
-    <PageShell title="Website Funnel" subtitle="Conversion funnel analysis">
+    <PageShell title="Website Funnel" showDatePicker subtitle="Conversion funnel analysis">
       <div className={`${cardCls} text-center p-8`}>
         <h3 className="text-lg font-bold text-ats-text mb-2">Connect GA4 for Funnel Data</h3>
         <p className="text-sm text-ats-text-muted">Real funnel events require GA4 integration.</p>
@@ -54,7 +54,7 @@ export default function WebsiteFunnelPage() {
   );
 
   return (
-    <PageShell title="Website Funnel" subtitle="Conversion funnel analysis">
+    <PageShell title="Website Funnel" showDatePicker subtitle="Conversion funnel analysis">
       <div className={`${cardCls} mb-6`}>
         <h3 className="text-sm font-semibold text-ats-text mb-4">Conversion Funnel (Last 30 Days)</h3>
         <div className="space-y-3">

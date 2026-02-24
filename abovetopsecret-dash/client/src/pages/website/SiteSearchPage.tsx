@@ -36,11 +36,11 @@ export default function SiteSearchPage() {
   const cardCls = 'bg-ats-card rounded-xl p-4 border border-ats-border';
   const lowCvr = queries.filter(q => q.total_searches > 5 && parseFloat(String(q.conversion_rate)) < 0.02);
 
-  if (loading) return <PageShell title="Site Search" subtitle="Search analytics"><div className="h-20 bg-ats-card rounded-xl animate-pulse" /></PageShell>;
-  if (!hasData) return <PageShell title="Site Search" subtitle="Search analytics"><div className={`${cardCls} text-center p-8`}><h3 className="text-lg font-bold text-ats-text mb-2">No Search Data</h3><p className="text-sm text-ats-text-muted">Connect GA4 with site search tracking enabled.</p></div></PageShell>;
+  if (loading) return <PageShell title="Site Search" showDatePicker subtitle="Search analytics"><div className="h-20 bg-ats-card rounded-xl animate-pulse" /></PageShell>;
+  if (!hasData) return <PageShell title="Site Search" showDatePicker subtitle="Search analytics"><div className={`${cardCls} text-center p-8`}><h3 className="text-lg font-bold text-ats-text mb-2">No Search Data</h3><p className="text-sm text-ats-text-muted">Connect GA4 with site search tracking enabled.</p></div></PageShell>;
 
   return (
-    <PageShell title="Site Search" subtitle="Search analytics">
+    <PageShell title="Site Search" showDatePicker subtitle="Search analytics">
       <div className={`${cardCls} mb-6`}>
         <h3 className="text-sm font-semibold text-ats-text mb-3">Daily Search Volume</h3>
         <div className="h-[160px] sm:h-[200px]"><ResponsiveContainer width="100%" height="100%">

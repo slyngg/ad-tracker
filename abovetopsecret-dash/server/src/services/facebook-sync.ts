@@ -533,3 +533,116 @@ export async function syncFacebookCreatives(userId?: number): Promise<{ synced: 
 
   return { synced: totalSynced, metrics: totalMetrics, skipped: false };
 }
+
+// ── Backfill historical data ──────────────────────────────────
+
+/**
+ * Backfill Meta ad data for the past N days.
+ * Fetches day-by-day from the Graph API and inserts directly into fb_ads_archive.
+ * Meta allows up to 37 months of historical insights.
+ */
+export async function backfillFacebook(userId?: number, days = 90): Promise<{ backfilled: number; days: number }> {
+  const accessToken = await getAccessToken(userId);
+  if (!accessToken) return { backfilled: 0, days: 0 };
+
+  // Resolve accounts (same logic as syncFacebook)
+  const manualIds = await getSetting('fb_ad_account_ids', userId);
+  let accounts: string[];
+
+  if (manualIds) {
+    accounts = manualIds.split(',').map((id) => id.trim()).filter(Boolean);
+  } else {
+    try {
+      accounts = await discoverAdAccounts(accessToken);
+      if (accounts.length === 0) return { backfilled: 0, days: 0 };
+    } catch (err) {
+      console.error('[Meta Backfill] Failed to discover ad accounts:', err);
+      return { backfilled: 0, days: 0 };
+    }
+  }
+
+  // Also collect per-account tokens for multi-account support
+  const perAccountTokens: { accountId: string; token: string; dbAccountId: number | null }[] = [];
+  for (const acctId of accounts) {
+    perAccountTokens.push({ accountId: acctId, token: accessToken, dbAccountId: null });
+  }
+
+  if (userId) {
+    try {
+      const accountRows = await pool.query(
+        `SELECT id, platform_account_id, access_token_encrypted
+         FROM accounts
+         WHERE user_id = $1 AND platform = 'meta' AND status = 'active'
+           AND platform_account_id IS NOT NULL AND access_token_encrypted IS NOT NULL`,
+        [userId]
+      );
+      for (const acct of accountRows.rows) {
+        // Skip if already covered by discovered accounts
+        if (accounts.includes(acct.platform_account_id)) continue;
+        perAccountTokens.push({
+          accountId: acct.platform_account_id,
+          token: decrypt(acct.access_token_encrypted),
+          dbAccountId: acct.id,
+        });
+      }
+    } catch {
+      // accounts table may not exist
+    }
+  }
+
+  let backfilled = 0;
+
+  for (let d = days; d >= 1; d--) {
+    const date = new Date(Date.now() - d * 86400000).toISOString().split('T')[0];
+
+    for (const { accountId, token, dbAccountId } of perAccountTokens) {
+      try {
+        const url = `https://graph.facebook.com/v21.0/${accountId}/insights?fields=account_name,campaign_name,campaign_id,adset_name,adset_id,ad_name,spend,clicks,impressions,actions&time_range={"since":"${date}","until":"${date}"}&level=ad&limit=500&access_token=${token}`;
+
+        const rows = await fetchAllPages(url);
+        if (rows.length === 0) continue;
+
+        for (const row of rows) {
+          const lpViews = row.actions?.find(
+            (a) => a.action_type === 'landing_page_view'
+          )?.value || '0';
+
+          const adData = {
+            account_name: row.account_name,
+            campaign_name: row.campaign_name,
+            campaign_id: row.campaign_id || null,
+            ad_set_name: row.adset_name,
+            ad_set_id: row.adset_id,
+            ad_name: row.ad_name,
+            spend: parseFloat(row.spend) || 0,
+            clicks: parseInt(row.clicks) || 0,
+            impressions: parseInt(row.impressions) || 0,
+            landing_page_views: parseInt(lpViews) || 0,
+          };
+
+          try {
+            await pool.query(
+              `INSERT INTO fb_ads_archive (archived_date, ad_data, user_id, account_id)
+               VALUES ($1, $2, $3, $4)
+               ON CONFLICT DO NOTHING`,
+              [date, JSON.stringify(adData), userId || null, dbAccountId]
+            );
+            backfilled++;
+          } catch (err) {
+            console.error(`[Meta Backfill] Failed to insert archive row for ${date}/${accountId}:`, err);
+          }
+        }
+
+        console.log(`[Meta Backfill] ${accountId} ${date}: ${rows.length} rows`);
+      } catch (err) {
+        console.error(`[Meta Backfill] Fetch failed for ${accountId} on ${date}:`, err);
+      }
+    }
+
+    // Rate limit: 2s delay between days to avoid hitting Meta API limits
+    await new Promise(resolve => setTimeout(resolve, 2000));
+  }
+
+  console.log(`[Meta Backfill] Complete: ${backfilled} rows over ${days} days${userId ? ` for user ${userId}` : ''}`);
+  return { backfilled, days };
+}

@@ -9,7 +9,7 @@ router.get('/', async (req: Request, res: Response) => {
     const userId = req.user?.id;
     const result = await pool.query(
       `SELECT id, name, brand_name, logo_url, brand_colors, tone_of_voice,
-              target_audience, usp, guidelines, is_default, created_at, updated_at
+              target_audience, usp, guidelines, is_default, client_id, created_at, updated_at
        FROM brand_configs
        WHERE user_id = $1
        ORDER BY is_default DESC, created_at ASC`,
@@ -26,7 +26,7 @@ router.get('/', async (req: Request, res: Response) => {
 router.post('/', async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
-    const { name, brand_name, logo_url, brand_colors, tone_of_voice, target_audience, usp, guidelines } = req.body;
+    const { name, brand_name, logo_url, brand_colors, tone_of_voice, target_audience, usp, guidelines, client_id } = req.body;
 
     if (!name) {
       res.status(400).json({ error: 'name is required' });
@@ -38,14 +38,15 @@ router.post('/', async (req: Request, res: Response) => {
     const isFirst = parseInt(existing.rows[0].count) === 0;
 
     const result = await pool.query(
-      `INSERT INTO brand_configs (user_id, name, brand_name, logo_url, brand_colors, tone_of_voice, target_audience, usp, guidelines, is_default)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      `INSERT INTO brand_configs (user_id, name, brand_name, logo_url, brand_colors, tone_of_voice, target_audience, usp, guidelines, is_default, client_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        RETURNING *`,
       [
         userId, name,
         brand_name || '', logo_url || '', brand_colors || '',
         tone_of_voice || '', target_audience || '', usp || '', guidelines || '',
         isFirst,
+        client_id || null,
       ]
     );
 
@@ -61,7 +62,7 @@ router.put('/:id', async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
     const { id } = req.params;
-    const { name, brand_name, logo_url, brand_colors, tone_of_voice, target_audience, usp, guidelines } = req.body;
+    const { name, brand_name, logo_url, brand_colors, tone_of_voice, target_audience, usp, guidelines, client_id } = req.body;
 
     const result = await pool.query(
       `UPDATE brand_configs
@@ -73,10 +74,11 @@ router.put('/:id', async (req: Request, res: Response) => {
            target_audience = COALESCE($6, target_audience),
            usp = COALESCE($7, usp),
            guidelines = COALESCE($8, guidelines),
+           client_id = COALESCE($9, client_id),
            updated_at = NOW()
-       WHERE id = $9 AND user_id = $10
+       WHERE id = $10 AND user_id = $11
        RETURNING *`,
-      [name, brand_name, logo_url, brand_colors, tone_of_voice, target_audience, usp, guidelines, id, userId]
+      [name, brand_name, logo_url, brand_colors, tone_of_voice, target_audience, usp, guidelines, client_id, id, userId]
     );
 
     if (result.rows.length === 0) {

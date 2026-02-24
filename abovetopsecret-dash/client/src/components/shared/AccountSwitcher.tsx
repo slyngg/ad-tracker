@@ -3,7 +3,7 @@ import { ChevronDown, X, Check } from 'lucide-react';
 import { useAccountStore } from '../../stores/accountStore';
 
 export default function AccountSwitcher() {
-  const { accounts, selectedAccountIds, setSelectedAccountIds, clearFilters, loadAccounts } = useAccountStore();
+  const { accounts, selectedAccountIds, setSelectedAccountIds, clearFilters, loadAccounts, selectedBrandId, brands, selectedClientId } = useAccountStore();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -20,10 +20,20 @@ export default function AccountSwitcher() {
     return () => document.removeEventListener('mousedown', handleClick);
   }, [open]);
 
-  // Don't render if fewer than 2 accounts
-  if (accounts.length < 2) return null;
+  // Scope visible accounts to selected brand or client
+  const visibleAccounts = accounts.filter((acct) => {
+    if (selectedBrandId) return acct.brand_config_id === selectedBrandId;
+    if (selectedClientId) {
+      const clientBrandIds = brands.filter((b) => b.client_id === selectedClientId).map((b) => b.id);
+      return acct.brand_config_id !== null && clientBrandIds.includes(acct.brand_config_id);
+    }
+    return true;
+  });
 
-  const selectedNames = accounts
+  // Don't render if fewer than 2 visible accounts
+  if (visibleAccounts.length < 2) return null;
+
+  const selectedNames = visibleAccounts
     .filter((a) => selectedAccountIds.includes(a.id))
     .map((a) => a.name);
 
@@ -66,7 +76,7 @@ export default function AccountSwitcher() {
               </button>
             )}
           </div>
-          {accounts.map((acct) => {
+          {visibleAccounts.map((acct) => {
             const selected = selectedAccountIds.includes(acct.id);
             return (
               <button

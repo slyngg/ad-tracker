@@ -31,10 +31,10 @@ export default function ProductAnalysisPage() {
   const filtered = products.filter(p => !search || p.product_name.toLowerCase().includes(search.toLowerCase()));
   const cardCls = 'bg-ats-card rounded-xl p-4 border border-ats-border';
 
-  if (loading) return <PageShell title="Product Analysis" subtitle="Per-product performance"><div className="h-20 bg-ats-card rounded-xl animate-pulse" /></PageShell>;
+  if (loading) return <PageShell title="Product Analysis" showDatePicker subtitle="Per-product performance"><div className="h-20 bg-ats-card rounded-xl animate-pulse" /></PageShell>;
 
   if (!products.length) return (
-    <PageShell title="Product Analysis" subtitle="Per-product performance">
+    <PageShell title="Product Analysis" showDatePicker subtitle="Per-product performance">
       <div className={`${cardCls} text-center p-8`}>
         <div className="text-4xl mb-4">📋</div>
         <h3 className="text-lg font-bold text-ats-text mb-2">No Product Data</h3>
@@ -44,7 +44,7 @@ export default function ProductAnalysisPage() {
   );
 
   return (
-    <PageShell title="Product Analysis" subtitle="Per-product performance" actions={
+    <PageShell title="Product Analysis" showDatePicker subtitle="Per-product performance" actions={
       <div className="flex gap-2">
         <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search products..." className="bg-ats-surface border border-ats-border rounded-lg px-3 py-1.5 text-sm text-ats-text" />
         <select value={sort} onChange={e => setSort(e.target.value)} className="bg-ats-surface border border-ats-border rounded-lg px-3 py-1.5 text-sm text-ats-text">

@@ -73,8 +73,8 @@ async function withAdvisoryLock(
 }
 
 export function startScheduler(): void {
-  // Meta Ads sync every 10 minutes
-  cron.schedule('*/10 * * * *', async () => {
+  // Meta Ads sync every 2 minutes
+  cron.schedule('*/2 * * * *', async () => {
     await withAdvisoryLock(LOCK_FB_SYNC, 'Meta Ads sync', async () => {
       console.log('[Scheduler] Running Meta Ads sync...');
       try {
@@ -384,8 +384,8 @@ export function startScheduler(): void {
     });
   });
 
-  // TikTok Ads sync every 10 minutes (same cadence as Meta)
-  cron.schedule('*/10 * * * *', async () => {
+  // TikTok Ads sync every 2 minutes
+  cron.schedule('*/2 * * * *', async () => {
     await withAdvisoryLock(LOCK_TIKTOK_SYNC, 'TikTok Ads sync', async () => {
       console.log('[Scheduler] Running TikTok Ads sync...');
       try {
@@ -408,8 +408,8 @@ export function startScheduler(): void {
     });
   });
 
-  // NewsBreak Ads sync every 15 minutes (offset from other syncs)
-  cron.schedule('7,22,37,52 * * * *', async () => {
+  // NewsBreak Ads sync every 2 minutes (offset by 1 min from Meta/TikTok)
+  cron.schedule('1/2 * * * *', async () => {
     await withAdvisoryLock(LOCK_NEWSBREAK_SYNC, 'NewsBreak Ads sync', async () => {
       console.log('[Scheduler] Running NewsBreak Ads sync...');
       try {

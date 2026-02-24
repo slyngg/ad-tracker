@@ -121,7 +121,7 @@ export default function CampaignListPage() {
   // Loading state
   if (loading) {
     return (
-      <PageShell title="Campaign Manager" subtitle="Build and manage Meta ad campaigns">
+      <PageShell title="Campaign Manager" showDatePicker subtitle="Build and manage Meta ad campaigns">
         <div className="space-y-3">
           {[1, 2, 3].map((i) => (
             <div key={i} className="h-16 bg-ats-card rounded-xl animate-pulse border border-ats-border" />
@@ -134,7 +134,7 @@ export default function CampaignListPage() {
   // Error state
   if (error) {
     return (
-      <PageShell title="Campaign Manager" subtitle="Build and manage Meta ad campaigns">
+      <PageShell title="Campaign Manager" showDatePicker subtitle="Build and manage Meta ad campaigns">
         <div className="px-4 py-3 rounded-lg text-sm bg-red-900/50 text-red-300">{error}</div>
       </PageShell>
     );
@@ -143,6 +143,7 @@ export default function CampaignListPage() {
   return (
     <PageShell
       title="Campaign Manager"
+      showDatePicker
       subtitle="Build and manage Meta ad campaigns"
       actions={
         <button

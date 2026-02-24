@@ -102,7 +102,7 @@ export async function enqueueSync(
 export async function registerRepeatableJobs(): Promise<void> {
   const queue = getQueue();
   const jobs: { name: SyncJobName; pattern: string }[] = [
-    { name: 'meta-ads-sync', pattern: '*/10 * * * *' },
+    { name: 'meta-ads-sync', pattern: '*/2 * * * *' },
     { name: 'cc-poll', pattern: '* * * * *' },
     { name: 'daily-reset', pattern: '0 * * * *' },
     { name: 'creative-sync', pattern: '5,35 * * * *' },
@@ -110,7 +110,7 @@ export async function registerRepeatableJobs(): Promise<void> {
     { name: 'ga4-sync', pattern: '3,18,33,48 * * * *' },
     { name: 'cc-full-sync', pattern: '0 */4 * * *' },
     { name: 'shopify-sync', pattern: '30 */6 * * *' },
-    { name: 'tiktok-sync', pattern: '*/10 * * * *' },
+    { name: 'tiktok-sync', pattern: '*/2 * * * *' },
     { name: 'klaviyo-sync', pattern: '15 */2 * * *' },
   ];
 

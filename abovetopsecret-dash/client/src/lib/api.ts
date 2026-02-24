@@ -959,6 +959,7 @@ export interface BrandConfig {
   usp: string;
   guidelines: string;
   is_default: boolean;
+  client_id: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -981,6 +982,32 @@ export function deleteBrandConfig(id: number): Promise<{ success: boolean }> {
 
 export function setDefaultBrandConfig(id: number): Promise<{ success: boolean }> {
   return request<{ success: boolean }>(`/brand-configs/${id}/set-default`, { method: 'POST' });
+}
+
+// --- Client types & API ---
+export interface Client {
+  id: number;
+  name: string;
+  logo_url: string;
+  notes: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export function fetchClients(): Promise<Client[]> {
+  return request<Client[]>('/clients');
+}
+
+export function createClient(data: Partial<Client>): Promise<Client> {
+  return request<Client>('/clients', { method: 'POST', body: JSON.stringify(data) });
+}
+
+export function updateClient(id: number, data: Partial<Client>): Promise<Client> {
+  return request<Client>(`/clients/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+}
+
+export function deleteClient(id: number): Promise<{ success: boolean }> {
+  return request<{ success: boolean }>(`/clients/${id}`, { method: 'DELETE' });
 }
 
 // --- Campaign Builder types ---

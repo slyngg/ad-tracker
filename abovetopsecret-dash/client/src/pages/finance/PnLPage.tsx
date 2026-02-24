@@ -31,7 +31,7 @@ export default function PnLPage() {
 
   if (error) {
     return (
-      <PageShell title="Profit & Loss" subtitle="Today's financial overview">
+      <PageShell title="Profit & Loss" showDatePicker subtitle="Today's financial overview">
         <div className="px-3 py-2 rounded-md text-sm bg-red-900/50 text-red-300">{error}</div>
       </PageShell>
     );
@@ -50,7 +50,7 @@ export default function PnLPage() {
   ];
 
   return (
-    <PageShell title="Profit & Loss" subtitle="Today's financial overview">
+    <PageShell title="Profit & Loss" showDatePicker subtitle="Today's financial overview">
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
         {cards.map((card) => (
           <div

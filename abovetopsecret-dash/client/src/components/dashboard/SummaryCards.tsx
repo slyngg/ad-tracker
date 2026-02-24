@@ -62,19 +62,19 @@ function SummaryCard({ label, value, format, color, delta, invertColors }: {
   invertColors?: boolean;
 }) {
   return (
-    <div className="bg-ats-card rounded-xl px-4 py-3.5 min-w-[140px] flex-1 border border-ats-border">
-      <div className="text-[11px] text-ats-text-muted uppercase tracking-widest mb-1 font-mono">
+    <div className="bg-ats-card rounded-xl px-3 sm:px-4 py-3 sm:py-3.5 min-w-[110px] sm:min-w-[140px] flex-1 border border-ats-border">
+      <div className="text-[10px] sm:text-[11px] text-ats-text-muted uppercase tracking-widest mb-1 font-mono">
         {label}
       </div>
       <div className="flex items-baseline">
         <div
-          className="text-[22px] font-bold font-mono text-ats-text"
+          className="text-lg sm:text-[22px] font-bold font-mono text-ats-text"
           style={color ? { color } : undefined}
         >
           <AnimatedNumber value={value} format={format} />
         </div>
         <DeltaBadge delta={delta ?? null} invertColors={invertColors} />
-        {delta != null && delta !== 'new' && <span className="text-[9px] text-gray-600 ml-1">vs yday</span>}
+        {delta != null && delta !== 'new' && <span className="text-[9px] text-gray-600 ml-1 hidden sm:inline">vs yday</span>}
       </div>
     </div>
   );

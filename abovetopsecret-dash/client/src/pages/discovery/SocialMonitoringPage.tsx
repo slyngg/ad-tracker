@@ -98,14 +98,14 @@ export default function SocialMonitoringPage() {
 
   if (error) {
     return (
-      <PageShell title="Social Monitoring" subtitle="Campaign Performance Breakdowns">
+      <PageShell title="Social Monitoring" showDatePicker subtitle="Campaign Performance Breakdowns">
         <div className="px-3 py-2 rounded-md text-sm bg-red-900/50 text-red-300">{error}</div>
       </PageShell>
     );
   }
 
   return (
-    <PageShell title="Social Monitoring" subtitle="Campaign performance breakdowns">
+    <PageShell title="Social Monitoring" showDatePicker subtitle="Campaign performance breakdowns">
       {/* KPI Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
         <div className="bg-ats-card rounded-xl p-4 border border-ats-border">

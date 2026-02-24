@@ -70,10 +70,10 @@ export default function CreativeDiversityPage() {
     finally { setStreaming(false); }
   };
 
-  if (loading) return <PageShell title="Creative Diversity" subtitle="Creative mix analysis"><div className="h-20 bg-ats-card rounded-xl animate-pulse" /></PageShell>;
+  if (loading) return <PageShell title="Creative Diversity" showDatePicker subtitle="Creative mix analysis"><div className="h-20 bg-ats-card rounded-xl animate-pulse" /></PageShell>;
 
   return (
-    <PageShell title="Creative Diversity" subtitle="Analyze your creative mix across 8 AI-tagged dimensions" actions={
+    <PageShell title="Creative Diversity" showDatePicker subtitle="Analyze your creative mix across 8 AI-tagged dimensions" actions={
       <button onClick={runDiversityCheck} disabled={streaming}
         className="px-3 py-1.5 bg-purple-600/20 text-purple-400 rounded-lg text-sm font-semibold hover:bg-purple-600/30 disabled:opacity-50">
         {streaming ? 'Analyzing...' : 'AI Diversity Review'}

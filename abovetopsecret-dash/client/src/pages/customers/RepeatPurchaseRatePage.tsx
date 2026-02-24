@@ -26,10 +26,10 @@ export default function RepeatPurchaseRatePage() {
   useLiveRefresh(load);
   const cardCls = 'bg-ats-card rounded-xl p-4 border border-ats-border';
 
-  if (loading) return <PageShell title="Repeat Purchase Rate" subtitle="Customer retention metrics"><div className="h-20 bg-ats-card rounded-xl animate-pulse" /></PageShell>;
+  if (loading) return <PageShell title="Repeat Purchase Rate" showDatePicker subtitle="Customer retention metrics"><div className="h-20 bg-ats-card rounded-xl animate-pulse" /></PageShell>;
 
   return (
-    <PageShell title="Repeat Purchase Rate" subtitle="Customer retention metrics">
+    <PageShell title="Repeat Purchase Rate" showDatePicker subtitle="Customer retention metrics">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
         <div className={cardCls}><div className="text-[11px] text-ats-text-muted uppercase font-mono mb-1">Total Customers</div><div className="text-2xl font-bold text-ats-text font-mono">{Number(summary?.total_customers || 0).toLocaleString()}</div></div>
         <div className={cardCls}><div className="text-[11px] text-ats-text-muted uppercase font-mono mb-1">Repeat Customers</div><div className="text-2xl font-bold text-ats-accent font-mono">{Number(summary?.repeat_customers || 0).toLocaleString()}</div></div>

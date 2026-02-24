@@ -54,7 +54,7 @@ router.get('/', async (req: Request, res: Response) => {
     const userId = (req as any).user?.id as number | undefined;
     const userFilter = userId ? 'AND user_id = $1' : 'AND user_id IS NULL';
     const userParams = userId ? [userId] : [];
-    const af = parseAccountFilter(req.query as Record<string, any>, userParams.length + 1);
+    const af = await parseAccountFilter(req.query as Record<string, any>, userParams.length + 1, userId);
     const allParams = [...userParams, ...af.params];
 
     // Core metrics — pre-aggregate both sides to eliminate many-to-many fan-out.
@@ -263,7 +263,7 @@ router.get('/summary', async (req: Request, res: Response) => {
     const userFilter = userId ? 'AND user_id = $1' : 'AND user_id IS NULL';
     const userParams = userId ? [userId] : [];
     const prevUserFilter = userId ? 'AND user_id = $1' : '';
-    const saf = parseAccountFilter(req.query as Record<string, any>, userParams.length + 1);
+    const saf = await parseAccountFilter(req.query as Record<string, any>, userParams.length + 1, userId);
     const sAllParams = [...userParams, ...saf.params];
 
     // Compute totals from each table independently — no join needed for summary

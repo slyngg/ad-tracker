@@ -14,10 +14,6 @@ export default function TourTooltip({ targetRect }: TourTooltipProps) {
   const isFirst = currentStep === 0;
   const isLast = currentStep === total - 1;
 
-  // Only allow skipping after the data provider connection step is completed
-  const connectionStepIdx = steps.findIndex(s => s.waitForEvent);
-  const canSkip = connectionStepIdx < 0 || currentStep > connectionStepIdx;
-
   const vw = window.innerWidth;
   const vh = window.innerHeight;
   const isMobile = vw < 1024;
@@ -35,14 +31,12 @@ export default function TourTooltip({ targetRect }: TourTooltipProps) {
             <span className="text-[11px] text-ats-text-muted font-mono uppercase tracking-widest">
               Step {currentStep + 1} of {total}
             </span>
-            {canSkip && (
-              <button
-                onClick={skip}
-                className="text-xs text-ats-text-muted hover:text-ats-text transition-colors min-h-[44px] flex items-center px-2 -mr-2"
-              >
-                Skip tour
-              </button>
-            )}
+            <button
+              onClick={skip}
+              className="text-xs text-ats-text-muted hover:text-ats-text transition-colors min-h-[44px] flex items-center px-2 -mr-2"
+            >
+              Skip tour
+            </button>
           </div>
 
           <h3 className="text-base font-bold text-ats-text mb-1">{step.title}</h3>
@@ -50,25 +44,13 @@ export default function TourTooltip({ targetRect }: TourTooltipProps) {
 
           {/* Navigation buttons — full-width stacked on mobile */}
           <div className="flex flex-col gap-2">
-            {!step.advanceOnClick && !step.waitForEvent && (
-              <button
-                onClick={isLast ? () => useTourStore.getState().complete() : next}
-                className="w-full min-h-[48px] text-sm font-semibold text-white bg-ats-accent rounded-xl hover:bg-blue-600 active:scale-[0.98] transition-all"
-              >
-                {isLast ? 'Finish' : 'Next'}
-              </button>
-            )}
-            {step.advanceOnClick && (
-              <div className="text-xs text-ats-accent font-medium animate-pulse text-center min-h-[48px] flex items-center justify-center">
-                Tap the highlighted element above
-              </div>
-            )}
-            {step.waitForEvent && (
-              <div className="text-xs text-ats-accent font-medium animate-pulse text-center min-h-[48px] flex items-center justify-center">
-                Waiting for connection...
-              </div>
-            )}
-            {!isFirst && !step.advanceOnClick && (
+            <button
+              onClick={isLast ? () => useTourStore.getState().complete() : next}
+              className="w-full min-h-[48px] text-sm font-semibold text-white bg-ats-accent rounded-xl hover:bg-blue-600 active:scale-[0.98] transition-all"
+            >
+              {isLast ? 'Finish' : 'Next'}
+            </button>
+            {!isFirst && (
               <button
                 onClick={back}
                 className="w-full min-h-[44px] text-sm font-medium text-ats-text-muted border border-ats-border rounded-xl hover:bg-ats-hover active:scale-[0.98] transition-all"
@@ -120,14 +102,12 @@ export default function TourTooltip({ targetRect }: TourTooltipProps) {
           <span className="text-[10px] text-ats-text-muted font-mono uppercase tracking-widest">
             Step {currentStep + 1} of {total}
           </span>
-          {canSkip && (
-            <button
-              onClick={skip}
-              className="text-xs text-ats-text-muted hover:text-ats-text transition-colors min-h-[36px] flex items-center px-1"
-            >
-              Skip tour
-            </button>
-          )}
+          <button
+            onClick={skip}
+            className="text-xs text-ats-text-muted hover:text-ats-text transition-colors min-h-[36px] flex items-center px-1"
+          >
+            Skip tour
+          </button>
         </div>
 
         <h3 className="text-sm font-bold text-ats-text mb-1">{step.title}</h3>
@@ -135,7 +115,7 @@ export default function TourTooltip({ targetRect }: TourTooltipProps) {
 
         {/* Navigation buttons */}
         <div className="flex items-center gap-2">
-          {!isFirst && !step.advanceOnClick && (
+          {!isFirst && (
             <button
               onClick={back}
               className="px-4 min-h-[36px] text-xs font-medium text-ats-text-muted hover:text-ats-text border border-ats-border rounded-lg hover:bg-ats-hover transition-colors"
@@ -144,24 +124,12 @@ export default function TourTooltip({ targetRect }: TourTooltipProps) {
             </button>
           )}
           <div className="flex-1" />
-          {!step.advanceOnClick && !step.waitForEvent && (
-            <button
-              onClick={isLast ? () => useTourStore.getState().complete() : next}
-              className="px-5 min-h-[36px] text-xs font-semibold text-white bg-ats-accent rounded-lg hover:bg-blue-600 transition-colors"
-            >
-              {isLast ? 'Finish' : 'Next'}
-            </button>
-          )}
-          {step.advanceOnClick && (
-            <span className="text-[11px] text-ats-accent font-medium animate-pulse">
-              Click the highlighted element
-            </span>
-          )}
-          {step.waitForEvent && (
-            <span className="text-[11px] text-ats-accent font-medium animate-pulse">
-              Waiting for connection...
-            </span>
-          )}
+          <button
+            onClick={isLast ? () => useTourStore.getState().complete() : next}
+            className="px-5 min-h-[36px] text-xs font-semibold text-white bg-ats-accent rounded-lg hover:bg-blue-600 transition-colors"
+          >
+            {isLast ? 'Finish' : 'Next'}
+          </button>
         </div>
 
         {/* Progress dots */}

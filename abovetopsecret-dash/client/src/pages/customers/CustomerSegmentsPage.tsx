@@ -53,10 +53,10 @@ export default function CustomerSegmentsPage() {
   const pieData = segments.filter(s => s.customer_count > 0).map(s => ({ name: s.segment_name, value: s.customer_count, color: s.color }));
   const cardCls = 'bg-ats-card rounded-xl p-4 border border-ats-border';
 
-  if (loading) return <PageShell title="Customer Segments" subtitle="RFM segmentation"><div className="h-20 bg-ats-card rounded-xl animate-pulse" /></PageShell>;
+  if (loading) return <PageShell title="Customer Segments" showDatePicker subtitle="RFM segmentation"><div className="h-20 bg-ats-card rounded-xl animate-pulse" /></PageShell>;
 
   return (
-    <PageShell title="Customer Segments" subtitle="RFM segmentation" actions={
+    <PageShell title="Customer Segments" showDatePicker subtitle="RFM segmentation" actions={
       <div className="flex gap-2">
         <button onClick={compute} disabled={computing} className="px-4 py-1.5 bg-ats-accent text-white rounded-lg text-xs font-semibold disabled:opacity-50">{computing ? 'Computing...' : 'Recompute RFM'}</button>
         <button onClick={() => setShowCreate(!showCreate)} className="px-4 py-1.5 bg-ats-surface border border-ats-border text-ats-text rounded-lg text-xs font-semibold">Create Segment</button>

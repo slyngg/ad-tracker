@@ -22,30 +22,33 @@ interface IntegrationStatus {
   klaviyo: 'idle' | 'testing' | 'connected' | 'error';
 }
 
-/* ── Tour page definitions ───────────────────────── */
-const TOUR_PAGES = [
-  { title: 'Command Center', desc: 'Your real-time dashboard — spend, revenue, ROAS, profit, live orders all at a glance. Pin your most important KPIs.', path: '/summary', icon: '📊' },
-  { title: 'Attribution', desc: 'See which campaigns drive revenue. Switch between Last Click, First Click, Linear, and Time Decay models. NC CPA, channel overlap.', path: '/acquisition/attribution', icon: '🎯' },
-  { title: 'Creative Analytics', desc: 'Analyze ad creative performance across 8 dimensions. AI auto-tags your creatives, finds winning patterns, and suggests what to launch next.', path: '/creative/analytics', icon: '🎨' },
-  { title: 'Customer Retention', desc: 'RFM segments (Whales, Loyal, Rookies, Lost), cohort retention heatmaps, LTV distribution, repeat purchase tracking.', path: '/customers/segments', icon: '👥' },
-  { title: 'Website & GA4', desc: 'GA4 traffic, funnel drop-offs, site search queries, product journeys, bundle analysis — everything about your store conversion.', path: '/website/performance', icon: '🌐' },
-  { title: 'AI Operator', desc: 'Ask anything about your data in natural language. The AI has 22 tools — query metrics, analyze creatives, generate reports, detect anomalies.', path: '/operator', icon: '🤖' },
-  { title: 'AI Studio', desc: 'Build custom AI agents with specific tools and system prompts. Generate ad copy variations. Auto-generate performance reports.', path: '/ai/agents', icon: '🧠' },
-  { title: 'Rules Engine', desc: 'Set automated alerts — get notified when ROAS drops, spend exceeds budget, or a campaign goes below break-even.', path: '/rules', icon: '⚡' },
+/* ── Platform definitions ────────────────────────── */
+const PLATFORMS: {
+  key: keyof IntegrationStatus;
+  name: string;
+  icon: string;
+  description: string;
+  oauth: boolean;
+  manualType?: 'meta' | 'google' | 'shopify' | 'checkoutChamp';
+  requiresStoreUrl?: boolean;
+}[] = [
+  { key: 'meta', name: 'Meta / Facebook Ads', icon: 'f', description: 'Ad spend, ROAS & creative performance', oauth: true, manualType: 'meta' },
+  { key: 'google', name: 'Google Analytics 4', icon: 'G', description: 'Traffic analytics & conversion data', oauth: true, manualType: 'google' },
+  { key: 'shopify', name: 'Shopify', icon: 'S', description: 'Orders, products & real-time webhooks', oauth: true, manualType: 'shopify', requiresStoreUrl: true },
+  { key: 'tiktok', name: 'TikTok Ads', icon: 'T', description: 'Campaign performance & spend data', oauth: true },
+  { key: 'klaviyo', name: 'Klaviyo', icon: 'K', description: 'Email metrics & customer profiles', oauth: true },
+  { key: 'newsbreak', name: 'NewsBreak Ads', icon: 'N', description: 'Campaign performance & spend data', oauth: true },
+  { key: 'checkoutChamp', name: 'CheckoutChamp', icon: 'C', description: 'Order data via API or webhooks', oauth: false, manualType: 'checkoutChamp' },
 ];
+
+const ICON_BG: Record<string, string> = {
+  meta: 'bg-blue-600', google: 'bg-red-600', shopify: 'bg-green-600',
+  tiktok: 'bg-pink-600', klaviyo: 'bg-purple-600', newsbreak: 'bg-orange-600', checkoutChamp: 'bg-indigo-600',
+};
 
 export default function OnboardingWizard() {
   const navigate = useNavigate();
-  const user = useAuthStore(s => s.user);
-
-  // Already completed onboarding with a provider connected — redirect to dashboard
-  useEffect(() => {
-    if (user?.onboardingCompleted && user?.hasConnectedProvider) navigate('/summary', { replace: true });
-  }, [user?.onboardingCompleted, user?.hasConnectedProvider, navigate]);
-
-  /* ── Phase: 'connect' | 'connected' | 'tour' ──── */
-  const [phase, setPhase] = useState<'connect' | 'connected' | 'tour'>('connect');
-  const [tourIdx, setTourIdx] = useState(0);
+  const markComplete = useAuthStore(s => s.markOnboardingComplete);
 
   /* ── Connection fields (manual fallback) ────────── */
   const [showManual, setShowManual] = useState<Record<string, boolean>>({});
@@ -68,7 +71,6 @@ export default function OnboardingWizard() {
   const [status, setStatus] = useState<IntegrationStatus>({ shopify: 'idle', checkoutChamp: 'idle', meta: 'idle', google: 'idle', tiktok: 'idle', newsbreak: 'idle', klaviyo: 'idle' });
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const [hasAnyData, setHasAnyData] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const webhookBase = typeof window !== 'undefined' ? `${window.location.origin}/api/webhooks` : 'https://your-domain.com/api/webhooks';
@@ -87,7 +89,6 @@ export default function OnboardingWizard() {
         }
         return next;
       });
-      if (statuses.some(s => s.status === 'connected')) setHasAnyData(true);
     } catch {}
   }, []);
 
@@ -105,41 +106,37 @@ export default function OnboardingWizard() {
           checkoutChamp: wh.checkoutChamp ? 'connected' : 'idle',
           meta: fb.connected ? 'connected' : fb.hasToken ? 'testing' : 'idle',
         }));
-        if (wh.shopify || wh.checkoutChamp || fb.connected) setHasAnyData(true);
       } catch {}
       loadOAuthStatuses();
     })();
   }, [loadOAuthStatuses]);
 
-  /* ── Poll for webhook data while on connect screen */
+  /* ── Poll for webhook data ─────────────────────── */
   useEffect(() => {
-    if (phase !== 'connect') return;
     pollRef.current = setInterval(async () => {
       try {
         const wh = await apiFetch<{ shopify: boolean; checkoutChamp: boolean }>('/onboarding/check-webhooks');
         if (wh.shopify) setStatus(prev => ({ ...prev, shopify: 'connected' }));
         if (wh.checkoutChamp) setStatus(prev => ({ ...prev, checkoutChamp: 'connected' }));
-        if (wh.shopify || wh.checkoutChamp) setHasAnyData(true);
       } catch {}
     }, 5000);
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
-  }, [phase]);
+  }, []);
 
   /* ── OAuth success handler ──────────────────────── */
   const handleOAuthSuccess = (platform: keyof IntegrationStatus) => {
     setStatus(prev => ({ ...prev, [platform]: 'connected' }));
-    setHasAnyData(true);
     loadOAuthStatuses();
   };
 
   const handleOAuthError = (msg: string) => {
     setMessage({ type: 'error', text: msg });
+    setTimeout(() => setMessage(null), 4000);
   };
 
   /* ── Save all settings at once ─────────────────── */
   const saveAll = async () => {
     setSaving(true);
-    setMessage(null);
     try {
       const data: Record<string, string> = {};
       if (fbToken) data.fb_access_token = fbToken;
@@ -156,10 +153,7 @@ export default function OnboardingWizard() {
       if (Object.keys(data).length > 0) {
         await apiFetch('/settings', { method: 'POST', body: JSON.stringify(data) });
       }
-      setMessage({ type: 'success', text: 'Saved!' });
-    } catch {
-      setMessage({ type: 'error', text: 'Failed to save' });
-    }
+    } catch {}
     setSaving(false);
   };
 
@@ -171,7 +165,7 @@ export default function OnboardingWizard() {
     try {
       if (fbToken) await apiFetch('/settings', { method: 'POST', body: JSON.stringify({ fb_access_token: fbToken, ...(fbAccounts ? { fb_ad_account_ids: fbAccounts } : {}) }) });
       const r = await apiFetch<{ success: boolean; error?: string; account_name?: string }>('/settings/test/facebook', { method: 'POST' });
-      if (r.success) { setStatus(prev => ({ ...prev, meta: 'connected' })); setFbTestMsg(r.account_name || 'Connected'); setHasAnyData(true); }
+      if (r.success) { setStatus(prev => ({ ...prev, meta: 'connected' })); setFbTestMsg(r.account_name || 'Connected'); }
       else { setStatus(prev => ({ ...prev, meta: 'error' })); setFbTestMsg(r.error || 'Failed'); }
     } catch { setStatus(prev => ({ ...prev, meta: 'error' })); setFbTestMsg('Connection failed'); }
   };
@@ -181,7 +175,7 @@ export default function OnboardingWizard() {
     try {
       if (ccLoginId) await apiFetch('/settings', { method: 'POST', body: JSON.stringify({ cc_login_id: ccLoginId, ...(ccPassword ? { cc_password: ccPassword } : {}), ...(ccApiUrl ? { cc_api_url: ccApiUrl } : {}), ...(ccWebhookSecret ? { cc_webhook_secret: ccWebhookSecret } : {}) }) });
       const r = await apiFetch<{ success: boolean; error?: string }>('/settings/test/checkout-champ', { method: 'POST' });
-      if (r.success) { setStatus(prev => ({ ...prev, checkoutChamp: 'connected' })); setHasAnyData(true); }
+      if (r.success) { setStatus(prev => ({ ...prev, checkoutChamp: 'connected' })); }
       else { setStatus(prev => ({ ...prev, checkoutChamp: 'error' })); }
     } catch { setStatus(prev => ({ ...prev, checkoutChamp: 'error' })); }
   };
@@ -193,338 +187,241 @@ export default function OnboardingWizard() {
       await apiFetch('/settings', { method: 'POST', body: JSON.stringify({ ga4_property_id: ga4PropertyId, ...(ga4CredentialsJson ? { ga4_credentials_json: ga4CredentialsJson } : {}) }) });
       const r = await apiFetch<{ success?: boolean }>('/ga4/test', { method: 'POST' });
       setStatus(prev => ({ ...prev, google: r.success ? 'connected' : 'error' }));
-      if (r.success) setHasAnyData(true);
     } catch { setStatus(prev => ({ ...prev, google: 'error' })); }
   };
 
-  /* ── Go live ───────────────────────────────────── */
+  /* ── Go live — single action ───────────────────── */
   const goLive = async () => {
+    setSaving(true);
     await saveAll();
     await apiFetch('/onboarding/step', { method: 'POST', body: JSON.stringify({ step: 'connect_store', completed: true }) }).catch(() => {});
     await apiFetch('/onboarding/step', { method: 'POST', body: JSON.stringify({ step: 'connect_ads', completed: true }) }).catch(() => {});
-    setPhase('connected');
-  };
-
-  const markComplete = useAuthStore(s => s.markOnboardingComplete);
-
-  const finishOnboarding = async () => {
     await apiFetch('/onboarding/complete', { method: 'POST' }).catch(() => {});
     markComplete();
+    setSaving(false);
     navigate('/summary');
   };
-
-  const startTour = () => { setTourIdx(0); setPhase('tour'); };
 
   const copyUrl = (text: string) => { navigator.clipboard.writeText(text); setMessage({ type: 'success', text: 'Copied!' }); setTimeout(() => setMessage(null), 1500); };
 
   const connectedCount = Object.values(status).filter(s => s === 'connected').length;
-  const totalPlatforms = Object.keys(status).length;
+  const canContinue = connectedCount > 0;
+
+  const statusDotCls = (s: IntegrationStatus[keyof IntegrationStatus]) =>
+    s === 'connected' ? 'bg-emerald-500' : s === 'testing' ? 'bg-amber-500 animate-pulse' : s === 'error' ? 'bg-red-500' : 'bg-ats-text-muted/40';
+
   const inputCls = 'w-full bg-ats-bg border border-ats-border rounded-lg px-4 py-3 text-sm text-ats-text font-mono focus:outline-none focus:border-ats-accent transition-colors';
   const labelCls = 'text-[10px] text-ats-text-muted uppercase tracking-widest font-mono mb-1 block';
-  const statusDot = (s: IntegrationStatus[keyof IntegrationStatus]) =>
-    s === 'connected' ? 'bg-emerald-500' : s === 'testing' ? 'bg-amber-500 animate-pulse' : s === 'error' ? 'bg-red-500' : 'bg-ats-text-muted';
-  const statusLabel = (s: IntegrationStatus[keyof IntegrationStatus]) =>
-    s === 'connected' ? 'Connected' : s === 'testing' ? 'Testing...' : s === 'error' ? 'Error' : 'Not connected';
 
-  /* ════════════════════════════════════════════════ */
-  /* PHASE 1: CONNECT THE BLOOD                       */
-  /* ════════════════════════════════════════════════ */
-  if (phase === 'connect') return (
-    <div className="bg-ats-bg min-h-screen">
-      <div className="max-w-3xl mx-auto px-3 py-6 sm:px-4 sm:py-8">
-        {/* Header */}
-        <div className="text-center mb-6 sm:mb-8">
-          <h1 className="text-2xl sm:text-3xl font-bold text-ats-text mb-2">Connect Your Data Sources</h1>
-          <p className="text-xs sm:text-sm text-ats-text-muted max-w-md mx-auto">
-            Hook up your store and ad platforms so data starts flowing immediately. Click Connect for one-click setup, or enter credentials manually.
-          </p>
+  /* ── Render manual fields for a platform ────────── */
+  const renderManualFields = (platformKey: keyof IntegrationStatus) => {
+    if (platformKey === 'meta') return (
+      <div className="space-y-3 mt-3 pt-3 border-t border-ats-border">
+        <div><label className={labelCls}>Access Token</label><input type="password" value={fbToken} onChange={e => setFbToken(e.target.value)} placeholder="EAAxxxxxxxx..." className={inputCls} /></div>
+        <div><label className={labelCls}>Ad Account IDs (comma-separated)</label><input value={fbAccounts} onChange={e => setFbAccounts(e.target.value)} placeholder="act_123456789, act_987654321" className={inputCls} /></div>
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-3">
+          <button onClick={testMeta} disabled={!fbToken} className="w-full sm:w-auto px-4 py-2.5 sm:py-2 bg-ats-surface border border-ats-border rounded-lg text-xs text-ats-text font-semibold disabled:opacity-40 hover:bg-ats-hover transition-colors">Test Connection</button>
+          {fbTestMsg && <span className={`text-xs ${fbTestMsg.toLowerCase().includes('fail') || fbTestMsg.toLowerCase().includes('error') ? 'text-red-400' : 'text-emerald-400'}`}>{fbTestMsg}</span>}
         </div>
+      </div>
+    );
+    if (platformKey === 'google') return (
+      <div className="space-y-3 mt-3 pt-3 border-t border-ats-border">
+        <div><label className={labelCls}>GA4 Property ID</label><input value={ga4PropertyId} onChange={e => setGa4PropertyId(e.target.value)} placeholder="properties/123456789" className={inputCls} /></div>
+        <div><label className={labelCls}>Service Account JSON (paste credentials)</label><textarea rows={3} value={ga4CredentialsJson} onChange={e => setGa4CredentialsJson(e.target.value)} placeholder='{"type":"service_account","project_id":"..."}' className={`${inputCls} resize-none`} /></div>
+        <button onClick={testGA4} disabled={!ga4PropertyId} className="w-full sm:w-auto px-4 py-2.5 sm:py-2 bg-ats-surface border border-ats-border rounded-lg text-xs text-ats-text font-semibold disabled:opacity-40 hover:bg-ats-hover transition-colors">Test GA4 Connection</button>
+      </div>
+    );
+    if (platformKey === 'shopify') return (
+      <div className="space-y-3 mt-3 pt-3 border-t border-ats-border">
+        <p className="text-xs text-ats-text-muted">Add this webhook URL in Shopify Admin &rarr; Settings &rarr; Notifications &rarr; Webhooks (Order creation)</p>
+        <div className="flex gap-2">
+          <input readOnly value={`${webhookBase}/shopify/YOUR_TOKEN`} className={`${inputCls} text-ats-accent flex-1 min-w-0`} />
+          <button onClick={() => copyUrl(`${webhookBase}/shopify/YOUR_TOKEN`)} className="px-3 sm:px-4 py-3 bg-ats-accent text-white rounded-lg text-xs font-semibold shrink-0">Copy</button>
+        </div>
+        <div><label className={labelCls}>Webhook Secret</label><input type="password" value={shopifySecret} onChange={e => setShopifySecret(e.target.value)} placeholder="shpss_..." className={inputCls} /></div>
+      </div>
+    );
+    if (platformKey === 'checkoutChamp') return (
+      <div className="space-y-3 mt-3 pt-3 border-t border-ats-border">
+        <div className="flex gap-2">
+          <input readOnly value={`${webhookBase}/checkout-champ/YOUR_TOKEN`} className={`${inputCls} text-ats-accent flex-1 min-w-0`} />
+          <button onClick={() => copyUrl(`${webhookBase}/checkout-champ/YOUR_TOKEN`)} className="px-3 sm:px-4 py-3 bg-ats-accent text-white rounded-lg text-xs font-semibold shrink-0">Copy</button>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div><label className={labelCls}>Login ID</label><input type="text" value={ccLoginId} onChange={e => setCcLoginId(e.target.value)} placeholder="API user login ID" className={inputCls} /></div>
+          <div><label className={labelCls}>Password</label><input type="password" value={ccPassword} onChange={e => setCcPassword(e.target.value)} placeholder="API user password" className={inputCls} /></div>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div><label className={labelCls}>API Base URL</label><input value={ccApiUrl} onChange={e => setCcApiUrl(e.target.value)} placeholder="https://api.checkoutchamp.com" className={inputCls} /></div>
+          <div><label className={labelCls}>Webhook Secret</label><input type="password" value={ccWebhookSecret} onChange={e => setCcWebhookSecret(e.target.value)} placeholder="whsec_..." className={inputCls} /></div>
+        </div>
+        <button onClick={testCC} disabled={!ccLoginId && status.checkoutChamp !== 'connected'} className="w-full sm:w-auto px-4 py-2.5 sm:py-2 bg-ats-surface border border-ats-border rounded-lg text-xs text-ats-text font-semibold disabled:opacity-40 hover:bg-ats-hover transition-colors">Test API Connection</button>
+      </div>
+    );
+    return null;
+  };
 
-        {/* Connection status bar */}
-        <div className="bg-ats-card border border-ats-border rounded-xl p-3 sm:p-4 mb-4 sm:mb-6 flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-3 sm:gap-4 flex-wrap">
-            {(['meta', 'google', 'shopify', 'tiktok', 'newsbreak', 'klaviyo', 'checkoutChamp'] as const).map(k => (
-              <div key={k} className="flex items-center gap-1.5">
-                <div className={`w-2 h-2 rounded-full ${statusDot(status[k])}`} />
-                <span className="text-xs text-ats-text-muted capitalize">{k === 'checkoutChamp' ? 'CC' : k}</span>
+  return (
+    <div className="bg-ats-bg min-h-screen flex flex-col">
+      {/* ── Toast ─────────────────────────────────── */}
+      {message && (
+        <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-xl text-xs font-medium shadow-2xl backdrop-blur-sm ${
+          message.type === 'success' ? 'bg-emerald-500/90 text-white' : 'bg-red-500/90 text-white'
+        }`}>
+          {message.text}
+        </div>
+      )}
+
+      {/* ── Scrollable content ────────────────────── */}
+      <div className="flex-1 overflow-y-auto pb-28">
+        <div className="max-w-4xl mx-auto px-4 py-8 sm:px-6 sm:py-12">
+
+          {/* ── Header ─────────────────────────────── */}
+          <div className="text-center mb-8 sm:mb-10">
+            <div className="inline-flex items-center gap-2 mb-4">
+              <div className="w-8 h-8 rounded-lg bg-ats-accent flex items-center justify-center">
+                <span className="text-white text-sm font-bold">O</span>
+              </div>
+              <span className="text-sm font-bold text-ats-text tracking-wide">OpticData</span>
+            </div>
+            <h1 className="text-2xl sm:text-4xl font-bold text-ats-text mb-3">Connect Your Data</h1>
+            <p className="text-sm sm:text-base text-ats-text-muted max-w-lg mx-auto leading-relaxed">
+              Secure, read-only access. We never modify your campaigns or ads.
+            </p>
+          </div>
+
+          {/* ── Trust badges ───────────────────────── */}
+          <div className="flex flex-wrap items-center justify-center gap-3 sm:gap-5 mb-8 sm:mb-10">
+            {[
+              { icon: '\u{1F512}', label: 'Read-only access' },
+              { icon: '\u{1F510}', label: '256-bit encryption' },
+              { icon: '\u{26A1}', label: '2-min setup' },
+            ].map(b => (
+              <div key={b.label} className="flex items-center gap-1.5 px-3 py-1.5 bg-ats-card border border-ats-border rounded-full">
+                <span className="text-xs">{b.icon}</span>
+                <span className="text-[11px] text-ats-text-muted font-medium">{b.label}</span>
               </div>
             ))}
           </div>
-          <span className="text-xs font-mono text-ats-text-muted">{connectedCount}/{totalPlatforms} connected</span>
-        </div>
 
-        {message && <div className={`px-3 py-2 mb-4 rounded-lg text-sm ${message.type === 'success' ? 'bg-emerald-900/50 text-emerald-300' : 'bg-red-900/50 text-red-300'}`}>{message.text}</div>}
+          {/* ── Platform grid ──────────────────────── */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+            {PLATFORMS.map(p => {
+              const s = status[p.key];
+              const isConnected = s === 'connected';
+              const isTesting = s === 'testing';
+              const isManualOpen = showManual[p.key] || false;
 
-        {/* ── Meta / Facebook Ads (OAuth primary) ───── */}
-        <div className="bg-ats-card border border-ats-border rounded-xl p-4 sm:p-5 mb-4">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <span className="text-lg">🔷</span>
-              <h3 className="text-sm font-bold text-ats-text">Meta / Facebook Ads</h3>
-            </div>
-            <div className="flex items-center gap-1.5"><div className={`w-2 h-2 rounded-full ${statusDot(status.meta)}`} /><span className="text-[10px] text-ats-text-muted font-mono">{statusLabel(status.meta)}</span></div>
-          </div>
-          <p className="text-xs text-ats-text-muted mb-3">Connect to pull ad spend, ROAS, creative performance, and attribution data.</p>
-          {status.meta !== 'connected' && (
-            <>
-              <OAuthConnectButton platform="meta" onSuccess={() => handleOAuthSuccess('meta')} onError={handleOAuthError} />
-              <button onClick={() => setShowManual(p => ({ ...p, meta: !p.meta }))} className="ml-3 text-[11px] text-ats-text-muted hover:text-ats-text transition-colors">
-                {showManual.meta ? 'Hide manual' : 'Or enter manually'}
-              </button>
-              {showManual.meta && (
-                <div className="space-y-3 mt-3 pt-3 border-t border-ats-border">
-                  <div><label className={labelCls}>Access Token</label><input type="password" value={fbToken} onChange={e => setFbToken(e.target.value)} placeholder="EAAxxxxxxxx..." className={inputCls} /></div>
-                  <div><label className={labelCls}>Ad Account IDs (comma-separated)</label><input value={fbAccounts} onChange={e => setFbAccounts(e.target.value)} placeholder="act_123456789, act_987654321" className={inputCls} /></div>
-                  <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-3">
-                    <button onClick={testMeta} disabled={!fbToken} className="w-full sm:w-auto px-4 py-2.5 sm:py-2 bg-ats-surface border border-ats-border rounded-lg text-xs text-ats-text font-semibold disabled:opacity-40 hover:bg-ats-hover transition-colors">Test Connection</button>
-                    {fbTestMsg && <span className={`text-xs ${fbTestMsg.toLowerCase().includes('fail') || fbTestMsg.toLowerCase().includes('error') ? 'text-red-400' : 'text-emerald-400'}`}>{fbTestMsg}</span>}
+              return (
+                <div
+                  key={p.key}
+                  className={`bg-ats-card border rounded-xl p-4 sm:p-5 transition-all ${
+                    isConnected ? 'border-emerald-800/40 ring-1 ring-emerald-800/20' : 'border-ats-border'
+                  }`}
+                >
+                  {/* Card header */}
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className={`w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold text-white shrink-0 ${ICON_BG[p.key]}`}>
+                        {p.icon}
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-bold text-ats-text">{p.name}</h3>
+                        <p className="text-[11px] text-ats-text-muted leading-snug mt-0.5">{p.description}</p>
+                      </div>
+                    </div>
+                    <div className={`w-2.5 h-2.5 rounded-full mt-1 shrink-0 ${statusDotCls(s)}`} />
                   </div>
+
+                  {/* Connected state */}
+                  {isConnected && (
+                    <div className="flex items-center gap-1.5 mt-2">
+                      <svg className="w-4 h-4 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                      </svg>
+                      <span className="text-xs font-semibold text-emerald-400">Connected</span>
+                    </div>
+                  )}
+
+                  {/* Not connected: show actions */}
+                  {!isConnected && (
+                    <div className="mt-2">
+                      {/* Shopify: store URL required before OAuth */}
+                      {p.requiresStoreUrl && (
+                        <div className="mb-3">
+                          <label className={labelCls}>Store URL</label>
+                          <input value={shopifyStore} onChange={e => setShopifyStore(e.target.value)} placeholder="mystore.myshopify.com" className={inputCls} />
+                        </div>
+                      )}
+
+                      {/* OAuth button */}
+                      {p.oauth && (
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <OAuthConnectButton
+                            platform={p.key}
+                            storeUrl={p.requiresStoreUrl ? shopifyStore : undefined}
+                            onSuccess={() => handleOAuthSuccess(p.key)}
+                            onError={handleOAuthError}
+                            className="px-4 py-2.5 bg-ats-accent text-white rounded-lg text-xs font-semibold hover:bg-blue-600 active:scale-[0.98] transition-all disabled:opacity-60"
+                          />
+                          {p.manualType && (
+                            <button onClick={() => setShowManual(prev => ({ ...prev, [p.key]: !prev[p.key] }))} className="text-[11px] text-ats-text-muted hover:text-ats-text transition-colors">
+                              {isManualOpen ? 'Hide manual' : 'Manual setup'}
+                            </button>
+                          )}
+                        </div>
+                      )}
+
+                      {/* CheckoutChamp: manual-only, always show configure */}
+                      {!p.oauth && p.manualType && (
+                        <button
+                          onClick={() => setShowManual(prev => ({ ...prev, [p.key]: !prev[p.key] }))}
+                          className="px-4 py-2.5 bg-ats-accent text-white rounded-lg text-xs font-semibold hover:bg-blue-600 active:scale-[0.98] transition-all"
+                        >
+                          {isManualOpen ? 'Hide' : 'Configure'}
+                        </button>
+                      )}
+
+                      {/* Testing indicator */}
+                      {isTesting && (
+                        <div className="flex items-center gap-1.5 mt-2">
+                          <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                          <span className="text-[11px] text-amber-400 font-mono">Testing...</span>
+                        </div>
+                      )}
+
+                      {/* Manual fields disclosure */}
+                      {isManualOpen && p.manualType && renderManualFields(p.key)}
+                    </div>
+                  )}
                 </div>
-              )}
-            </>
-          )}
-          {status.meta === 'connected' && <div className="text-xs text-emerald-400 font-mono">Connected via {status.meta === 'connected' ? 'OAuth' : 'manual'}</div>}
-        </div>
-
-        {/* ── Google / GA4 (OAuth primary) ────────── */}
-        <div className="bg-ats-card border border-ats-border rounded-xl p-4 sm:p-5 mb-4">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <span className="text-lg">🔴</span>
-              <h3 className="text-sm font-bold text-ats-text">Google Analytics 4</h3>
-            </div>
-            <div className="flex items-center gap-1.5"><div className={`w-2 h-2 rounded-full ${statusDot(status.google)}`} /><span className="text-[10px] text-ats-text-muted font-mono">{statusLabel(status.google)}</span></div>
+              );
+            })}
           </div>
-          <p className="text-xs text-ats-text-muted mb-3">Connect for traffic analytics, funnel analysis, and conversion data.</p>
-          {status.google !== 'connected' && (
-            <>
-              <OAuthConnectButton platform="google" onSuccess={() => handleOAuthSuccess('google')} onError={handleOAuthError} />
-              <button onClick={() => setShowManual(p => ({ ...p, google: !p.google }))} className="ml-3 text-[11px] text-ats-text-muted hover:text-ats-text transition-colors">
-                {showManual.google ? 'Hide manual' : 'Or enter manually'}
-              </button>
-              {showManual.google && (
-                <div className="space-y-3 mt-3 pt-3 border-t border-ats-border">
-                  <div><label className={labelCls}>GA4 Property ID</label><input value={ga4PropertyId} onChange={e => setGa4PropertyId(e.target.value)} placeholder="properties/123456789" className={inputCls} /></div>
-                  <div><label className={labelCls}>Service Account JSON (paste credentials)</label><textarea rows={3} value={ga4CredentialsJson} onChange={e => setGa4CredentialsJson(e.target.value)} placeholder='{"type":"service_account","project_id":"..."}' className={`${inputCls} resize-none`} /></div>
-                  <button onClick={testGA4} disabled={!ga4PropertyId} className="w-full sm:w-auto px-4 py-2.5 sm:py-2 bg-ats-surface border border-ats-border rounded-lg text-xs text-ats-text font-semibold disabled:opacity-40 hover:bg-ats-hover transition-colors">Test GA4 Connection</button>
-                </div>
-              )}
-            </>
-          )}
-          {status.google === 'connected' && <div className="text-xs text-emerald-400 font-mono">Connected</div>}
-        </div>
-
-        {/* ── Shopify (OAuth primary) ────────────── */}
-        <div className="bg-ats-card border border-ats-border rounded-xl p-4 sm:p-5 mb-4">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <span className="text-lg">🟢</span>
-              <h3 className="text-sm font-bold text-ats-text">Shopify</h3>
-            </div>
-            <div className="flex items-center gap-1.5"><div className={`w-2 h-2 rounded-full ${statusDot(status.shopify)}`} /><span className="text-[10px] text-ats-text-muted font-mono">{statusLabel(status.shopify)}</span></div>
-          </div>
-          <p className="text-xs text-ats-text-muted mb-3">Connect for order data, product insights, and webhook-based real-time updates.</p>
-          {status.shopify !== 'connected' && (
-            <>
-              <div className="mb-3">
-                <label className={labelCls}>Store URL (required)</label>
-                <input value={shopifyStore} onChange={e => setShopifyStore(e.target.value)} placeholder="mystore.myshopify.com" className={inputCls} />
-              </div>
-              <OAuthConnectButton platform="shopify" storeUrl={shopifyStore} onSuccess={() => handleOAuthSuccess('shopify')} onError={handleOAuthError} />
-              <button onClick={() => setShowManual(p => ({ ...p, shopify: !p.shopify }))} className="ml-3 text-[11px] text-ats-text-muted hover:text-ats-text transition-colors">
-                {showManual.shopify ? 'Hide manual' : 'Or enter manually'}
-              </button>
-              {showManual.shopify && (
-                <div className="space-y-3 mt-3 pt-3 border-t border-ats-border">
-                  <p className="text-xs text-ats-text-muted">Add this webhook URL in Shopify Admin → Settings → Notifications → Webhooks (Order creation)</p>
-                  <div className="flex gap-2">
-                    <input readOnly value={`${webhookBase}/shopify/YOUR_TOKEN`} className={`${inputCls} text-ats-accent flex-1 min-w-0`} />
-                    <button onClick={() => copyUrl(`${webhookBase}/shopify/YOUR_TOKEN`)} className="px-3 sm:px-4 py-3 bg-ats-accent text-white rounded-lg text-xs font-semibold shrink-0">Copy</button>
-                  </div>
-                  <div><label className={labelCls}>Webhook Secret</label><input type="password" value={shopifySecret} onChange={e => setShopifySecret(e.target.value)} placeholder="shpss_..." className={inputCls} /></div>
-                </div>
-              )}
-            </>
-          )}
-          {status.shopify === 'connected' && <div className="text-xs text-emerald-400 font-mono">Connected</div>}
-        </div>
-
-        {/* ── TikTok Ads (OAuth only) ────────────── */}
-        <div className="bg-ats-card border border-ats-border rounded-xl p-4 sm:p-5 mb-4">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <span className="text-lg">🎵</span>
-              <h3 className="text-sm font-bold text-ats-text">TikTok Ads</h3>
-            </div>
-            <div className="flex items-center gap-1.5"><div className={`w-2 h-2 rounded-full ${statusDot(status.tiktok)}`} /><span className="text-[10px] text-ats-text-muted font-mono">{statusLabel(status.tiktok)}</span></div>
-          </div>
-          <p className="text-xs text-ats-text-muted mb-3">Connect for TikTok campaign performance and spend data.</p>
-          {status.tiktok !== 'connected' ? (
-            <OAuthConnectButton platform="tiktok" onSuccess={() => handleOAuthSuccess('tiktok')} onError={handleOAuthError} />
-          ) : (
-            <div className="text-xs text-emerald-400 font-mono">Connected</div>
-          )}
-        </div>
-
-        {/* ── Klaviyo (OAuth only) ───────────────── */}
-        <div className="bg-ats-card border border-ats-border rounded-xl p-4 sm:p-5 mb-4">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <span className="text-lg">💜</span>
-              <h3 className="text-sm font-bold text-ats-text">Klaviyo</h3>
-            </div>
-            <div className="flex items-center gap-1.5"><div className={`w-2 h-2 rounded-full ${statusDot(status.klaviyo)}`} /><span className="text-[10px] text-ats-text-muted font-mono">{statusLabel(status.klaviyo)}</span></div>
-          </div>
-          <p className="text-xs text-ats-text-muted mb-3">Connect for email list metrics, campaign performance, and customer profiles.</p>
-          {status.klaviyo !== 'connected' ? (
-            <OAuthConnectButton platform="klaviyo" onSuccess={() => handleOAuthSuccess('klaviyo')} onError={handleOAuthError} />
-          ) : (
-            <div className="text-xs text-emerald-400 font-mono">Connected</div>
-          )}
-        </div>
-
-        {/* ── NewsBreak (OAuth only) ────────────── */}
-        <div className="bg-ats-card border border-ats-border rounded-xl p-4 sm:p-5 mb-4">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <span className="text-lg">🟠</span>
-              <h3 className="text-sm font-bold text-ats-text">NewsBreak Ads</h3>
-            </div>
-            <div className="flex items-center gap-1.5"><div className={`w-2 h-2 rounded-full ${statusDot(status.newsbreak)}`} /><span className="text-[10px] text-ats-text-muted font-mono">{statusLabel(status.newsbreak)}</span></div>
-          </div>
-          <p className="text-xs text-ats-text-muted mb-3">Connect for NewsBreak campaign performance and spend data.</p>
-          {status.newsbreak !== 'connected' ? (
-            <OAuthConnectButton platform="newsbreak" onSuccess={() => handleOAuthSuccess('newsbreak')} onError={handleOAuthError} />
-          ) : (
-            <div className="text-xs text-emerald-400 font-mono">Connected</div>
-          )}
-        </div>
-
-        {/* ── CheckoutChamp (manual only) ────────── */}
-        <div className="bg-ats-card border border-ats-border rounded-xl p-4 sm:p-5 mb-4">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <span className="text-lg">🔵</span>
-              <h3 className="text-sm font-bold text-ats-text">CheckoutChamp</h3>
-            </div>
-            <div className="flex items-center gap-1.5"><div className={`w-2 h-2 rounded-full ${statusDot(status.checkoutChamp)}`} /><span className="text-[10px] text-ats-text-muted font-mono">{statusLabel(status.checkoutChamp)}</span></div>
-          </div>
-          <p className="text-xs text-ats-text-muted mb-3">Add the webhook URL as a postback in your CC campaign settings, or enter API credentials for polling.</p>
-          <div className="flex gap-2 mb-3">
-            <input readOnly value={`${webhookBase}/checkout-champ/YOUR_TOKEN`} className={`${inputCls} text-ats-accent flex-1 min-w-0`} />
-            <button onClick={() => copyUrl(`${webhookBase}/checkout-champ/YOUR_TOKEN`)} className="px-3 sm:px-4 py-3 bg-ats-accent text-white rounded-lg text-xs font-semibold shrink-0">Copy</button>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
-            <div><label className={labelCls}>Login ID</label><input type="text" value={ccLoginId} onChange={e => setCcLoginId(e.target.value)} placeholder="API user login ID" className={inputCls} /></div>
-            <div><label className={labelCls}>Password</label><input type="password" value={ccPassword} onChange={e => setCcPassword(e.target.value)} placeholder="API user password" className={inputCls} /></div>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
-            <div><label className={labelCls}>API Base URL</label><input value={ccApiUrl} onChange={e => setCcApiUrl(e.target.value)} placeholder="https://api.checkoutchamp.com" className={inputCls} /></div>
-            <div><label className={labelCls}>Webhook Secret</label><input type="password" value={ccWebhookSecret} onChange={e => setCcWebhookSecret(e.target.value)} placeholder="whsec_..." className={inputCls} /></div>
-          </div>
-          <button onClick={testCC} disabled={!ccLoginId && status.checkoutChamp !== 'connected'} className="w-full sm:w-auto px-4 py-2.5 sm:py-2 bg-ats-surface border border-ats-border rounded-lg text-xs text-ats-text font-semibold disabled:opacity-40 hover:bg-ats-hover transition-colors">Test API Connection</button>
-        </div>
-
-        {/* ── Action buttons ───────────────────────── */}
-        <div className="space-y-3">
-          <button onClick={goLive} disabled={connectedCount === 0} className={`w-full py-4 rounded-xl text-sm font-bold transition-colors active:scale-[0.98] ${connectedCount > 0 ? 'bg-ats-accent text-white hover:bg-blue-600 shadow-lg shadow-ats-accent/20' : 'bg-ats-border text-ats-text-muted cursor-not-allowed'}`}>
-            {connectedCount > 0 ? `Save & Go Live (${connectedCount} connected)` : 'Connect at least one platform to continue'}
-          </button>
         </div>
       </div>
-    </div>
-  );
 
-  /* ════════════════════════════════════════════════ */
-  /* PHASE 2: CONNECTED — CHOOSE TOUR OR SKIP        */
-  /* ════════════════════════════════════════════════ */
-  if (phase === 'connected') return (
-    <div className="bg-ats-bg min-h-screen flex items-center justify-center px-3 py-8 sm:p-4">
-      <div className="w-full max-w-lg text-center">
-        <div className="text-5xl sm:text-6xl mb-4 sm:mb-6">🔌</div>
-        <h1 className="text-2xl sm:text-3xl font-bold text-ats-text mb-2">You're Connected!</h1>
-        <p className="text-xs sm:text-sm text-ats-text-muted mb-2 max-w-sm mx-auto">
-          Data will start flowing within minutes. Your dashboard is ready to use.
-        </p>
-
-        {/* Connected summary */}
-        <div className="bg-ats-card border border-ats-border rounded-xl p-3 sm:p-4 mb-6 sm:mb-8 flex flex-wrap justify-center gap-3 sm:gap-4 mx-auto">
-          {(['meta', 'google', 'shopify', 'tiktok', 'newsbreak', 'klaviyo', 'checkoutChamp'] as const).map(k => (
-            <div key={k} className="flex items-center gap-1.5">
-              <div className={`w-2.5 h-2.5 rounded-full ${statusDot(status[k])}`} />
-              <span className={`text-xs font-mono ${status[k] === 'connected' ? 'text-emerald-400' : 'text-ats-text-muted'}`}>
-                {k === 'checkoutChamp' ? 'CC' : k.charAt(0).toUpperCase() + k.slice(1)}
-              </span>
-            </div>
-          ))}
-        </div>
-
-        <div className="space-y-3 max-w-sm mx-auto">
-          <button onClick={finishOnboarding} className="w-full py-4 bg-ats-accent text-white rounded-xl text-sm font-bold hover:bg-blue-600 transition-colors shadow-lg shadow-ats-accent/20 active:scale-[0.98]">
-            Go to Dashboard
-          </button>
-          <button onClick={startTour} className="w-full py-3 bg-ats-card border border-ats-border text-ats-text rounded-xl text-sm font-semibold hover:bg-ats-hover transition-colors active:scale-[0.98]">
-            Take a Quick Tour ({TOUR_PAGES.length} pages, ~2 min)
+      {/* ── Sticky CTA footer ─────────────────────── */}
+      <div className="fixed bottom-0 left-0 right-0 bg-ats-card/95 backdrop-blur-md border-t border-ats-border z-40">
+        <div className="max-w-4xl mx-auto px-4 py-4 sm:px-6 flex items-center justify-between gap-4">
+          <span className="text-xs text-ats-text-muted font-mono">
+            {connectedCount > 0
+              ? `${connectedCount} platform${connectedCount > 1 ? 's' : ''} connected`
+              : 'Connect at least 1 platform to continue'}
+          </span>
+          <button
+            onClick={goLive}
+            disabled={!canContinue || saving}
+            className={`px-6 py-3 rounded-xl text-sm font-bold transition-all active:scale-[0.98] whitespace-nowrap ${
+              canContinue
+                ? 'bg-ats-accent text-white hover:bg-blue-600 shadow-lg shadow-ats-accent/20'
+                : 'bg-ats-border text-ats-text-muted cursor-not-allowed'
+            }`}
+          >
+            {saving ? 'Saving...' : 'Continue to Dashboard \u2192'}
           </button>
         </div>
-      </div>
-    </div>
-  );
-
-  /* ════════════════════════════════════════════════ */
-  /* PHASE 3: OPTIONAL GUIDED TOUR                    */
-  /* ════════════════════════════════════════════════ */
-  const page = TOUR_PAGES[tourIdx];
-  const isLast = tourIdx === TOUR_PAGES.length - 1;
-
-  return (
-    <div className="bg-ats-bg min-h-screen flex items-center justify-center px-3 py-6 sm:p-4">
-      <div className="w-full max-w-lg">
-        {/* Progress bar */}
-        <div className="flex gap-0.5 sm:gap-1 mb-4 sm:mb-6">
-          {TOUR_PAGES.map((_, i) => (
-            <div key={i} className={`h-1 flex-1 rounded-full transition-colors ${i <= tourIdx ? 'bg-ats-accent' : 'bg-ats-border'}`} />
-          ))}
-        </div>
-
-        <div className="bg-ats-card border border-ats-border rounded-2xl p-5 sm:p-8 shadow-xl">
-          <div className="text-center mb-6">
-            <div className="text-4xl sm:text-5xl mb-3 sm:mb-4">{page.icon}</div>
-            <div className="text-[10px] text-ats-text-muted uppercase font-mono tracking-widest mb-2">{tourIdx + 1} of {TOUR_PAGES.length}</div>
-            <h2 className="text-xl sm:text-2xl font-bold text-ats-text mb-2">{page.title}</h2>
-            <p className="text-xs sm:text-sm text-ats-text-muted leading-relaxed max-w-sm mx-auto">{page.desc}</p>
-          </div>
-
-          <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4">
-            <button
-              onClick={() => tourIdx > 0 ? setTourIdx(tourIdx - 1) : setPhase('connected')}
-              className="px-5 py-3 text-sm text-ats-text-muted hover:text-ats-text transition-colors rounded-lg hover:bg-ats-surface text-center sm:text-left"
-            >
-              {tourIdx > 0 ? 'Back' : 'Exit'}
-            </button>
-            <div className="flex flex-col sm:flex-row items-center gap-3">
-              {isLast ? (
-                <button onClick={finishOnboarding} className="w-full sm:w-auto px-6 py-3 bg-ats-accent text-white rounded-xl text-sm font-bold hover:bg-blue-600 transition-colors shadow-lg shadow-ats-accent/20 active:scale-[0.98]">
-                  Go to Dashboard
-                </button>
-              ) : (
-                <button onClick={() => setTourIdx(tourIdx + 1)} className="w-full sm:w-auto px-6 py-3 bg-ats-accent text-white rounded-xl text-sm font-bold hover:bg-blue-600 transition-colors active:scale-[0.98]">
-                  Next
-                </button>
-              )}
-              <button onClick={finishOnboarding} className="text-xs sm:text-sm text-ats-text-muted hover:text-ats-text transition-colors py-1">
-                Skip to Dashboard
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <button
-          onClick={() => { finishOnboarding(); setTimeout(() => navigate(page.path), 100); }}
-          className="mt-3 sm:mt-4 text-xs text-ats-accent hover:underline block text-center w-full py-2"
-        >
-          Open {page.title} now →
-        </button>
       </div>
     </div>
   );

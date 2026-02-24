@@ -53,10 +53,10 @@ export default function CreativeAnalysisPage() {
 
   const cardCls = 'bg-ats-card rounded-xl p-4 border border-ats-border';
 
-  if (loading) return <PageShell title="Creative Analysis" subtitle="Ad creative performance"><div className="h-20 bg-ats-card rounded-xl animate-pulse" /></PageShell>;
+  if (loading) return <PageShell title="Creative Analysis" showDatePicker subtitle="Ad creative performance"><div className="h-20 bg-ats-card rounded-xl animate-pulse" /></PageShell>;
 
   if (!creatives.length) return (
-    <PageShell title="Creative Analysis" subtitle="Ad creative performance">
+    <PageShell title="Creative Analysis" showDatePicker subtitle="Ad creative performance">
       <div className={`${cardCls} text-center p-8`}>
         <div className="text-4xl mb-4">🎨</div>
         <h3 className="text-lg font-bold text-ats-text mb-2">No Creative Data Yet</h3>
@@ -67,7 +67,7 @@ export default function CreativeAnalysisPage() {
   );
 
   return (
-    <PageShell title="Creative Analysis" subtitle="Ad creative performance" actions={
+    <PageShell title="Creative Analysis" showDatePicker subtitle="Ad creative performance" actions={
       <div className="flex flex-wrap gap-2">
         <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search..." className="bg-ats-surface border border-ats-border rounded-lg px-3 py-1.5 text-sm text-ats-text" />
         <select value={platform} onChange={e => setPlatform(e.target.value)} className="bg-ats-surface border border-ats-border rounded-lg px-3 py-1.5 text-sm text-ats-text">

@@ -9,7 +9,7 @@ const router = Router();
 router.get('/', async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
-    const af = parseAccountFilter(req.query as Record<string, any>, 2);
+    const af = await parseAccountFilter(req.query as Record<string, any>, 2, userId);
     const result = await pool.query(
       `SELECT * FROM pixel_configs WHERE user_id = $1 ${af.clause} ORDER BY funnel_page ASC`,
       [userId, ...af.params]

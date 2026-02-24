@@ -150,7 +150,7 @@ export default function CreativeAnalyticsPage() {
   ];
 
   return (
-    <PageShell title="Creative Analytics" subtitle="Motion-grade creative performance analysis" actions={
+    <PageShell title="Creative Analytics" showDatePicker subtitle="Motion-grade creative performance analysis" actions={
       <div className="flex items-center gap-2">
         <button onClick={handleSnapshot} className="px-3 py-1.5 bg-ats-card border border-ats-border rounded-lg text-sm text-ats-text-muted hover:text-ats-text">Share Snapshot</button>
         <AIPanel filters={{ platform }} dateFrom={dateFrom} dateTo={dateTo} />

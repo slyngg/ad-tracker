@@ -74,10 +74,10 @@ export default function WebsitePerformancePage() {
   const cardCls = 'bg-ats-card rounded-xl p-4 border border-ats-border';
   const kpiLabel = 'text-xs sm:text-[11px] text-ats-text-muted uppercase tracking-widest font-mono mb-1';
 
-  if (loading) return <PageShell title="Website Performance" subtitle="GA4 web analytics"><div className="space-y-3">{[...Array(4)].map((_, i) => <div key={i} className="h-20 bg-ats-card rounded-xl animate-pulse" />)}</div></PageShell>;
+  if (loading) return <PageShell title="Website Performance" showDatePicker subtitle="GA4 web analytics"><div className="space-y-3">{[...Array(4)].map((_, i) => <div key={i} className="h-20 bg-ats-card rounded-xl animate-pulse" />)}</div></PageShell>;
 
   if (!hasGA4) return (
-    <PageShell title="Website Performance" subtitle="GA4 web analytics">
+    <PageShell title="Website Performance" showDatePicker subtitle="GA4 web analytics">
       <div className="bg-ats-card rounded-xl border border-ats-border p-8 text-center">
         <div className="text-4xl mb-4">📊</div>
         <h3 className="text-lg font-bold text-ats-text mb-2">Connect Google Analytics 4</h3>
@@ -88,7 +88,7 @@ export default function WebsitePerformancePage() {
   );
 
   return (
-    <PageShell title="Website Performance" subtitle="GA4 web analytics" actions={
+    <PageShell title="Website Performance" showDatePicker subtitle="GA4 web analytics" actions={
       <div className="flex gap-2">{['7', '14', '30', '90'].map(p => (
         <button key={p} onClick={() => setPeriod(p)} className={`px-3 py-1.5 rounded-md text-xs font-mono ${period === p ? 'bg-ats-accent text-white' : 'bg-ats-border text-ats-text-muted hover:bg-ats-hover'}`}>{p}d</button>
       ))}</div>

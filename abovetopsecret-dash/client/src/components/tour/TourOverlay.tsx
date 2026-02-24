@@ -2,7 +2,6 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useTourStore } from '../../stores/tourStore';
-import { useSidebarStore } from '../../stores/sidebarStore';
 import TourTooltip from './TourTooltip';
 
 export default function TourOverlay() {
@@ -36,16 +35,6 @@ export default function TourOverlay() {
       navigate(step.route);
     }
   }, [active, step, location.pathname, navigate]);
-
-  // For sidebar-targeted steps on desktop, the sidebar is always visible.
-  // Mobile tour steps never target nav- elements (they skip sidebar interaction).
-  // This is a no-op safety check in case desktop tour runs at a narrow viewport.
-  useEffect(() => {
-    if (!active || !step) return;
-    if (step.target.startsWith('nav-') && window.innerWidth >= 1024) {
-      // Sidebar is permanently visible on desktop — no action needed
-    }
-  }, [active, step]);
 
   // Track target element position with ResizeObserver + scroll/resize
   useEffect(() => {
@@ -116,19 +105,7 @@ export default function TourOverlay() {
       const tourEl = document.querySelector(`[data-tour="${step.target}"]`);
 
       // Allow interaction on the target element (or its children)
-      if (tourEl?.contains(target)) {
-        if (step.advanceOnClick) {
-          setTimeout(() => next(), 50);
-        }
-        return;
-      }
-
-      // On mobile, allow scrolling within the sidebar so the user can reach
-      // nav items that are below the fold (e.g. Settings, Connections)
-      if (step.target.startsWith('nav-')) {
-        const sidebar = target.closest('aside');
-        if (sidebar && e.type === 'touchstart') return; // allow touch-scroll in sidebar
-      }
+      if (tourEl?.contains(target)) return;
 
       // Block all other interaction (including when target element isn't found)
       e.preventDefault();
@@ -142,7 +119,7 @@ export default function TourOverlay() {
       document.removeEventListener('click', handler, { capture: true } as EventListenerOptions);
       document.removeEventListener('touchstart', handler, { capture: true } as EventListenerOptions);
     };
-  }, [active, step, next]);
+  }, [active, step]);
 
   if (!active || !step) return null;
 

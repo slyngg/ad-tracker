@@ -19,7 +19,7 @@ router.get('/csv', async (req: Request, res: Response) => {
     const userId = (req as any).user?.id as number | undefined;
     const userFilter = userId ? 'AND user_id = $1' : 'AND user_id IS NULL';
     const userParams = userId ? [userId] : [];
-    const af = parseAccountFilter(req.query as Record<string, any>, userParams.length + 1);
+    const af = await parseAccountFilter(req.query as Record<string, any>, userParams.length + 1, userId);
     const allParams = [...userParams, ...af.params];
 
     const coreResult = await pool.query(`

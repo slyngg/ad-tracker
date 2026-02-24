@@ -197,7 +197,7 @@ router.get('/breakdown', async (req: Request, res: Response) => {
     const uf = userId ? 'WHERE user_id = $1' : '';
     const ufAnd = userId ? 'AND user_id = $1' : '';
     const params = userId ? [userId] : [];
-    const baf = parseAccountFilter(req.query as Record<string, any>, params.length + 1);
+    const baf = await parseAccountFilter(req.query as Record<string, any>, params.length + 1, userId);
     const bAllParams = [...params, ...baf.params];
     // For WHERE-prefixed queries, convert af.clause (AND ...) to additional WHERE if no userId
     const ufWithAf = uf ? `${uf} ${baf.clause}` : (baf.clause ? `WHERE 1=1 ${baf.clause}` : '');
@@ -272,7 +272,7 @@ router.get('/funnel', async (req: Request, res: Response) => {
     const uf = userId ? 'WHERE user_id = $1' : '';
     const ufAnd = userId ? 'AND user_id = $1' : '';
     const params = userId ? [userId] : [];
-    const faf = parseAccountFilter(req.query as Record<string, any>, params.length + 1);
+    const faf = await parseAccountFilter(req.query as Record<string, any>, params.length + 1, userId);
     const fAllParams = [...params, ...faf.params];
     const ufFunnel = uf ? `${uf} ${faf.clause}` : (faf.clause ? `WHERE 1=1 ${faf.clause}` : '');
 
@@ -332,7 +332,7 @@ router.get('/source-medium', async (req: Request, res: Response) => {
     const dateRange = (req.query.dateRange as string) || 'today';
     const ufAnd = userId ? 'AND user_id = $1' : '';
     const params = userId ? [userId] : [];
-    const smaf = parseAccountFilter(req.query as Record<string, any>, params.length + 1);
+    const smaf = await parseAccountFilter(req.query as Record<string, any>, params.length + 1, userId);
     const smAllParams = [...params, ...smaf.params];
 
     let query: string;
@@ -437,7 +437,7 @@ router.get('/pnl', async (req: Request, res: Response) => {
     const uf = userId ? 'WHERE user_id = $1' : '';
     const ufAnd = userId ? 'AND user_id = $1' : '';
     const params = userId ? [userId] : [];
-    const paf = parseAccountFilter(req.query as Record<string, any>, params.length + 1);
+    const paf = await parseAccountFilter(req.query as Record<string, any>, params.length + 1, userId);
     const pAllParams = [...params, ...paf.params];
     const ufPnl = uf ? `${uf} ${paf.clause}` : (paf.clause ? `WHERE 1=1 ${paf.clause}` : '');
 
