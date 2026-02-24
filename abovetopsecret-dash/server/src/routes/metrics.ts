@@ -138,9 +138,7 @@ router.get('/', async (req: Request, res: Response) => {
       ORDER BY spend DESC
     `;
 
-    console.log('[Metrics] userId:', userId, 'allParams:', allParams, 'af.clause:', af.clause);
     const coreResult = await pool.query(coreQuery, allParams);
-    console.log('[Metrics] coreResult.rows.length:', coreResult.rows.length, 'sample:', coreResult.rows[0]);
     let rows: MetricRow[] = coreResult.rows.map((r) => ({
       ...r,
       spend: parseFloat(r.spend) || 0,

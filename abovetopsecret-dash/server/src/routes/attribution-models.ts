@@ -53,19 +53,22 @@ router.get('/data', async (req: Request, res: Response) => {
     const params = userId ? [userId] : [];
 
     // Multi-platform: UNION all ad tables, resolve account names via LEFT JOIN
+    // Include platform-reported conversions/revenue as fallback for users without CC orders
     const result = await pool.query(`
       WITH ad_metrics AS (
         SELECT source, SUM(spend) AS spend, SUM(clicks) AS clicks, SUM(impressions) AS impressions,
+          SUM(platform_conversions) AS platform_conversions,
+          SUM(platform_revenue) AS platform_revenue,
           CASE WHEN SUM(impressions) > 0 THEN SUM(clicks)::NUMERIC / SUM(impressions) * 100 ELSE 0 END AS ctr,
           CASE WHEN SUM(clicks) > 0 THEN SUM(spend) / SUM(clicks) ELSE 0 END AS cpc,
           CASE WHEN SUM(impressions) > 0 THEN SUM(spend) / SUM(impressions) * 1000 ELSE 0 END AS cpm
         FROM (
-          SELECT account_name AS source, spend, clicks, impressions FROM fb_ads_today ${uf}
+          SELECT account_name AS source, spend, clicks, impressions, 0::NUMERIC AS platform_conversions, 0::NUMERIC AS platform_revenue FROM fb_ads_today ${uf}
           UNION ALL
-          SELECT a.name AS source, t.spend, t.clicks, t.impressions
+          SELECT COALESCE(a.name, 'TikTok') AS source, t.spend, t.clicks, t.impressions, COALESCE(t.conversions, 0)::NUMERIC, COALESCE(t.conversion_value, 0)::NUMERIC
           FROM tiktok_ads_today t LEFT JOIN accounts a ON a.id = t.account_id ${uf.replace('WHERE', 'WHERE t.')}
           UNION ALL
-          SELECT a.name AS source, n.spend, n.clicks, n.impressions
+          SELECT COALESCE(a.name, 'NewsBreak') AS source, n.spend, n.clicks, n.impressions, COALESCE(n.conversions, 0)::NUMERIC, COALESCE(n.conversion_value, 0)::NUMERIC
           FROM newsbreak_ads_today n LEFT JOIN accounts a ON a.platform = 'newsbreak' AND a.user_id = n.user_id ${uf.replace('WHERE', 'WHERE n.')}
         ) all_ads
         GROUP BY source
@@ -84,10 +87,10 @@ router.get('/data', async (req: Request, res: Response) => {
         COALESCE(a.source, o.source) AS source,
         COALESCE(a.spend, 0) AS spend,
         COALESCE(a.spend, 0) AS budget,
-        COALESCE(o.purchases, 0) AS purchases,
-        COALESCE(o.revenue, 0) AS revenue,
-        CASE WHEN COALESCE(a.spend, 0) > 0 THEN COALESCE(o.revenue, 0) / a.spend ELSE 0 END AS roas,
-        CASE WHEN COALESCE(o.purchases, 0) > 0 THEN COALESCE(a.spend, 0) / o.purchases ELSE 0 END AS cpa,
+        GREATEST(COALESCE(o.purchases, 0), COALESCE(a.platform_conversions, 0)) AS purchases,
+        GREATEST(COALESCE(o.revenue, 0), COALESCE(a.platform_revenue, 0)) AS revenue,
+        CASE WHEN COALESCE(a.spend, 0) > 0 THEN GREATEST(COALESCE(o.revenue, 0), COALESCE(a.platform_revenue, 0)) / a.spend ELSE 0 END AS roas,
+        CASE WHEN GREATEST(COALESCE(o.purchases, 0), COALESCE(a.platform_conversions, 0)) > 0 THEN COALESCE(a.spend, 0) / GREATEST(COALESCE(o.purchases, 0), COALESCE(a.platform_conversions, 0)) ELSE 0 END AS cpa,
         CASE WHEN COALESCE(o.new_customer_orders, 0) > 0 THEN COALESCE(a.spend, 0) / o.new_customer_orders ELSE 0 END AS nc_cpa,
         CASE WHEN COALESCE(a.spend, 0) > 0 AND COALESCE(o.new_customer_orders, 0) > 0
           THEN (SELECT SUM(COALESCE(subtotal, revenue)) FROM cc_orders_today WHERE new_customer AND (is_test = false OR is_test IS NULL) AND utm_source = COALESCE(a.source, o.source) ${ufAnd}) / a.spend
