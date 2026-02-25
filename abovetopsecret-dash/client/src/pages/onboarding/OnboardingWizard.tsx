@@ -92,6 +92,8 @@ export default function OnboardingWizard() {
   const [addingBrand, setAddingBrand] = useState(false);
   const [assigningAccount, setAssigningAccount] = useState<number | null>(null);
   const [expandedClient, setExpandedClient] = useState<number | null>(null);
+  const [showNextTooltip, setShowNextTooltip] = useState(false);
+  const nextTooltipTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const newClientInputRef = useRef<HTMLInputElement>(null);
   const newBrandInputRef = useRef<HTMLInputElement>(null);
 
@@ -142,7 +144,7 @@ export default function OnboardingWizard() {
         if (wh.checkoutChamp) setStatus(prev => ({ ...prev, checkoutChamp: 'connected' }));
       } catch {}
     }, 5000);
-    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+    return () => { if (pollRef.current) clearInterval(pollRef.current); if (nextTooltipTimer.current) clearTimeout(nextTooltipTimer.current); };
   }, []);
 
   /* ── OAuth handlers ──────────────────────────────── */
@@ -741,46 +743,55 @@ export default function OnboardingWizard() {
       </div>
 
       {/* ── Sticky CTA footer ─────────────────────── */}
-      <div className="fixed bottom-0 left-0 right-0 bg-ats-card/95 backdrop-blur-md border-t border-ats-border z-40">
-        <div className="max-w-lg mx-auto px-4 py-4 sm:px-6">
-          {currentStep === 1 ? (
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-xs text-ats-text-muted font-mono">
-                {connectedCount > 0
-                  ? `${connectedCount} platform${connectedCount > 1 ? 's' : ''} connected`
-                  : 'Connect at least 1 platform'}
-              </span>
-              <button
-                onClick={goToStep2}
-                disabled={!canContinue || saving}
-                className={`px-6 py-3.5 rounded-xl text-sm font-bold transition-all active:scale-[0.97] whitespace-nowrap ${
-                  canContinue
-                    ? 'bg-ats-accent text-white hover:bg-blue-600 shadow-lg shadow-ats-accent/20'
-                    : 'bg-ats-border text-ats-text-muted cursor-not-allowed'
-                }`}
-              >
-                {saving ? 'Saving...' : 'Next'}
-              </button>
-            </div>
+      <div className="fixed bottom-0 left-0 right-0 z-40">
+        {currentStep === 1 ? (
+          <div className="relative">
+            {showNextTooltip && (
+              <div className="absolute left-1/2 -translate-x-1/2 -top-12 bg-gray-900 text-white text-xs font-medium px-4 py-2 rounded-lg shadow-lg whitespace-nowrap animate-fade-in">
+                Connect at least 1 data provider to continue
+                <div className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-l-[6px] border-r-[6px] border-t-[6px] border-l-transparent border-r-transparent border-t-gray-900" />
+              </div>
+            )}
+            <button
+              onClick={() => {
+                if (!canContinue) {
+                  setShowNextTooltip(true);
+                  if (nextTooltipTimer.current) clearTimeout(nextTooltipTimer.current);
+                  nextTooltipTimer.current = setTimeout(() => setShowNextTooltip(false), 2500);
+                  return;
+                }
+                goToStep2();
+              }}
+              disabled={saving}
+              className={`w-full py-5 text-sm font-bold transition-all backdrop-blur-md border-t border-ats-border ${
+                canContinue
+                  ? 'bg-ats-accent/95 text-white hover:bg-blue-600 active:scale-[0.99] shadow-lg shadow-ats-accent/20'
+                  : 'bg-gray-400/90 text-white/70 cursor-default'
+              }`}
+            >
+              {saving ? 'Saving...' : 'Next'}
+            </button>
+          </div>
           ) : (
-            <div className="flex flex-col gap-2.5">
-              <button
-                onClick={goLive}
-                disabled={saving}
-                className="w-full py-3.5 min-h-[52px] rounded-xl text-sm font-bold bg-ats-accent text-white hover:bg-blue-600 active:scale-[0.98] transition-all shadow-lg shadow-ats-accent/20 disabled:opacity-60"
-              >
-                {saving ? 'Finishing...' : 'Continue to Dashboard'}
-              </button>
-              <button
-                onClick={goLive}
-                disabled={saving}
-                className="w-full py-3 min-h-[48px] rounded-xl text-xs font-medium text-ats-text-muted hover:text-ats-text active:scale-[0.98] transition-all"
-              >
-                Skip for now
-              </button>
+            <div className="bg-ats-card/95 backdrop-blur-md border-t border-ats-border">
+              <div className="max-w-lg mx-auto px-4 py-4 sm:px-6 flex flex-col gap-2.5">
+                <button
+                  onClick={goLive}
+                  disabled={saving}
+                  className="w-full py-3.5 min-h-[52px] rounded-xl text-sm font-bold bg-ats-accent text-white hover:bg-blue-600 active:scale-[0.98] transition-all shadow-lg shadow-ats-accent/20 disabled:opacity-60"
+                >
+                  {saving ? 'Finishing...' : 'Continue to Dashboard'}
+                </button>
+                <button
+                  onClick={goLive}
+                  disabled={saving}
+                  className="w-full py-3 min-h-[48px] rounded-xl text-xs font-medium text-ats-text-muted hover:text-ats-text active:scale-[0.98] transition-all"
+                >
+                  Skip for now
+                </button>
+              </div>
             </div>
           )}
-        </div>
       </div>
     </div>
   );
