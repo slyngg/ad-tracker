@@ -316,13 +316,30 @@ router.get('/summary', async (req: Request, res: Response) => {
         ${prevUserFilter}
     `, prevTzParams);
 
+    // Previous platform revenue (NewsBreak + TikTok conversion_value from archive)
+    const prevPlatformResult = await pool.query(`
+      SELECT
+        COALESCE((SELECT SUM((ad_data->>'conversion_value')::NUMERIC) FROM newsbreak_ads_archive
+          WHERE archived_date = (NOW() AT TIME ZONE $${tzIdx})::DATE - 1 ${prevUserFilter}), 0) +
+        COALESCE((SELECT SUM((ad_data->>'conversion_value')::NUMERIC) FROM tiktok_ads_archive
+          WHERE archived_date = (NOW() AT TIME ZONE $${tzIdx})::DATE - 1 ${prevUserFilter}), 0) AS prev_platform_revenue,
+        COALESCE((SELECT SUM((ad_data->>'conversions')::NUMERIC) FROM newsbreak_ads_archive
+          WHERE archived_date = (NOW() AT TIME ZONE $${tzIdx})::DATE - 1 ${prevUserFilter}), 0) +
+        COALESCE((SELECT SUM((ad_data->>'conversions')::NUMERIC) FROM tiktok_ads_archive
+          WHERE archived_date = (NOW() AT TIME ZONE $${tzIdx})::DATE - 1 ${prevUserFilter}), 0) AS prev_platform_conversions
+    `, prevTzParams);
+
     const row = result.rows[0];
     const totalSpend = parseFloat(row.total_spend) || 0;
     const totalRevenue = parseFloat(row.total_revenue) || 0;
 
     const prevSpend = parseFloat(prevSpendResult.rows[0]?.prev_spend) || 0;
-    const prevRevenue = parseFloat(prevOrdersResult.rows[0]?.prev_revenue) || 0;
-    const prevConversions = parseInt(prevOrdersResult.rows[0]?.prev_conversions) || 0;
+    const prevCcRevenue = parseFloat(prevOrdersResult.rows[0]?.prev_revenue) || 0;
+    const prevPlatformRevenue = parseFloat(prevPlatformResult.rows[0]?.prev_platform_revenue) || 0;
+    const prevRevenue = Math.max(prevCcRevenue, prevPlatformRevenue);
+    const prevCcConversions = parseInt(prevOrdersResult.rows[0]?.prev_conversions) || 0;
+    const prevPlatformConversions = parseInt(prevPlatformResult.rows[0]?.prev_platform_conversions) || 0;
+    const prevConversions = Math.max(prevCcConversions, prevPlatformConversions);
     const prevRoi = prevSpend > 0 ? prevRevenue / prevSpend : 0;
 
     // Only include previous data if there's actually archived data for yesterday

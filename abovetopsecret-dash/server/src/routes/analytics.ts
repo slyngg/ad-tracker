@@ -70,8 +70,19 @@ router.get('/timeseries', async (req: Request, res: Response) => {
             archived_date AS date,
             COALESCE(SUM((ad_data->>'spend')::NUMERIC), 0) AS spend,
             COALESCE(SUM((ad_data->>'clicks')::NUMERIC), 0) AS clicks,
-            COALESCE(SUM((ad_data->>'impressions')::NUMERIC), 0) AS impressions
+            COALESCE(SUM((ad_data->>'impressions')::NUMERIC), 0) AS impressions,
+            COALESCE(SUM((ad_data->>'conversion_value')::NUMERIC), 0) AS conversion_value,
+            COALESCE(SUM((ad_data->>'conversions')::NUMERIC), 0) AS conversions
           FROM newsbreak_ads_archive
+          WHERE ${dateFilterClause} ${uf}
+          GROUP BY archived_date
+        ),
+        tiktok_platform_data AS (
+          SELECT
+            archived_date AS date,
+            COALESCE(SUM((ad_data->>'conversion_value')::NUMERIC), 0) AS conversion_value,
+            COALESCE(SUM((ad_data->>'conversions')::NUMERIC), 0) AS conversions
+          FROM tiktok_ads_archive
           WHERE ${dateFilterClause} ${uf}
           GROUP BY archived_date
         ),
@@ -80,10 +91,13 @@ router.get('/timeseries', async (req: Request, res: Response) => {
             COALESCE(m.date, t.date, n.date) AS date,
             COALESCE(m.spend, 0) + COALESCE(t.spend, 0) + COALESCE(n.spend, 0) AS spend,
             COALESCE(m.clicks, 0) + COALESCE(t.clicks, 0) + COALESCE(n.clicks, 0) AS clicks,
-            COALESCE(m.impressions, 0) + COALESCE(t.impressions, 0) + COALESCE(n.impressions, 0) AS impressions
+            COALESCE(m.impressions, 0) + COALESCE(t.impressions, 0) + COALESCE(n.impressions, 0) AS impressions,
+            COALESCE(n.conversion_value, 0) + COALESCE(tp.conversion_value, 0) AS platform_revenue,
+            COALESCE(n.conversions, 0) + COALESCE(tp.conversions, 0) AS platform_conversions
           FROM meta_ad_data m
           FULL OUTER JOIN tiktok_ad_data t ON m.date = t.date
           FULL OUTER JOIN newsbreak_ad_data n ON COALESCE(m.date, t.date) = n.date
+          FULL OUTER JOIN tiktok_platform_data tp ON COALESCE(m.date, t.date, n.date) = tp.date
         ),
         order_data AS (
           SELECT
@@ -101,11 +115,11 @@ router.get('/timeseries', async (req: Request, res: Response) => {
         SELECT
           COALESCE(a.date, o.date) AS date,
           COALESCE(a.spend, 0) AS spend,
-          COALESCE(o.revenue, 0) AS revenue,
+          GREATEST(COALESCE(o.revenue, 0), COALESCE(a.platform_revenue, 0)) AS revenue,
           COALESCE(a.clicks, 0) AS clicks,
           COALESCE(a.impressions, 0) AS impressions,
-          COALESCE(o.conversions, 0) AS conversions,
-          CASE WHEN COALESCE(a.spend, 0) > 0 THEN COALESCE(o.revenue, 0) / a.spend ELSE 0 END AS roas
+          GREATEST(COALESCE(o.conversions, 0), COALESCE(a.platform_conversions, 0)) AS conversions,
+          CASE WHEN COALESCE(a.spend, 0) > 0 THEN GREATEST(COALESCE(o.revenue, 0), COALESCE(a.platform_revenue, 0)) / a.spend ELSE 0 END AS roas
         FROM ad_data a
         FULL OUTER JOIN order_data o ON a.date = o.date
         ORDER BY date ASC
