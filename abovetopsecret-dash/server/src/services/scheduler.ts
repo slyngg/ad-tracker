@@ -409,7 +409,7 @@ export function startScheduler(): void {
   });
 
   // NewsBreak Ads sync every 2 minutes (offset by 1 min from Meta/TikTok)
-  cron.schedule('1/2 * * * *', async () => {
+  cron.schedule('1-59/2 * * * *', async () => {
     await withAdvisoryLock(LOCK_NEWSBREAK_SYNC, 'NewsBreak Ads sync', async () => {
       console.log('[Scheduler] Running NewsBreak Ads sync...');
       try {
