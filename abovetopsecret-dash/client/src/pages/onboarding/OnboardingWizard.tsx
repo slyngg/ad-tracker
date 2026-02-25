@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getAuthToken, useAuthStore } from '../../stores/authStore';
-import { getOAuthStatus, OAuthStatus } from '../../lib/api';
+import { getOAuthStatus, fetchAccounts, Account, createClient, createBrandConfig, updateAccount, Client, BrandConfig } from '../../lib/api';
 import OAuthConnectButton from '../../components/shared/OAuthConnectButton';
 
 async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
@@ -46,25 +46,32 @@ const ICON_BG: Record<string, string> = {
   tiktok: 'bg-pink-600', klaviyo: 'bg-purple-600', newsbreak: 'bg-orange-600', checkoutChamp: 'bg-indigo-600',
 };
 
+/* ── Platform color for account chips ─────────────── */
+const PLATFORM_COLOR: Record<string, string> = {
+  facebook: 'bg-blue-600', meta: 'bg-blue-600', google: 'bg-red-600',
+  shopify: 'bg-green-600', tiktok: 'bg-pink-600', klaviyo: 'bg-purple-600',
+  newsbreak: 'bg-orange-600', checkoutchamp: 'bg-indigo-600',
+};
+
 export default function OnboardingWizard() {
   const navigate = useNavigate();
   const markComplete = useAuthStore(s => s.markOnboardingComplete);
 
+  /* ── Step management ────────────────────────────── */
+  const [currentStep, setCurrentStep] = useState(1);
+  const [slideDir, setSlideDir] = useState<'left' | 'right'>('left');
+
   /* ── Connection fields (manual fallback) ────────── */
   const [showManual, setShowManual] = useState<Record<string, boolean>>({});
-  // Shopify
   const [shopifySecret, setShopifySecret] = useState('');
   const [shopifyStore, setShopifyStore] = useState('');
-  // CheckoutChamp
   const [ccLoginId, setCcLoginId] = useState('');
   const [ccPassword, setCcPassword] = useState('');
   const [ccApiUrl, setCcApiUrl] = useState('');
   const [ccWebhookSecret, setCcWebhookSecret] = useState('');
-  // Meta
   const [fbToken, setFbToken] = useState('');
   const [fbAccounts, setFbAccounts] = useState('');
   const [fbTestMsg, setFbTestMsg] = useState('');
-  // Google (GA4)
   const [ga4PropertyId, setGa4PropertyId] = useState('');
   const [ga4CredentialsJson, setGa4CredentialsJson] = useState('');
 
@@ -72,6 +79,21 @@ export default function OnboardingWizard() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  /* ── Step 2: Organize brands state ──────────────── */
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [clients, setClients] = useState<Client[]>([]);
+  const [brands, setBrands] = useState<BrandConfig[]>([]);
+  const [newClientName, setNewClientName] = useState('');
+  const [addingClient, setAddingClient] = useState(false);
+  const [showAddClient, setShowAddClient] = useState(false);
+  const [newBrandName, setNewBrandName] = useState('');
+  const [addingBrandForClient, setAddingBrandForClient] = useState<number | null>(null);
+  const [addingBrand, setAddingBrand] = useState(false);
+  const [assigningAccount, setAssigningAccount] = useState<number | null>(null);
+  const [expandedClient, setExpandedClient] = useState<number | null>(null);
+  const newClientInputRef = useRef<HTMLInputElement>(null);
+  const newBrandInputRef = useRef<HTMLInputElement>(null);
 
   const webhookBase = typeof window !== 'undefined' ? `${window.location.origin}/api/webhooks` : 'https://your-domain.com/api/webhooks';
 
@@ -123,7 +145,7 @@ export default function OnboardingWizard() {
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, []);
 
-  /* ── OAuth success handler ──────────────────────── */
+  /* ── OAuth handlers ──────────────────────────────── */
   const handleOAuthSuccess = (platform: keyof IntegrationStatus) => {
     setStatus(prev => ({ ...prev, [platform]: 'connected' }));
     loadOAuthStatuses();
@@ -190,16 +212,91 @@ export default function OnboardingWizard() {
     } catch { setStatus(prev => ({ ...prev, google: 'error' })); }
   };
 
-  /* ── Go live — single action ───────────────────── */
-  const goLive = async () => {
+  /* ── Step transitions ──────────────────────────── */
+  const goToStep2 = async () => {
     setSaving(true);
     await saveAll();
     await apiFetch('/onboarding/step', { method: 'POST', body: JSON.stringify({ step: 'connect_store', completed: true }) }).catch(() => {});
     await apiFetch('/onboarding/step', { method: 'POST', body: JSON.stringify({ step: 'connect_ads', completed: true }) }).catch(() => {});
+    // Load accounts for step 2
+    try {
+      const [accts, cls, bcs] = await Promise.all([
+        fetchAccounts(),
+        apiFetch<Client[]>('/clients'),
+        apiFetch<BrandConfig[]>('/brand-configs'),
+      ]);
+      setAccounts(accts);
+      setClients(cls);
+      setBrands(bcs);
+    } catch {}
+    setSaving(false);
+    setSlideDir('left');
+    setCurrentStep(2);
+  };
+
+  /* ── Go live — final action ───────────────────── */
+  const goLive = async () => {
+    setSaving(true);
     await apiFetch('/onboarding/complete', { method: 'POST' }).catch(() => {});
     markComplete();
     setSaving(false);
     navigate('/summary');
+  };
+
+  /* ── Step 2: Client CRUD ───────────────────────── */
+  const handleAddClient = async () => {
+    if (!newClientName.trim()) return;
+    setAddingClient(true);
+    try {
+      const c = await createClient({ name: newClientName.trim() });
+      setClients(prev => [...prev, c]);
+      setNewClientName('');
+      setShowAddClient(false);
+      setExpandedClient(c.id);
+      // Auto-open "add brand" for the new client
+      setAddingBrandForClient(c.id);
+      setTimeout(() => newBrandInputRef.current?.focus(), 150);
+    } catch {
+      setMessage({ type: 'error', text: 'Failed to create client' });
+      setTimeout(() => setMessage(null), 3000);
+    }
+    setAddingClient(false);
+  };
+
+  const handleAddBrand = async (clientId: number) => {
+    if (!newBrandName.trim()) return;
+    setAddingBrand(true);
+    try {
+      const b = await createBrandConfig({ name: newBrandName.trim(), client_id: clientId });
+      setBrands(prev => [...prev, b]);
+      setNewBrandName('');
+      setAddingBrandForClient(null);
+    } catch {
+      setMessage({ type: 'error', text: 'Failed to create brand' });
+      setTimeout(() => setMessage(null), 3000);
+    }
+    setAddingBrand(false);
+  };
+
+  const handleAssignAccount = async (accountId: number, brandConfigId: number) => {
+    setAssigningAccount(accountId);
+    try {
+      await updateAccount(accountId, { brand_config_id: brandConfigId });
+      setAccounts(prev => prev.map(a => a.id === accountId ? { ...a, brand_config_id: brandConfigId } : a));
+    } catch {
+      setMessage({ type: 'error', text: 'Failed to assign account' });
+      setTimeout(() => setMessage(null), 3000);
+    }
+    setAssigningAccount(null);
+  };
+
+  const handleUnassignAccount = async (accountId: number) => {
+    setAssigningAccount(accountId);
+    try {
+      await updateAccount(accountId, { brand_config_id: null });
+      setAccounts(prev => prev.map(a => a.id === accountId ? { ...a, brand_config_id: null } : a));
+    } catch {}
+    setAssigningAccount(null);
   };
 
   const copyUrl = (text: string) => { navigator.clipboard.writeText(text); setMessage({ type: 'success', text: 'Copied!' }); setTimeout(() => setMessage(null), 1500); };
@@ -262,8 +359,13 @@ export default function OnboardingWizard() {
     return null;
   };
 
+  /* ── Helper: accounts for a brand ──────────────── */
+  const accountsForBrand = (brandId: number) => accounts.filter(a => a.brand_config_id === brandId);
+  const unassignedAccounts = accounts.filter(a => !a.brand_config_id);
+  const brandsForClient = (clientId: number) => brands.filter(b => b.client_id === clientId);
+
   return (
-    <div className="bg-ats-bg min-h-screen flex flex-col">
+    <div className="bg-ats-bg min-h-screen min-h-[100dvh] flex flex-col overflow-hidden">
       {/* ── Toast ─────────────────────────────────── */}
       {message && (
         <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-xl text-xs font-medium shadow-2xl backdrop-blur-sm ${
@@ -273,154 +375,411 @@ export default function OnboardingWizard() {
         </div>
       )}
 
-      {/* ── Scrollable content ────────────────────── */}
-      <div className="flex-1 overflow-y-auto pb-28">
-        <div className="max-w-4xl mx-auto px-4 py-8 sm:px-6 sm:py-12">
+      {/* ── Progress dots ──────────────────────────── */}
+      <div className="flex items-center justify-center gap-2 pt-5 pb-2 px-4">
+        <button
+          onClick={() => { if (currentStep > 1) { setSlideDir('right'); setCurrentStep(1); } }}
+          className={`h-1.5 rounded-full transition-all duration-500 ${currentStep === 1 ? 'w-8 bg-ats-accent' : 'w-1.5 bg-ats-border cursor-pointer hover:bg-ats-text-muted'}`}
+        />
+        <div className={`h-1.5 rounded-full transition-all duration-500 ${currentStep === 2 ? 'w-8 bg-ats-accent' : 'w-1.5 bg-ats-border'}`} />
+      </div>
 
-          {/* ── Header ─────────────────────────────── */}
-          <div className="text-center mb-8 sm:mb-10">
-            <div className="inline-flex items-center gap-2 mb-4">
-              <div className="w-8 h-8 rounded-lg bg-ats-accent flex items-center justify-center">
-                <span className="text-white text-sm font-bold">O</span>
-              </div>
-              <span className="text-sm font-bold text-ats-text tracking-wide">OpticData</span>
-            </div>
-            <h1 className="text-2xl sm:text-4xl font-bold text-ats-text mb-3">Connect Your Data</h1>
-            <p className="text-sm sm:text-base text-ats-text-muted max-w-lg mx-auto leading-relaxed">
-              Secure, read-only access. We never modify your campaigns or ads.
-            </p>
-          </div>
+      {/* ── Sliding container ─────────────────────── */}
+      <div className="flex-1 relative overflow-hidden">
+        {/* Step 1: Connect Data */}
+        <div
+          className="absolute inset-0 transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] overflow-y-auto"
+          style={{ transform: currentStep === 1 ? 'translateX(0)' : 'translateX(-100%)' }}
+        >
+          <div className="pb-28">
+            <div className="max-w-4xl mx-auto px-4 py-6 sm:px-6 sm:py-10">
 
-          {/* ── Trust badges ───────────────────────── */}
-          <div className="flex flex-wrap items-center justify-center gap-3 sm:gap-5 mb-8 sm:mb-10">
-            {[
-              { icon: '\u{1F512}', label: 'Read-only access' },
-              { icon: '\u{1F510}', label: '256-bit encryption' },
-              { icon: '\u{26A1}', label: '2-min setup' },
-            ].map(b => (
-              <div key={b.label} className="flex items-center gap-1.5 px-3 py-1.5 bg-ats-card border border-ats-border rounded-full">
-                <span className="text-xs">{b.icon}</span>
-                <span className="text-[11px] text-ats-text-muted font-medium">{b.label}</span>
-              </div>
-            ))}
-          </div>
-
-          {/* ── Platform grid ──────────────────────── */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-            {PLATFORMS.map(p => {
-              const s = status[p.key];
-              const isConnected = s === 'connected';
-              const isTesting = s === 'testing';
-              const isManualOpen = showManual[p.key] || false;
-
-              return (
-                <div
-                  key={p.key}
-                  className={`bg-ats-card border rounded-xl p-4 sm:p-5 transition-all ${
-                    isConnected ? 'border-emerald-800/40 ring-1 ring-emerald-800/20' : 'border-ats-border'
-                  }`}
-                >
-                  {/* Card header */}
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex items-center gap-2.5">
-                      <div className={`w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold text-white shrink-0 ${ICON_BG[p.key]}`}>
-                        {p.icon}
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-bold text-ats-text">{p.name}</h3>
-                        <p className="text-[11px] text-ats-text-muted leading-snug mt-0.5">{p.description}</p>
-                      </div>
-                    </div>
-                    <div className={`w-2.5 h-2.5 rounded-full mt-1 shrink-0 ${statusDotCls(s)}`} />
+              {/* Header */}
+              <div className="text-center mb-6 sm:mb-10">
+                <div className="inline-flex items-center gap-2 mb-3">
+                  <div className="w-8 h-8 rounded-lg bg-ats-accent flex items-center justify-center">
+                    <span className="text-white text-sm font-bold">O</span>
                   </div>
+                  <span className="text-sm font-bold text-ats-text tracking-wide">OpticData</span>
+                </div>
+                <h1 className="text-2xl sm:text-4xl font-bold text-ats-text mb-2">Connect Your Data</h1>
+                <p className="text-sm sm:text-base text-ats-text-muted max-w-lg mx-auto leading-relaxed">
+                  Secure, read-only access. We never modify your campaigns or ads.
+                </p>
+              </div>
 
-                  {/* Connected state */}
-                  {isConnected && (
-                    <div className="flex items-center gap-1.5 mt-2">
-                      <svg className="w-4 h-4 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                      </svg>
-                      <span className="text-xs font-semibold text-emerald-400">Connected</span>
-                    </div>
-                  )}
+              {/* Trust badges */}
+              <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-5 mb-6 sm:mb-10">
+                {[
+                  { icon: '\u{1F512}', label: 'Read-only access' },
+                  { icon: '\u{1F510}', label: '256-bit encryption' },
+                  { icon: '\u{26A1}', label: '2-min setup' },
+                ].map(b => (
+                  <div key={b.label} className="flex items-center gap-1.5 px-3 py-1.5 bg-ats-card border border-ats-border rounded-full">
+                    <span className="text-xs">{b.icon}</span>
+                    <span className="text-[11px] text-ats-text-muted font-medium">{b.label}</span>
+                  </div>
+                ))}
+              </div>
 
-                  {/* Not connected: show actions */}
-                  {!isConnected && (
-                    <div className="mt-2">
-                      {/* Shopify: store URL required before OAuth */}
-                      {p.requiresStoreUrl && (
-                        <div className="mb-3">
-                          <label className={labelCls}>Store URL</label>
-                          <input value={shopifyStore} onChange={e => setShopifyStore(e.target.value)} placeholder="mystore.myshopify.com" className={inputCls} />
+              {/* Platform grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+                {PLATFORMS.map(p => {
+                  const s = status[p.key];
+                  const isConnected = s === 'connected';
+                  const isTesting = s === 'testing';
+                  const isManualOpen = showManual[p.key] || false;
+
+                  return (
+                    <div
+                      key={p.key}
+                      className={`bg-ats-card border rounded-xl p-4 sm:p-5 transition-all ${
+                        isConnected ? 'border-emerald-800/40 ring-1 ring-emerald-800/20' : 'border-ats-border'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between mb-3">
+                        <div className="flex items-center gap-2.5">
+                          <div className={`w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold text-white shrink-0 ${ICON_BG[p.key]}`}>
+                            {p.icon}
+                          </div>
+                          <div>
+                            <h3 className="text-sm font-bold text-ats-text">{p.name}</h3>
+                            <p className="text-[11px] text-ats-text-muted leading-snug mt-0.5">{p.description}</p>
+                          </div>
+                        </div>
+                        <div className={`w-2.5 h-2.5 rounded-full mt-1 shrink-0 ${statusDotCls(s)}`} />
+                      </div>
+
+                      {isConnected && (
+                        <div className="flex items-center gap-1.5 mt-2">
+                          <svg className="w-4 h-4 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                          </svg>
+                          <span className="text-xs font-semibold text-emerald-400">Connected</span>
                         </div>
                       )}
 
-                      {/* OAuth button */}
-                      {p.oauth && (
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <OAuthConnectButton
-                            platform={p.key}
-                            storeUrl={p.requiresStoreUrl ? shopifyStore : undefined}
-                            onSuccess={() => handleOAuthSuccess(p.key)}
-                            onError={handleOAuthError}
-                            className="px-4 py-2.5 bg-ats-accent text-white rounded-lg text-xs font-semibold hover:bg-blue-600 active:scale-[0.98] transition-all disabled:opacity-60"
-                          />
-                          {p.manualType && (
-                            <button onClick={() => setShowManual(prev => ({ ...prev, [p.key]: !prev[p.key] }))} className="text-[11px] text-ats-text-muted hover:text-ats-text transition-colors">
-                              {isManualOpen ? 'Hide manual' : 'Manual setup'}
+                      {!isConnected && (
+                        <div className="mt-2">
+                          {p.requiresStoreUrl && (
+                            <div className="mb-3">
+                              <label className={labelCls}>Store URL</label>
+                              <input value={shopifyStore} onChange={e => setShopifyStore(e.target.value)} placeholder="mystore.myshopify.com" className={inputCls} />
+                            </div>
+                          )}
+
+                          {p.oauth && (
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <OAuthConnectButton
+                                platform={p.key}
+                                storeUrl={p.requiresStoreUrl ? shopifyStore : undefined}
+                                onSuccess={() => handleOAuthSuccess(p.key)}
+                                onError={handleOAuthError}
+                                className="px-4 py-2.5 bg-ats-accent text-white rounded-lg text-xs font-semibold hover:bg-blue-600 active:scale-[0.98] transition-all disabled:opacity-60"
+                              />
+                              {p.manualType && (
+                                <button onClick={() => setShowManual(prev => ({ ...prev, [p.key]: !prev[p.key] }))} className="text-[11px] text-ats-text-muted hover:text-ats-text transition-colors">
+                                  {isManualOpen ? 'Hide manual' : 'Manual setup'}
+                                </button>
+                              )}
+                            </div>
+                          )}
+
+                          {!p.oauth && p.manualType && (
+                            <button
+                              onClick={() => setShowManual(prev => ({ ...prev, [p.key]: !prev[p.key] }))}
+                              className="px-4 py-2.5 bg-ats-accent text-white rounded-lg text-xs font-semibold hover:bg-blue-600 active:scale-[0.98] transition-all"
+                            >
+                              {isManualOpen ? 'Hide' : 'Configure'}
+                            </button>
+                          )}
+
+                          {isTesting && (
+                            <div className="flex items-center gap-1.5 mt-2">
+                              <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                              <span className="text-[11px] text-amber-400 font-mono">Testing...</span>
+                            </div>
+                          )}
+
+                          {isManualOpen && p.manualType && renderManualFields(p.key)}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Step 2: Organize Brands */}
+        <div
+          className="absolute inset-0 transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] overflow-y-auto"
+          style={{ transform: currentStep === 2 ? 'translateX(0)' : 'translateX(100%)' }}
+        >
+          <div className="pb-28">
+            <div className="max-w-lg mx-auto px-4 py-6 sm:px-6 sm:py-10">
+
+              {/* Header */}
+              <div className="text-center mb-6">
+                <h1 className="text-2xl sm:text-3xl font-bold text-ats-text mb-2">Organize Your Brands</h1>
+                <p className="text-sm text-ats-text-muted leading-relaxed max-w-sm mx-auto">
+                  Group your ad accounts by client and brand. You can always change this later.
+                </p>
+              </div>
+
+              {/* Client list */}
+              <div className="space-y-3">
+                {clients.map(client => {
+                  const clientBrands = brandsForClient(client.id);
+                  const isExpanded = expandedClient === client.id;
+
+                  return (
+                    <div
+                      key={client.id}
+                      className="bg-ats-card border border-ats-border rounded-2xl overflow-hidden transition-all"
+                    >
+                      {/* Client header */}
+                      <button
+                        onClick={() => setExpandedClient(isExpanded ? null : client.id)}
+                        className="w-full flex items-center gap-3 px-4 py-4 min-h-[56px] active:bg-ats-hover transition-colors"
+                      >
+                        <div className="w-10 h-10 rounded-xl bg-ats-accent/10 border border-ats-accent/20 flex items-center justify-center flex-shrink-0">
+                          <span className="text-sm font-bold text-ats-accent">{client.name.charAt(0).toUpperCase()}</span>
+                        </div>
+                        <div className="flex-1 text-left min-w-0">
+                          <div className="text-sm font-semibold text-ats-text truncate">{client.name}</div>
+                          <div className="text-[11px] text-ats-text-muted">
+                            {clientBrands.length} brand{clientBrands.length !== 1 ? 's' : ''}
+                          </div>
+                        </div>
+                        <svg
+                          className={`w-5 h-5 text-ats-text-muted transition-transform duration-300 flex-shrink-0 ${isExpanded ? 'rotate-180' : ''}`}
+                          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                        </svg>
+                      </button>
+
+                      {/* Expanded content */}
+                      <div
+                        className="transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] overflow-hidden"
+                        style={{
+                          maxHeight: isExpanded ? '2000px' : '0',
+                          opacity: isExpanded ? 1 : 0,
+                        }}
+                      >
+                        <div className="px-4 pb-4 space-y-3">
+                          {/* Brands */}
+                          {clientBrands.map(brand => {
+                            const brandAccounts = accountsForBrand(brand.id);
+                            return (
+                              <div key={brand.id} className="bg-ats-bg rounded-xl p-3 space-y-2.5">
+                                <div className="flex items-center gap-2">
+                                  <div className="w-6 h-6 rounded-lg bg-ats-accent/10 flex items-center justify-center flex-shrink-0">
+                                    <span className="text-[10px] font-bold text-ats-accent">{brand.name.charAt(0).toUpperCase()}</span>
+                                  </div>
+                                  <span className="text-xs font-semibold text-ats-text">{brand.name}</span>
+                                </div>
+
+                                {/* Assigned accounts */}
+                                {brandAccounts.length > 0 && (
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {brandAccounts.map(acct => (
+                                      <button
+                                        key={acct.id}
+                                        onClick={() => handleUnassignAccount(acct.id)}
+                                        disabled={assigningAccount === acct.id}
+                                        className="inline-flex items-center gap-1.5 pl-1.5 pr-2.5 py-1.5 min-h-[36px] bg-ats-card border border-ats-border rounded-lg text-[11px] text-ats-text active:scale-[0.97] transition-all disabled:opacity-50 group"
+                                      >
+                                        <span className={`w-4 h-4 rounded flex items-center justify-center text-[8px] font-bold text-white flex-shrink-0 ${PLATFORM_COLOR[acct.platform.toLowerCase()] || 'bg-gray-600'}`}>
+                                          {acct.platform.charAt(0).toUpperCase()}
+                                        </span>
+                                        <span className="truncate max-w-[120px]">{acct.name}</span>
+                                        <svg className="w-3 h-3 text-ats-text-muted group-hover:text-ats-red transition-colors flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                        </svg>
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+
+                                {/* Unassigned accounts to add */}
+                                {unassignedAccounts.length > 0 && (
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {unassignedAccounts.map(acct => (
+                                      <button
+                                        key={acct.id}
+                                        onClick={() => handleAssignAccount(acct.id, brand.id)}
+                                        disabled={assigningAccount === acct.id}
+                                        className="inline-flex items-center gap-1.5 pl-1.5 pr-2.5 py-1.5 min-h-[36px] bg-transparent border border-dashed border-ats-border rounded-lg text-[11px] text-ats-text-muted hover:text-ats-text hover:border-ats-accent active:scale-[0.97] transition-all disabled:opacity-50"
+                                      >
+                                        <span className={`w-4 h-4 rounded flex items-center justify-center text-[8px] font-bold text-white flex-shrink-0 opacity-50 ${PLATFORM_COLOR[acct.platform.toLowerCase()] || 'bg-gray-600'}`}>
+                                          {acct.platform.charAt(0).toUpperCase()}
+                                        </span>
+                                        <span className="truncate max-w-[120px]">{acct.name}</span>
+                                        <svg className="w-3 h-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                                        </svg>
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+
+                                {brandAccounts.length === 0 && unassignedAccounts.length === 0 && (
+                                  <p className="text-[11px] text-ats-text-muted/60 italic">No accounts to assign</p>
+                                )}
+                              </div>
+                            );
+                          })}
+
+                          {/* Add brand form */}
+                          {addingBrandForClient === client.id ? (
+                            <div className="flex gap-2">
+                              <input
+                                ref={newBrandInputRef}
+                                value={newBrandName}
+                                onChange={e => setNewBrandName(e.target.value)}
+                                onKeyDown={e => { if (e.key === 'Enter') handleAddBrand(client.id); if (e.key === 'Escape') { setAddingBrandForClient(null); setNewBrandName(''); } }}
+                                placeholder="Brand name"
+                                autoFocus
+                                className="flex-1 min-w-0 bg-ats-bg border border-ats-accent/40 rounded-xl px-4 py-3 min-h-[48px] text-sm text-ats-text focus:outline-none focus:border-ats-accent transition-colors"
+                              />
+                              <button
+                                onClick={() => handleAddBrand(client.id)}
+                                disabled={!newBrandName.trim() || addingBrand}
+                                className="px-5 min-h-[48px] bg-ats-accent text-white rounded-xl text-sm font-semibold active:scale-[0.97] transition-all disabled:opacity-40 shrink-0"
+                              >
+                                {addingBrand ? '...' : 'Add'}
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => { setAddingBrandForClient(client.id); setNewBrandName(''); setTimeout(() => newBrandInputRef.current?.focus(), 50); }}
+                              className="w-full flex items-center justify-center gap-2 py-3 min-h-[48px] bg-ats-bg border border-dashed border-ats-border rounded-xl text-xs text-ats-text-muted hover:text-ats-text hover:border-ats-accent active:scale-[0.98] transition-all"
+                            >
+                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                              </svg>
+                              Add Brand
                             </button>
                           )}
                         </div>
-                      )}
-
-                      {/* CheckoutChamp: manual-only, always show configure */}
-                      {!p.oauth && p.manualType && (
-                        <button
-                          onClick={() => setShowManual(prev => ({ ...prev, [p.key]: !prev[p.key] }))}
-                          className="px-4 py-2.5 bg-ats-accent text-white rounded-lg text-xs font-semibold hover:bg-blue-600 active:scale-[0.98] transition-all"
-                        >
-                          {isManualOpen ? 'Hide' : 'Configure'}
-                        </button>
-                      )}
-
-                      {/* Testing indicator */}
-                      {isTesting && (
-                        <div className="flex items-center gap-1.5 mt-2">
-                          <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
-                          <span className="text-[11px] text-amber-400 font-mono">Testing...</span>
-                        </div>
-                      )}
-
-                      {/* Manual fields disclosure */}
-                      {isManualOpen && p.manualType && renderManualFields(p.key)}
+                      </div>
                     </div>
-                  )}
+                  );
+                })}
+
+                {/* Add client */}
+                {showAddClient ? (
+                  <div className="bg-ats-card border border-ats-accent/30 rounded-2xl p-4 space-y-3">
+                    <input
+                      ref={newClientInputRef}
+                      value={newClientName}
+                      onChange={e => setNewClientName(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') handleAddClient(); if (e.key === 'Escape') { setShowAddClient(false); setNewClientName(''); } }}
+                      placeholder="Client or company name"
+                      autoFocus
+                      className="w-full bg-ats-bg border border-ats-border rounded-xl px-4 py-3 min-h-[48px] text-sm text-ats-text focus:outline-none focus:border-ats-accent transition-colors"
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        onClick={handleAddClient}
+                        disabled={!newClientName.trim() || addingClient}
+                        className="flex-1 py-3 min-h-[48px] bg-ats-accent text-white rounded-xl text-sm font-semibold active:scale-[0.97] transition-all disabled:opacity-40"
+                      >
+                        {addingClient ? 'Creating...' : 'Create Client'}
+                      </button>
+                      <button
+                        onClick={() => { setShowAddClient(false); setNewClientName(''); }}
+                        className="px-5 py-3 min-h-[48px] bg-ats-bg border border-ats-border rounded-xl text-sm text-ats-text-muted active:scale-[0.97] transition-all"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => { setShowAddClient(true); setTimeout(() => newClientInputRef.current?.focus(), 50); }}
+                    className="w-full flex items-center justify-center gap-2 py-4 min-h-[56px] bg-ats-card border-2 border-dashed border-ats-border rounded-2xl text-sm text-ats-text-muted hover:text-ats-text hover:border-ats-accent active:scale-[0.98] transition-all"
+                  >
+                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                    </svg>
+                    {clients.length === 0 ? 'Add Your First Client' : 'Add Another Client'}
+                  </button>
+                )}
+              </div>
+
+              {/* Unassigned accounts section */}
+              {unassignedAccounts.length > 0 && clients.length > 0 && brands.length > 0 && (
+                <div className="mt-6 bg-ats-card border border-ats-border rounded-2xl p-4">
+                  <h3 className="text-xs font-semibold text-ats-text-muted uppercase tracking-wider mb-3">
+                    Unassigned Accounts ({unassignedAccounts.length})
+                  </h3>
+                  <div className="flex flex-wrap gap-2">
+                    {unassignedAccounts.map(acct => (
+                      <div
+                        key={acct.id}
+                        className="inline-flex items-center gap-1.5 pl-1.5 pr-3 py-1.5 min-h-[36px] bg-ats-bg border border-ats-border rounded-lg text-[11px] text-ats-text-muted"
+                      >
+                        <span className={`w-4 h-4 rounded flex items-center justify-center text-[8px] font-bold text-white flex-shrink-0 ${PLATFORM_COLOR[acct.platform.toLowerCase()] || 'bg-gray-600'}`}>
+                          {acct.platform.charAt(0).toUpperCase()}
+                        </span>
+                        <span className="truncate max-w-[140px]">{acct.name}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-[11px] text-ats-text-muted mt-2">
+                    Tap an account inside a brand above to assign it
+                  </p>
                 </div>
-              );
-            })}
+              )}
+            </div>
           </div>
         </div>
       </div>
 
       {/* ── Sticky CTA footer ─────────────────────── */}
       <div className="fixed bottom-0 left-0 right-0 bg-ats-card/95 backdrop-blur-md border-t border-ats-border z-40">
-        <div className="max-w-4xl mx-auto px-4 py-4 sm:px-6 flex items-center justify-between gap-4">
-          <span className="text-xs text-ats-text-muted font-mono">
-            {connectedCount > 0
-              ? `${connectedCount} platform${connectedCount > 1 ? 's' : ''} connected`
-              : 'Connect at least 1 platform to continue'}
-          </span>
-          <button
-            onClick={goLive}
-            disabled={!canContinue || saving}
-            className={`px-6 py-3 rounded-xl text-sm font-bold transition-all active:scale-[0.98] whitespace-nowrap ${
-              canContinue
-                ? 'bg-ats-accent text-white hover:bg-blue-600 shadow-lg shadow-ats-accent/20'
-                : 'bg-ats-border text-ats-text-muted cursor-not-allowed'
-            }`}
-          >
-            {saving ? 'Saving...' : 'Continue to Dashboard \u2192'}
-          </button>
+        <div className="max-w-lg mx-auto px-4 py-4 sm:px-6">
+          {currentStep === 1 ? (
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-xs text-ats-text-muted font-mono">
+                {connectedCount > 0
+                  ? `${connectedCount} platform${connectedCount > 1 ? 's' : ''} connected`
+                  : 'Connect at least 1 platform'}
+              </span>
+              <button
+                onClick={goToStep2}
+                disabled={!canContinue || saving}
+                className={`px-6 py-3.5 rounded-xl text-sm font-bold transition-all active:scale-[0.97] whitespace-nowrap ${
+                  canContinue
+                    ? 'bg-ats-accent text-white hover:bg-blue-600 shadow-lg shadow-ats-accent/20'
+                    : 'bg-ats-border text-ats-text-muted cursor-not-allowed'
+                }`}
+              >
+                {saving ? 'Saving...' : 'Next'}
+              </button>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2.5">
+              <button
+                onClick={goLive}
+                disabled={saving}
+                className="w-full py-3.5 min-h-[52px] rounded-xl text-sm font-bold bg-ats-accent text-white hover:bg-blue-600 active:scale-[0.98] transition-all shadow-lg shadow-ats-accent/20 disabled:opacity-60"
+              >
+                {saving ? 'Finishing...' : 'Continue to Dashboard'}
+              </button>
+              <button
+                onClick={goLive}
+                disabled={saving}
+                className="w-full py-3 min-h-[48px] rounded-xl text-xs font-medium text-ats-text-muted hover:text-ats-text active:scale-[0.98] transition-all"
+              >
+                Skip for now
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>
