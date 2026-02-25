@@ -155,41 +155,43 @@ router.get('/', async (req: Request, res: Response) => {
       lp_ctr: parseFloat(r.lp_ctr) || 0,
     }));
 
-    // Extended: take rates
-    const takeRatesResult = await pool.query(`
-      SELECT offer_name,
-        ROUND((SUM(CASE WHEN quantity = 1 THEN 1 ELSE 0 END)::NUMERIC / NULLIF(COUNT(*), 0) * 100), 1) AS take_rate_1,
-        ROUND((SUM(CASE WHEN quantity = 3 THEN 1 ELSE 0 END)::NUMERIC / NULLIF(COUNT(*), 0) * 100), 1) AS take_rate_3,
-        ROUND((SUM(CASE WHEN quantity = 5 THEN 1 ELSE 0 END)::NUMERIC / NULLIF(COUNT(*), 0) * 100), 1) AS take_rate_5
-      FROM cc_orders_today WHERE is_core_sku = true AND (is_test = false OR is_test IS NULL) ${userFilter} ${af.clause} GROUP BY offer_name
-    `, allParams);
+    // Extended metrics + overrides — run all 5 independent queries in parallel
+    const [takeRatesResult, subPctResult, subTakeResult, upsellResult, overridesResult] = await Promise.all([
+      pool.query(`
+        SELECT offer_name,
+          ROUND((SUM(CASE WHEN quantity = 1 THEN 1 ELSE 0 END)::NUMERIC / NULLIF(COUNT(*), 0) * 100), 1) AS take_rate_1,
+          ROUND((SUM(CASE WHEN quantity = 3 THEN 1 ELSE 0 END)::NUMERIC / NULLIF(COUNT(*), 0) * 100), 1) AS take_rate_3,
+          ROUND((SUM(CASE WHEN quantity = 5 THEN 1 ELSE 0 END)::NUMERIC / NULLIF(COUNT(*), 0) * 100), 1) AS take_rate_5
+        FROM cc_orders_today WHERE is_core_sku = true AND (is_test = false OR is_test IS NULL) ${userFilter} ${af.clause} GROUP BY offer_name
+      `, allParams),
+      pool.query(`
+        SELECT offer_name,
+          ROUND((SUM(CASE WHEN subscription_id IS NOT NULL THEN 1 ELSE 0 END)::NUMERIC / NULLIF(COUNT(*), 0) * 100), 1) AS subscription_pct
+        FROM cc_orders_today WHERE (is_test = false OR is_test IS NULL) ${userFilter} ${af.clause} GROUP BY offer_name
+      `, allParams),
+      pool.query(`
+        SELECT offer_name,
+          ROUND((SUM(CASE WHEN quantity = 1 THEN 1 ELSE 0 END)::NUMERIC / NULLIF(COUNT(*), 0) * 100), 1) AS sub_take_rate_1,
+          ROUND((SUM(CASE WHEN quantity = 3 THEN 1 ELSE 0 END)::NUMERIC / NULLIF(COUNT(*), 0) * 100), 1) AS sub_take_rate_3,
+          ROUND((SUM(CASE WHEN quantity = 5 THEN 1 ELSE 0 END)::NUMERIC / NULLIF(COUNT(*), 0) * 100), 1) AS sub_take_rate_5
+        FROM cc_orders_today WHERE subscription_id IS NOT NULL AND (is_test = false OR is_test IS NULL) ${userFilter} ${af.clause} GROUP BY offer_name
+      `, allParams),
+      pool.query(`
+        SELECT offer_name,
+          ROUND((SUM(CASE WHEN accepted THEN 1 ELSE 0 END)::NUMERIC / NULLIF(SUM(CASE WHEN offered THEN 1 ELSE 0 END), 0) * 100), 1) AS upsell_take_rate,
+          ROUND(((1 - (SUM(CASE WHEN accepted THEN 1 ELSE 0 END)::NUMERIC / NULLIF(SUM(CASE WHEN offered THEN 1 ELSE 0 END), 0))) * 100), 1) AS upsell_decline_rate
+        FROM cc_upsells_today WHERE 1=1 ${userFilter} ${af.clause} GROUP BY offer_name
+      `, allParams),
+      pool.query(
+        userId
+          ? 'SELECT metric_key, offer_name, override_value, set_by, set_at FROM manual_overrides WHERE user_id = $1'
+          : 'SELECT metric_key, offer_name, override_value, set_by, set_at FROM manual_overrides WHERE user_id IS NULL',
+        userParams
+      ),
+    ]);
     const takeRatesMap = new Map(takeRatesResult.rows.map((r) => [r.offer_name, r]));
-
-    // Extended: subscription pct
-    const subPctResult = await pool.query(`
-      SELECT offer_name,
-        ROUND((SUM(CASE WHEN subscription_id IS NOT NULL THEN 1 ELSE 0 END)::NUMERIC / NULLIF(COUNT(*), 0) * 100), 1) AS subscription_pct
-      FROM cc_orders_today WHERE (is_test = false OR is_test IS NULL) ${userFilter} ${af.clause} GROUP BY offer_name
-    `, allParams);
     const subPctMap = new Map(subPctResult.rows.map((r) => [r.offer_name, r]));
-
-    // Extended: sub take rates
-    const subTakeResult = await pool.query(`
-      SELECT offer_name,
-        ROUND((SUM(CASE WHEN quantity = 1 THEN 1 ELSE 0 END)::NUMERIC / NULLIF(COUNT(*), 0) * 100), 1) AS sub_take_rate_1,
-        ROUND((SUM(CASE WHEN quantity = 3 THEN 1 ELSE 0 END)::NUMERIC / NULLIF(COUNT(*), 0) * 100), 1) AS sub_take_rate_3,
-        ROUND((SUM(CASE WHEN quantity = 5 THEN 1 ELSE 0 END)::NUMERIC / NULLIF(COUNT(*), 0) * 100), 1) AS sub_take_rate_5
-      FROM cc_orders_today WHERE subscription_id IS NOT NULL AND (is_test = false OR is_test IS NULL) ${userFilter} ${af.clause} GROUP BY offer_name
-    `, allParams);
     const subTakeMap = new Map(subTakeResult.rows.map((r) => [r.offer_name, r]));
-
-    // Extended: upsell rates
-    const upsellResult = await pool.query(`
-      SELECT offer_name,
-        ROUND((SUM(CASE WHEN accepted THEN 1 ELSE 0 END)::NUMERIC / NULLIF(SUM(CASE WHEN offered THEN 1 ELSE 0 END), 0) * 100), 1) AS upsell_take_rate,
-        ROUND(((1 - (SUM(CASE WHEN accepted THEN 1 ELSE 0 END)::NUMERIC / NULLIF(SUM(CASE WHEN offered THEN 1 ELSE 0 END), 0))) * 100), 1) AS upsell_decline_rate
-      FROM cc_upsells_today WHERE 1=1 ${userFilter} ${af.clause} GROUP BY offer_name
-    `, allParams);
     const upsellMap = new Map(upsellResult.rows.map((r) => [r.offer_name, r]));
 
     // Join extended metrics
@@ -212,13 +214,6 @@ router.get('/', async (req: Request, res: Response) => {
       };
     });
 
-    // Apply manual overrides
-    const overridesResult = await pool.query(
-      userId
-        ? 'SELECT metric_key, offer_name, override_value, set_by, set_at FROM manual_overrides WHERE user_id = $1'
-        : 'SELECT metric_key, offer_name, override_value, set_by, set_at FROM manual_overrides WHERE user_id IS NULL',
-      userParams
-    );
     const overrides: Override[] = overridesResult.rows;
 
     rows = rows.map((row) => {
@@ -291,43 +286,44 @@ router.get('/summary', async (req: Request, res: Response) => {
     const prevTzParams = [...userParams, tz];
     const tzIdx = prevTzParams.length; // $1 if no userId, $2 if userId
 
-    const prevSpendResult = await pool.query(`
-      SELECT (
-        COALESCE((SELECT SUM((ad_data->>'spend')::NUMERIC) FROM fb_ads_archive
-          WHERE archived_date = (NOW() AT TIME ZONE $${tzIdx})::DATE - 1 ${prevUserFilter}), 0) +
-        COALESCE((SELECT SUM((ad_data->>'spend')::NUMERIC) FROM tiktok_ads_archive
-          WHERE archived_date = (NOW() AT TIME ZONE $${tzIdx})::DATE - 1 ${prevUserFilter}), 0) +
-        COALESCE((SELECT SUM((ad_data->>'spend')::NUMERIC) FROM newsbreak_ads_archive
-          WHERE archived_date = (NOW() AT TIME ZONE $${tzIdx})::DATE - 1 ${prevUserFilter}), 0)
-      ) * (EXTRACT(EPOCH FROM (NOW() AT TIME ZONE $${tzIdx})::TIME) / 86400.0) AS prev_spend
-    `, prevTzParams);
-
-    const prevOrdersResult = await pool.query(`
-      SELECT
-        COALESCE(SUM(CASE WHEN order_data->>'order_status' = 'completed'
-          AND COALESCE((order_data->>'is_test')::BOOLEAN, false) = false
-          THEN COALESCE((order_data->>'subtotal')::NUMERIC, (order_data->>'revenue')::NUMERIC) ELSE 0 END), 0) AS prev_revenue,
-        COUNT(DISTINCT CASE WHEN order_data->>'order_status' = 'completed'
-          AND COALESCE((order_data->>'is_test')::BOOLEAN, false) = false
-          THEN order_data->>'order_id' END) AS prev_conversions
-      FROM orders_archive
-      WHERE archived_date = (NOW() AT TIME ZONE $${tzIdx})::DATE - 1
-        AND ((order_data->>'conversion_time')::TIMESTAMPTZ AT TIME ZONE $${tzIdx})::TIME <= (NOW() AT TIME ZONE $${tzIdx})::TIME
-        ${prevUserFilter}
-    `, prevTzParams);
-
-    // Previous platform revenue (NewsBreak + TikTok conversion_value from archive)
-    const prevPlatformResult = await pool.query(`
-      SELECT
-        COALESCE((SELECT SUM((ad_data->>'conversion_value')::NUMERIC) FROM newsbreak_ads_archive
-          WHERE archived_date = (NOW() AT TIME ZONE $${tzIdx})::DATE - 1 ${prevUserFilter}), 0) +
-        COALESCE((SELECT SUM((ad_data->>'conversion_value')::NUMERIC) FROM tiktok_ads_archive
-          WHERE archived_date = (NOW() AT TIME ZONE $${tzIdx})::DATE - 1 ${prevUserFilter}), 0) AS prev_platform_revenue,
-        COALESCE((SELECT SUM((ad_data->>'conversions')::NUMERIC) FROM newsbreak_ads_archive
-          WHERE archived_date = (NOW() AT TIME ZONE $${tzIdx})::DATE - 1 ${prevUserFilter}), 0) +
-        COALESCE((SELECT SUM((ad_data->>'conversions')::NUMERIC) FROM tiktok_ads_archive
-          WHERE archived_date = (NOW() AT TIME ZONE $${tzIdx})::DATE - 1 ${prevUserFilter}), 0) AS prev_platform_conversions
-    `, prevTzParams);
+    // Previous period queries — run all 3 in parallel
+    const [prevSpendResult, prevOrdersResult, prevPlatformResult] = await Promise.all([
+      pool.query(`
+        SELECT (
+          COALESCE((SELECT SUM((ad_data->>'spend')::NUMERIC) FROM fb_ads_archive
+            WHERE archived_date = (NOW() AT TIME ZONE $${tzIdx})::DATE - 1 ${prevUserFilter}), 0) +
+          COALESCE((SELECT SUM((ad_data->>'spend')::NUMERIC) FROM tiktok_ads_archive
+            WHERE archived_date = (NOW() AT TIME ZONE $${tzIdx})::DATE - 1 ${prevUserFilter}), 0) +
+          COALESCE((SELECT SUM((ad_data->>'spend')::NUMERIC) FROM newsbreak_ads_archive
+            WHERE archived_date = (NOW() AT TIME ZONE $${tzIdx})::DATE - 1 ${prevUserFilter}), 0)
+        ) * (EXTRACT(EPOCH FROM (NOW() AT TIME ZONE $${tzIdx})::TIME) / 86400.0) AS prev_spend
+      `, prevTzParams),
+      pool.query(`
+        SELECT
+          COALESCE(SUM(CASE WHEN order_data->>'order_status' = 'completed'
+            AND COALESCE((order_data->>'is_test')::BOOLEAN, false) = false
+            THEN COALESCE((order_data->>'subtotal')::NUMERIC, (order_data->>'revenue')::NUMERIC) ELSE 0 END), 0) AS prev_revenue,
+          COUNT(DISTINCT CASE WHEN order_data->>'order_status' = 'completed'
+            AND COALESCE((order_data->>'is_test')::BOOLEAN, false) = false
+            THEN order_data->>'order_id' END) AS prev_conversions
+        FROM orders_archive
+        WHERE archived_date = (NOW() AT TIME ZONE $${tzIdx})::DATE - 1
+          AND ((order_data->>'conversion_time')::TIMESTAMPTZ AT TIME ZONE $${tzIdx})::TIME <= (NOW() AT TIME ZONE $${tzIdx})::TIME
+          ${prevUserFilter}
+      `, prevTzParams),
+      // Previous platform revenue (NewsBreak + TikTok conversion_value from archive)
+      pool.query(`
+        SELECT
+          COALESCE((SELECT SUM((ad_data->>'conversion_value')::NUMERIC) FROM newsbreak_ads_archive
+            WHERE archived_date = (NOW() AT TIME ZONE $${tzIdx})::DATE - 1 ${prevUserFilter}), 0) +
+          COALESCE((SELECT SUM((ad_data->>'conversion_value')::NUMERIC) FROM tiktok_ads_archive
+            WHERE archived_date = (NOW() AT TIME ZONE $${tzIdx})::DATE - 1 ${prevUserFilter}), 0) AS prev_platform_revenue,
+          COALESCE((SELECT SUM((ad_data->>'conversions')::NUMERIC) FROM newsbreak_ads_archive
+            WHERE archived_date = (NOW() AT TIME ZONE $${tzIdx})::DATE - 1 ${prevUserFilter}), 0) +
+          COALESCE((SELECT SUM((ad_data->>'conversions')::NUMERIC) FROM tiktok_ads_archive
+            WHERE archived_date = (NOW() AT TIME ZONE $${tzIdx})::DATE - 1 ${prevUserFilter}), 0) AS prev_platform_conversions
+      `, prevTzParams),
+    ]);
 
     const row = result.rows[0];
     const totalSpend = parseFloat(row.total_spend) || 0;

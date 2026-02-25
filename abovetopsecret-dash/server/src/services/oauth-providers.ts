@@ -279,7 +279,7 @@ const shopify: ProviderConfig = {
 // ── TikTok ──────────────────────────────────────────────────────
 
 const tiktok: ProviderConfig = {
-  scopes: ['ad.read', 'campaign.read'],
+  scopes: ['ad.read', 'ad.write', 'campaign.read', 'campaign.write', 'file.image.write', 'file.video.write'],
 
   getAuthUrl(state, redirectUri) {
     const params = new URLSearchParams({

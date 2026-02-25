@@ -6,6 +6,144 @@ import { tagUntaggedCreatives } from '../services/creative-tagger';
 
 const router = Router();
 
+// ===== WEBHOOK CREATIVE INGESTION =====
+
+// Middleware: authenticate webhook API key (no session required)
+async function authenticateWebhookKey(req: Request, res: Response): Promise<number | null> {
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith('Bearer wh_')) {
+    res.status(401).json({ error: 'Invalid or missing API key. Use: Authorization: Bearer wh_xxxxx' });
+    return null;
+  }
+  const rawKey = authHeader.slice(7); // Remove 'Bearer '
+  const keyHash = crypto.createHash('sha256').update(rawKey).digest('hex');
+
+  const result = await pool.query(
+    `UPDATE webhook_api_keys SET last_used_at = NOW()
+     WHERE key_hash = $1 RETURNING user_id`,
+    [keyHash]
+  );
+  if (result.rows.length === 0) {
+    res.status(401).json({ error: 'Invalid API key' });
+    return null;
+  }
+  return result.rows[0].user_id;
+}
+
+// POST /api/creatives/webhook - Ingest creatives from external systems
+router.post('/webhook', async (req: Request, res: Response) => {
+  try {
+    const userId = await authenticateWebhookKey(req, res);
+    if (userId === null) return;
+
+    const { creatives } = req.body;
+    if (!Array.isArray(creatives) || creatives.length === 0) {
+      res.status(400).json({ error: 'Request body must include a non-empty "creatives" array' });
+      return;
+    }
+    if (creatives.length > 50) {
+      res.status(400).json({ error: 'Maximum 50 creatives per request' });
+      return;
+    }
+
+    const insertedIds: number[] = [];
+    for (const c of creatives) {
+      const result = await pool.query(
+        `INSERT INTO ad_creatives (
+          user_id, ad_name, platform, creative_type, image_url, thumbnail_url,
+          ad_copy, headline, status, first_seen, last_seen
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'active', NOW(), NOW())
+        RETURNING id`,
+        [
+          userId,
+          c.name || 'Webhook Creative',
+          c.platform || 'meta',
+          c.creative_type || 'image',
+          c.image_url || null,
+          c.thumbnail_url || c.image_url || null,
+          c.ad_copy || null,
+          c.headline || null,
+        ]
+      );
+      insertedIds.push(result.rows[0].id);
+    }
+
+    // Trigger async AI tagging
+    tagUntaggedCreatives(userId).catch((err: any) => {
+      console.error('[Webhook] Error tagging creatives:', err.message);
+    });
+
+    res.status(201).json({ inserted: insertedIds.length, creative_ids: insertedIds });
+  } catch (err) {
+    console.error('Error in webhook ingestion:', err);
+    res.status(500).json({ error: 'Failed to ingest creatives' });
+  }
+});
+
+// POST /api/creatives/webhook/keys - Generate a new webhook API key
+router.post('/webhook/keys', async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+
+    const { name } = req.body;
+    const keyName = name || 'Creative Webhook';
+
+    // Generate a random key with wh_ prefix
+    const rawKey = `wh_${crypto.randomBytes(32).toString('hex')}`;
+    const keyHash = crypto.createHash('sha256').update(rawKey).digest('hex');
+    const keyPrefix = rawKey.slice(0, 10);
+
+    const result = await pool.query(
+      `INSERT INTO webhook_api_keys (user_id, key_hash, key_prefix, name)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, key_prefix, name, created_at`,
+      [userId, keyHash, keyPrefix, keyName]
+    );
+
+    // Return the plaintext key only once
+    res.status(201).json({ ...result.rows[0], key: rawKey });
+  } catch (err) {
+    console.error('Error generating webhook key:', err);
+    res.status(500).json({ error: 'Failed to generate key' });
+  }
+});
+
+// GET /api/creatives/webhook/keys - List webhook API keys
+router.get('/webhook/keys', async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+
+    const result = await pool.query(
+      'SELECT id, key_prefix, name, scopes, last_used_at, created_at FROM webhook_api_keys WHERE user_id = $1 ORDER BY created_at DESC',
+      [userId]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error listing webhook keys:', err);
+    res.status(500).json({ error: 'Failed to list keys' });
+  }
+});
+
+// DELETE /api/creatives/webhook/keys/:id - Revoke a webhook API key
+router.delete('/webhook/keys/:id', async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+
+    const result = await pool.query(
+      'DELETE FROM webhook_api_keys WHERE id = $1 AND user_id = $2 RETURNING id',
+      [req.params.id, userId]
+    );
+    if (result.rows.length === 0) { res.status(404).json({ error: 'Key not found' }); return; }
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Error revoking webhook key:', err);
+    res.status(500).json({ error: 'Failed to revoke key' });
+  }
+});
+
 // ===== CREATIVE ANALYTICS ENDPOINTS =====
 
 // GET /api/creatives - List creatives with filters

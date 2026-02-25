@@ -14,21 +14,37 @@ declare global {
   }
 }
 
+// In-memory API key cache — avoids DB lookup + write on every single request
+const apiKeyCache = new Map<string, { userId: number; keyId: number; expiresAt: number }>();
+const API_KEY_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
 export async function authMiddleware(req: Request, res: Response, next: NextFunction): Promise<void> {
   // Check for API key first (X-API-Key header)
   const apiKey = req.headers['x-api-key'] as string | undefined;
   if (apiKey) {
     try {
       const keyHash = crypto.createHash('sha256').update(apiKey).digest('hex');
+
+      // Check cache first
+      const cached = apiKeyCache.get(keyHash);
+      if (cached && cached.expiresAt > Date.now()) {
+        req.user = { id: cached.userId };
+        next();
+        return;
+      }
+
       const result = await pool.query(
         `SELECT ak.id, ak.user_id FROM api_keys ak
          WHERE ak.key_hash = $1 AND ak.revoked_at IS NULL`,
         [keyHash]
       );
       if (result.rows.length > 0) {
-        req.user = { id: result.rows[0].user_id };
-        // Update last_used_at
-        await pool.query('UPDATE api_keys SET last_used_at = NOW() WHERE id = $1', [result.rows[0].id]);
+        const { id: keyId, user_id: userId } = result.rows[0];
+        // Cache the result
+        apiKeyCache.set(keyHash, { userId, keyId, expiresAt: Date.now() + API_KEY_CACHE_TTL });
+        req.user = { id: userId };
+        // Update last_used_at in background — don't block the request
+        pool.query('UPDATE api_keys SET last_used_at = NOW() WHERE id = $1', [keyId]).catch(() => {});
         next();
         return;
       }

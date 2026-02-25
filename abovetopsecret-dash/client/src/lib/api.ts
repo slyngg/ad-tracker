@@ -872,6 +872,28 @@ export function unfollowBrand(id: number): Promise<{ success: boolean }> {
   return request(`/creatives/inspo/brands/${id}`, { method: 'DELETE' });
 }
 
+// Webhook Keys
+export interface WebhookApiKey {
+  id: number;
+  key_prefix: string;
+  name: string;
+  scopes: string[];
+  last_used_at: string | null;
+  created_at: string;
+}
+
+export function fetchWebhookApiKeys(): Promise<WebhookApiKey[]> {
+  return request<WebhookApiKey[]>('/creatives/webhook/keys');
+}
+
+export function generateWebhookApiKey(name: string): Promise<WebhookApiKey & { key: string }> {
+  return request<WebhookApiKey & { key: string }>('/creatives/webhook/keys', { method: 'POST', body: JSON.stringify({ name }) });
+}
+
+export function revokeWebhookApiKey(id: number): Promise<{ success: boolean }> {
+  return request<{ success: boolean }>(`/creatives/webhook/keys/${id}`, { method: 'DELETE' });
+}
+
 // Boards
 export function fetchBoards(): Promise<Board[]> {
   return request('/creatives/boards');
@@ -1021,9 +1043,10 @@ export interface CampaignDraft {
   special_ad_categories: string[];
   config: Record<string, any>;
   meta_campaign_id: string | null;
+  tiktok_campaign_id: string | null;
   last_error: string | null;
   account_name?: string;
-  platform?: string;
+  platform: string;
   platform_account_id?: string;
   adsets?: CampaignAdSet[];
   created_at: string;
@@ -1055,9 +1078,11 @@ export interface CampaignAd {
   creative_config: Record<string, any>;
   generated_creative_id: number | null;
   media_upload_id: number | null;
+  library_creative_id: number | null;
   status: string;
   meta_ad_id: string | null;
   meta_creative_id: string | null;
+  tiktok_ad_id: string | null;
   last_error: string | null;
   created_at: string;
   updated_at: string;
@@ -1113,7 +1138,7 @@ export function fetchCampaignDraft(id: number): Promise<CampaignDraft> {
   return request<CampaignDraft>(`/campaigns/drafts/${id}`);
 }
 
-export function createCampaignDraft(data: { account_id: number; name: string; objective?: string; special_ad_categories?: string[] }): Promise<CampaignDraft> {
+export function createCampaignDraft(data: { account_id: number; name: string; objective?: string; special_ad_categories?: string[]; platform?: string }): Promise<CampaignDraft> {
   return request<CampaignDraft>('/campaigns/drafts', { method: 'POST', body: JSON.stringify(data) });
 }
 

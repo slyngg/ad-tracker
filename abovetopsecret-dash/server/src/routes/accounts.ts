@@ -170,6 +170,14 @@ router.put('/:id', async (req: Request, res: Response) => {
       return;
     }
 
+    // Cascade brand_config_id to offers belonging to this account
+    if (brand_config_id !== undefined) {
+      await pool.query(
+        'UPDATE offers SET brand_config_id = $1, updated_at = NOW() WHERE account_id = $2 AND user_id = $3',
+        [brand_config_id ?? null, id, userId]
+      );
+    }
+
     res.json(result.rows[0]);
   } catch (err) {
     console.error('Error updating account:', err);

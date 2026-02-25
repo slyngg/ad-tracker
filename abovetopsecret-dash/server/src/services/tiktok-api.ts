@@ -7,7 +7,7 @@ const TIKTOK_API_BASE = 'https://business-api.tiktok.com/open_api/v1.3';
 
 // ── Auth resolution ────────────────────────────────────────────
 
-async function getTikTokAuth(userId: number): Promise<{ accessToken: string; advertiserId: string } | null> {
+export async function getTikTokAuth(userId: number): Promise<{ accessToken: string; advertiserId: string } | null> {
   try {
     const result = await pool.query(
       `SELECT credentials, config FROM integration_configs
@@ -214,4 +214,110 @@ export async function updateTikTokCampaignStatus(
     campaign_ids: [campaignId],
     opt_status: status,
   }, auth.accessToken);
+}
+
+// ── Campaign Creation ─────────────────────────────────────────
+
+export async function createTikTokCampaign(
+  advertiserId: string,
+  params: { campaign_name: string; objective_type: string; budget?: number; budget_mode?: string },
+  accessToken: string
+): Promise<{ campaign_id: string }> {
+  const body: any = {
+    advertiser_id: advertiserId,
+    campaign_name: params.campaign_name,
+    objective_type: params.objective_type,
+    budget_mode: params.budget_mode || 'BUDGET_MODE_INFINITE',
+  };
+  if (params.budget) {
+    body.budget = params.budget;
+  }
+  const result = await tiktokPost('/campaign/create/', body, accessToken);
+  return { campaign_id: result.campaign_id };
+}
+
+export async function createTikTokAdGroup(
+  advertiserId: string,
+  params: {
+    campaign_id: string;
+    adgroup_name: string;
+    placement_type?: string;
+    budget: number;
+    budget_mode: string;
+    schedule_type: string;
+    schedule_start_time?: string;
+    schedule_end_time?: string;
+    optimization_goal: string;
+    bid_type?: string;
+    billing_event?: string;
+    location_ids?: number[];
+    gender?: string;
+    age_groups?: string[];
+    operating_systems?: string[];
+  },
+  accessToken: string
+): Promise<{ adgroup_id: string }> {
+  const body: any = {
+    advertiser_id: advertiserId,
+    campaign_id: params.campaign_id,
+    adgroup_name: params.adgroup_name,
+    placement_type: params.placement_type || 'PLACEMENT_TYPE_AUTOMATIC',
+    budget: params.budget,
+    budget_mode: params.budget_mode,
+    schedule_type: params.schedule_type,
+    optimization_goal: params.optimization_goal,
+    bid_type: params.bid_type || 'BID_TYPE_NO_BID',
+    billing_event: params.billing_event || 'OCPM',
+  };
+  if (params.schedule_start_time) body.schedule_start_time = params.schedule_start_time;
+  if (params.schedule_end_time) body.schedule_end_time = params.schedule_end_time;
+  if (params.location_ids?.length) body.location_ids = params.location_ids;
+  if (params.gender) body.gender = params.gender;
+  if (params.age_groups?.length) body.age_groups = params.age_groups;
+  if (params.operating_systems?.length) body.operating_systems = params.operating_systems;
+
+  const result = await tiktokPost('/adgroup/create/', body, accessToken);
+  return { adgroup_id: result.adgroup_id };
+}
+
+export async function uploadTikTokImage(
+  advertiserId: string,
+  imageUrl: string,
+  accessToken: string
+): Promise<{ image_id: string }> {
+  const result = await tiktokPost('/file/image/ad/upload/', {
+    advertiser_id: advertiserId,
+    upload_type: 'UPLOAD_BY_URL',
+    image_url: imageUrl,
+  }, accessToken);
+  return { image_id: result.image_id };
+}
+
+export async function createTikTokAd(
+  advertiserId: string,
+  params: {
+    adgroup_id: string;
+    ad_name: string;
+    ad_text?: string;
+    image_ids?: string[];
+    video_id?: string;
+    call_to_action?: string;
+    landing_page_url?: string;
+  },
+  accessToken: string
+): Promise<{ ad_id: string }> {
+  const body: any = {
+    advertiser_id: advertiserId,
+    adgroup_id: params.adgroup_id,
+    ad_name: params.ad_name,
+    ad_format: params.video_id ? 'SINGLE_VIDEO' : 'SINGLE_IMAGE',
+  };
+  if (params.ad_text) body.ad_text = params.ad_text;
+  if (params.image_ids?.length) body.image_ids = params.image_ids;
+  if (params.video_id) body.video_id = params.video_id;
+  if (params.call_to_action) body.call_to_action = params.call_to_action;
+  if (params.landing_page_url) body.landing_page_url = params.landing_page_url;
+
+  const result = await tiktokPost('/ad/create/', body, accessToken);
+  return { ad_id: result.ad_id };
 }

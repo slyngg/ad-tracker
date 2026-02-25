@@ -34,11 +34,14 @@ import {
   Loader2,
   Send,
   Play,
+  Library,
 } from 'lucide-react';
+import CreativeLibraryPicker from '../../components/campaigns/CreativeLibraryPicker';
+import type { CreativeItem } from '../../lib/api';
 
 // ── Constants ────────────────────────────────────────────────────────
 
-const OBJECTIVES = [
+const META_OBJECTIVES = [
   { value: 'OUTCOME_SALES', label: 'Sales' },
   { value: 'OUTCOME_TRAFFIC', label: 'Traffic' },
   { value: 'OUTCOME_ENGAGEMENT', label: 'Engagement' },
@@ -46,6 +49,27 @@ const OBJECTIVES = [
   { value: 'OUTCOME_AWARENESS', label: 'Awareness' },
   { value: 'OUTCOME_APP_PROMOTION', label: 'App Promotion' },
 ];
+
+const TIKTOK_OBJECTIVES = [
+  { value: 'CONVERSIONS', label: 'Conversions' },
+  { value: 'TRAFFIC', label: 'Traffic' },
+  { value: 'REACH', label: 'Reach' },
+  { value: 'VIDEO_VIEWS', label: 'Video Views' },
+  { value: 'LEAD_GENERATION', label: 'Lead Generation' },
+  { value: 'APP_INSTALLS', label: 'App Installs' },
+];
+
+const PLATFORM_OPTIONS = [
+  { value: 'meta', label: 'Meta', desc: 'Facebook & Instagram Ads' },
+  { value: 'tiktok', label: 'TikTok', desc: 'TikTok for Business Ads' },
+];
+
+function getObjectivesForPlatform(platform: string) {
+  switch (platform) {
+    case 'tiktok': return TIKTOK_OBJECTIVES;
+    default: return META_OBJECTIVES;
+  }
+}
 
 const SPECIAL_AD_CATEGORIES = [
   { value: 'CREDIT', label: 'Credit' },
@@ -129,6 +153,7 @@ interface AdForm {
   media_file: File | null;
   media_upload_id: number | null;
   media_filename: string;
+  library_creative_id: number | null;
 }
 
 function emptyAdSet(): AdSetForm {
@@ -161,6 +186,7 @@ function emptyAd(adsetIndex: number): AdForm {
     media_file: null,
     media_upload_id: null,
     media_filename: '',
+    library_creative_id: null,
   };
 }
 
@@ -467,7 +493,7 @@ function PublishResultsPanel({
             <div>
               <h3 className="text-lg font-bold text-ats-text">Published Successfully</h3>
               <p className="text-xs text-ats-text-muted">
-                Campaign created as PAUSED. Meta Campaign ID: {result.meta_campaign_id}
+                Campaign created as PAUSED. Campaign ID: {result.meta_campaign_id}
               </p>
             </div>
           </>
@@ -542,6 +568,8 @@ function Step1CampaignSetup({
   setObjective,
   specialAdCategories,
   setSpecialAdCategories,
+  platform,
+  setPlatform,
 }: {
   accounts: Account[];
   accountId: number | null;
@@ -552,6 +580,8 @@ function Step1CampaignSetup({
   setObjective: (v: string) => void;
   specialAdCategories: string[];
   setSpecialAdCategories: (v: string[]) => void;
+  platform: string;
+  setPlatform: (v: string) => void;
 }) {
   const toggleCategory = (val: string) => {
     if (specialAdCategories.includes(val)) {
@@ -561,10 +591,48 @@ function Step1CampaignSetup({
     }
   };
 
+  const objectives = getObjectivesForPlatform(platform);
+
+  // Filter accounts by selected platform
+  const filteredAccounts = accounts.filter((a) => {
+    if (platform === 'meta') return a.platform === 'meta' || a.platform === 'facebook';
+    return a.platform === platform;
+  });
+
   return (
     <div className="space-y-6">
       <div className="bg-ats-card border border-ats-border rounded-xl p-5">
         <h3 className="text-sm font-bold text-ats-text mb-4">Campaign Setup</h3>
+
+        {/* Platform picker */}
+        <div className="mb-4">
+          <label className={labelCls}>Platform</label>
+          <div className="grid grid-cols-2 gap-3">
+            {PLATFORM_OPTIONS.map((p) => (
+              <button
+                key={p.value}
+                type="button"
+                onClick={() => {
+                  setPlatform(p.value);
+                  setAccountId(null);
+                  // Reset objective to first of new platform
+                  const newObjectives = getObjectivesForPlatform(p.value);
+                  setObjective(newObjectives[0].value);
+                }}
+                className={`flex flex-col items-center justify-center px-4 py-4 rounded-xl border-2 transition-all ${
+                  platform === p.value
+                    ? 'border-ats-accent bg-ats-accent/10'
+                    : 'border-ats-border bg-ats-bg hover:bg-ats-hover'
+                }`}
+              >
+                <span className={`text-sm font-bold ${platform === p.value ? 'text-ats-accent' : 'text-ats-text'}`}>
+                  {p.label}
+                </span>
+                <span className="text-[10px] text-ats-text-muted mt-0.5">{p.desc}</span>
+              </button>
+            ))}
+          </div>
+        </div>
 
         {/* Account picker */}
         <div className="mb-4">
@@ -574,15 +642,18 @@ function Step1CampaignSetup({
             onChange={(e) => setAccountId(e.target.value ? Number(e.target.value) : null)}
             className={selectCls}
           >
-            <option value="">Select an account...</option>
-            {accounts
-              .filter((a) => a.platform === 'meta' || a.platform === 'facebook')
-              .map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name} ({a.platform_account_id || a.platform})
-                </option>
-              ))}
+            <option value="">Select a {platform === 'tiktok' ? 'TikTok' : 'Meta'} account...</option>
+            {filteredAccounts.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name} ({a.platform_account_id || a.platform})
+              </option>
+            ))}
           </select>
+          {filteredAccounts.length === 0 && (
+            <p className="text-[10px] text-ats-text-muted mt-1">
+              No {platform} accounts found. Connect one in Settings first.
+            </p>
+          )}
         </div>
 
         {/* Campaign name */}
@@ -600,7 +671,7 @@ function Step1CampaignSetup({
         <div className="mb-4">
           <label className={labelCls}>Campaign Objective</label>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-            {OBJECTIVES.map((obj) => (
+            {objectives.map((obj) => (
               <button
                 key={obj.value}
                 type="button"
@@ -617,34 +688,36 @@ function Step1CampaignSetup({
           </div>
         </div>
 
-        {/* Special ad categories */}
-        <div>
-          <label className={labelCls}>Special Ad Categories (if applicable)</label>
-          <div className="flex flex-wrap gap-2">
-            {SPECIAL_AD_CATEGORIES.map((cat) => (
-              <button
-                key={cat.value}
-                type="button"
-                onClick={() => toggleCategory(cat.value)}
-                className={`px-3 py-1.5 rounded-lg text-xs border transition-colors ${
-                  specialAdCategories.includes(cat.value)
-                    ? 'bg-amber-900/30 border-amber-600 text-amber-400'
-                    : 'bg-ats-bg border-ats-border text-ats-text-muted hover:bg-ats-hover'
-                }`}
-              >
-                {specialAdCategories.includes(cat.value) && (
-                  <Check className="w-3 h-3 inline mr-1" />
-                )}
-                {cat.label}
-              </button>
-            ))}
+        {/* Special ad categories (Meta only) */}
+        {platform === 'meta' && (
+          <div>
+            <label className={labelCls}>Special Ad Categories (if applicable)</label>
+            <div className="flex flex-wrap gap-2">
+              {SPECIAL_AD_CATEGORIES.map((cat) => (
+                <button
+                  key={cat.value}
+                  type="button"
+                  onClick={() => toggleCategory(cat.value)}
+                  className={`px-3 py-1.5 rounded-lg text-xs border transition-colors ${
+                    specialAdCategories.includes(cat.value)
+                      ? 'bg-amber-900/30 border-amber-600 text-amber-400'
+                      : 'bg-ats-bg border-ats-border text-ats-text-muted hover:bg-ats-hover'
+                  }`}
+                >
+                  {specialAdCategories.includes(cat.value) && (
+                    <Check className="w-3 h-3 inline mr-1" />
+                  )}
+                  {cat.label}
+                </button>
+              ))}
+            </div>
+            {specialAdCategories.length === 0 && (
+              <p className="text-[10px] text-ats-text-muted mt-1">
+                None selected -- only select if your ads relate to credit, employment, housing, or social issues.
+              </p>
+            )}
           </div>
-          {specialAdCategories.length === 0 && (
-            <p className="text-[10px] text-ats-text-muted mt-1">
-              None selected -- only select if your ads relate to credit, employment, housing, or social issues.
-            </p>
-          )}
-        </div>
+        )}
       </div>
     </div>
   );
@@ -918,13 +991,16 @@ function Step3Ads({
   ads,
   setAds,
   accountId,
+  platform,
 }: {
   adSets: AdSetForm[];
   ads: AdForm[];
   setAds: (v: AdForm[]) => void;
   accountId: number | null;
+  platform: string;
 }) {
   const [uploadingIndex, setUploadingIndex] = useState<number | null>(null);
+  const [libraryPickerIndex, setLibraryPickerIndex] = useState<number | null>(null);
 
   const getAdsForAdSet = (adsetIndex: number) =>
     ads.filter((a) => a.adset_index === adsetIndex);
@@ -964,8 +1040,31 @@ function Step3Ads({
     setUploadingIndex(null);
   };
 
+  const handleLibrarySelect = (globalIndex: number, creative: CreativeItem) => {
+    const next = [...ads];
+    next[globalIndex] = {
+      ...next[globalIndex],
+      primary_text: creative.ad_copy || next[globalIndex].primary_text,
+      headline: creative.headline || next[globalIndex].headline,
+      media_filename: creative.image_url ? 'Library creative' : next[globalIndex].media_filename,
+      library_creative_id: creative.id,
+    };
+    setAds(next);
+    setLibraryPickerIndex(null);
+  };
+
   return (
     <div className="space-y-6">
+      {/* Creative Library Picker Modal */}
+      <CreativeLibraryPicker
+        open={libraryPickerIndex !== null}
+        onClose={() => setLibraryPickerIndex(null)}
+        onSelect={(creative) => {
+          if (libraryPickerIndex !== null) handleLibrarySelect(libraryPickerIndex, creative);
+        }}
+        platform={platform}
+      />
+
       {adSets.map((adSet, adsetIndex) => (
         <div key={adsetIndex} className="bg-ats-card border border-ats-border rounded-xl p-5">
           <div className="flex items-center justify-between mb-4">
@@ -1081,7 +1180,7 @@ function Step3Ads({
                     </div>
                   </div>
 
-                  {/* Media upload */}
+                  {/* Media upload + Library picker */}
                   <div>
                     <label className={labelCls}>Media</label>
                     <div className="flex items-center gap-3">
@@ -1106,10 +1205,24 @@ function Step3Ads({
                           }}
                         />
                       </label>
+                      <button
+                        type="button"
+                        onClick={() => setLibraryPickerIndex(globalIndex)}
+                        className="shrink-0 flex items-center gap-1.5 px-3 py-3 bg-ats-accent/10 border border-ats-accent/30 rounded-lg text-ats-accent text-xs font-semibold hover:bg-ats-accent/20 transition-colors"
+                      >
+                        <Library className="w-4 h-4" />
+                        Pick from Library
+                      </button>
                       {ad.media_upload_id && (
                         <span className="text-emerald-400 text-xs flex items-center gap-1">
                           <Check className="w-3 h-3" />
                           Uploaded
+                        </span>
+                      )}
+                      {ad.library_creative_id && !ad.media_upload_id && (
+                        <span className="text-ats-accent text-xs flex items-center gap-1">
+                          <Check className="w-3 h-3" />
+                          Library
                         </span>
                       )}
                     </div>
@@ -1140,6 +1253,7 @@ function Step4Review({
   campaignName,
   objective,
   specialAdCategories,
+  platform,
   adSets,
   ads,
   validation,
@@ -1151,6 +1265,7 @@ function Step4Review({
   campaignName: string;
   objective: string;
   specialAdCategories: string[];
+  platform: string;
   adSets: AdSetForm[];
   ads: AdForm[];
   validation: ValidationResult | null;
@@ -1158,7 +1273,7 @@ function Step4Review({
   onValidate: () => void;
 }) {
   const account = accounts.find((a) => a.id === accountId);
-  const objectiveLabel = OBJECTIVES.find((o) => o.value === objective)?.label || objective;
+  const objectiveLabel = getObjectivesForPlatform(platform).find((o: { value: string; label: string }) => o.value === objective)?.label || objective;
 
   return (
     <div className="space-y-4">
@@ -1344,6 +1459,7 @@ export default function CampaignBuilderPage() {
 
   // Draft state
   const [draftId, setDraftId] = useState<number | null>(draftIdParam ? Number(draftIdParam) : null);
+  const [platform, setPlatform] = useState('meta');
   const [accountId, setAccountId] = useState<number | null>(null);
   const [campaignName, setCampaignName] = useState('');
   const [objective, setObjective] = useState('OUTCOME_SALES');
@@ -1374,6 +1490,7 @@ export default function CampaignBuilderPage() {
       if (draftIdParam) {
         const draft = await fetchCampaignDraft(Number(draftIdParam));
         setDraftId(draft.id);
+        setPlatform(draft.platform || 'meta');
         setAccountId(draft.account_id);
         setCampaignName(draft.name);
         setObjective(draft.objective || 'OUTCOME_SALES');
@@ -1419,6 +1536,7 @@ export default function CampaignBuilderPage() {
                   media_file: null,
                   media_upload_id: ad.media_upload_id,
                   media_filename: ad.creative_config?.media_filename || '',
+                  library_creative_id: ad.library_creative_id || null,
                 });
               });
             }
@@ -1452,6 +1570,7 @@ export default function CampaignBuilderPage() {
           name: campaignName,
           objective,
           special_ad_categories: specialAdCategories,
+          platform,
         });
         currentDraftId = draft.id;
         setDraftId(draft.id);
@@ -1507,6 +1626,7 @@ export default function CampaignBuilderPage() {
                 media_filename: ad.media_filename,
               },
               media_upload_id: ad.media_upload_id,
+              library_creative_id: ad.library_creative_id,
             };
             if (!ad.id) {
               const createdAd = await createCampaignAd(created.id, adPayload);
@@ -1539,6 +1659,7 @@ export default function CampaignBuilderPage() {
             media_filename: ad.media_filename,
           },
           media_upload_id: ad.media_upload_id,
+          library_creative_id: ad.library_creative_id,
         };
 
         if (ad.id) {
@@ -1556,7 +1677,7 @@ export default function CampaignBuilderPage() {
       setError(err.message || 'Failed to save draft');
     }
     setSaving(false);
-  }, [draftId, accountId, campaignName, objective, specialAdCategories, adSets, ads]);
+  }, [draftId, accountId, campaignName, objective, specialAdCategories, platform, adSets, ads]);
 
   // ── Step navigation with auto-save ────────────────────────────────
 
@@ -1687,7 +1808,7 @@ export default function CampaignBuilderPage() {
           </div>
         </div>
         <p className="text-xs text-ats-text-muted mb-6">
-          Build and publish Meta ad campaigns. All campaigns are published as PAUSED.
+          Build and publish {platform === 'tiktok' ? 'TikTok' : 'Meta'} ad campaigns. All campaigns are published as PAUSED.
         </p>
 
         {/* Error banner */}
@@ -1713,6 +1834,8 @@ export default function CampaignBuilderPage() {
             setObjective={setObjective}
             specialAdCategories={specialAdCategories}
             setSpecialAdCategories={setSpecialAdCategories}
+            platform={platform}
+            setPlatform={setPlatform}
           />
         )}
 
@@ -1726,7 +1849,7 @@ export default function CampaignBuilderPage() {
         )}
 
         {step === 3 && (
-          <Step3Ads adSets={adSets} ads={ads} setAds={setAds} accountId={accountId} />
+          <Step3Ads adSets={adSets} ads={ads} setAds={setAds} accountId={accountId} platform={platform} />
         )}
 
         {step === 4 && (
@@ -1736,6 +1859,7 @@ export default function CampaignBuilderPage() {
             campaignName={campaignName}
             objective={objective}
             specialAdCategories={specialAdCategories}
+            platform={platform}
             adSets={adSets}
             ads={ads}
             validation={validation}
@@ -1798,7 +1922,7 @@ export default function CampaignBuilderPage() {
       <ConfirmModal
         open={showConfirmModal}
         title="Publish Campaign"
-        message={`This will create the campaign "${campaignName}" on Meta with all ${adSets.length} ad set(s) and ${ads.length} ad(s). The campaign will be published as PAUSED -- you can activate it afterwards.`}
+        message={`This will create the campaign "${campaignName}" on ${platform === 'tiktok' ? 'TikTok' : 'Meta'} with all ${adSets.length} ad set(s) and ${ads.length} ad(s). The campaign will be published as PAUSED -- you can activate it afterwards.`}
         onConfirm={handlePublish}
         onCancel={() => setShowConfirmModal(false)}
         loading={publishing}

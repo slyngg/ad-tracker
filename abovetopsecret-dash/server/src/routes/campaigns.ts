@@ -7,7 +7,7 @@ import { z } from 'zod';
 import rateLimit from 'express-rate-limit';
 import pool from '../db';
 import { validateBody } from '../middleware/validate';
-import { publishCampaignDraft, activateCampaign, validateDraft } from '../services/campaign-publisher';
+import { publishDraft, activateDraftCampaign, validateDraftCampaign } from '../services/campaign-publisher';
 import { searchInterests, getCustomAudiences, getAdAccountPages } from '../services/meta-api';
 import { decrypt } from '../services/oauth-providers';
 
@@ -66,6 +66,7 @@ const createDraftSchema = z.object({
   name: z.string().min(1).max(200),
   objective: z.string().default('OUTCOME_TRAFFIC'),
   special_ad_categories: z.array(z.string()).optional(),
+  platform: z.enum(['meta', 'tiktok', 'newsbreak']).default('meta'),
 });
 
 const updateDraftSchema = z.object({
@@ -100,6 +101,7 @@ const createAdSchema = z.object({
   creative_config: z.record(z.string(), z.any()).optional(),
   generated_creative_id: z.number().int().positive().optional(),
   media_upload_id: z.number().int().positive().optional(),
+  library_creative_id: z.number().int().positive().optional(),
 });
 
 const updateAdSchema = z.object({
@@ -107,6 +109,7 @@ const updateAdSchema = z.object({
   creative_config: z.record(z.string(), z.any()).optional(),
   generated_creative_id: z.number().int().positive().nullable().optional(),
   media_upload_id: z.number().int().positive().nullable().optional(),
+  library_creative_id: z.number().int().positive().nullable().optional(),
 });
 
 const createTemplateSchema = z.object({
@@ -131,7 +134,7 @@ const DRAFT_JSON_FIELDS = ['special_ad_categories', 'config'];
 const ADSET_UPDATE_FIELDS = ['name', 'targeting', 'budget_type', 'budget_cents', 'bid_strategy', 'schedule_start', 'schedule_end'];
 const ADSET_JSON_FIELDS = ['targeting'];
 
-const AD_UPDATE_FIELDS = ['name', 'creative_config', 'generated_creative_id', 'media_upload_id'];
+const AD_UPDATE_FIELDS = ['name', 'creative_config', 'generated_creative_id', 'media_upload_id', 'library_creative_id'];
 const AD_JSON_FIELDS = ['creative_config'];
 
 const TEMPLATE_UPDATE_FIELDS = ['name', 'description', 'objective', 'targeting', 'budget_config', 'creative_config', 'config', 'is_shared'];
@@ -185,16 +188,16 @@ router.post('/drafts', validateBody(createDraftSchema), async (req: Request, res
   try {
     const userId = req.user?.id;
     if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
-    const { account_id, name, objective, special_ad_categories } = req.body;
+    const { account_id, name, objective, special_ad_categories, platform } = req.body;
 
     // Verify account ownership
     const acctCheck = await pool.query('SELECT id FROM accounts WHERE id = $1 AND user_id = $2', [account_id, userId]);
     if (acctCheck.rows.length === 0) { res.status(403).json({ error: 'Account not found' }); return; }
 
     const result = await pool.query(
-      `INSERT INTO campaign_drafts (user_id, account_id, name, objective, special_ad_categories)
-       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-      [userId, account_id, name, objective, JSON.stringify(special_ad_categories || [])]
+      `INSERT INTO campaign_drafts (user_id, account_id, name, objective, special_ad_categories, platform)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      [userId, account_id, name, objective, JSON.stringify(special_ad_categories || []), platform || 'meta']
     );
     res.json(result.rows[0]);
   } catch (err) {
@@ -283,7 +286,7 @@ router.post('/drafts/:id/publish', publishLimiter, async (req: Request, res: Res
     const draftId = parseId(req.params.id, res);
     if (draftId === null) return;
 
-    const result = await publishCampaignDraft(draftId, userId);
+    const result = await publishDraft(draftId, userId);
     res.json(result);
   } catch (err: any) {
     console.error('Error publishing draft:', err);
@@ -298,7 +301,7 @@ router.post('/drafts/:id/activate', publishLimiter, async (req: Request, res: Re
     const draftId = parseId(req.params.id, res);
     if (draftId === null) return;
 
-    await activateCampaign(draftId, userId);
+    await activateDraftCampaign(draftId, userId);
     res.json({ success: true });
   } catch (err: any) {
     console.error('Error activating campaign:', err);
@@ -313,7 +316,7 @@ router.get('/drafts/:id/validate', async (req: Request, res: Response) => {
     const draftId = parseId(req.params.id, res);
     if (draftId === null) return;
 
-    const result = await validateDraft(draftId, userId);
+    const result = await validateDraftCampaign(draftId, userId);
     res.json(result);
   } catch (err) {
     console.error('Error validating draft:', err);
@@ -416,11 +419,11 @@ router.post('/adsets/:id/ads', validateBody(createAdSchema), async (req: Request
     );
     if (check.rows.length === 0) { res.status(404).json({ error: 'Ad set not found' }); return; }
 
-    const { name, creative_config, generated_creative_id, media_upload_id } = req.body;
+    const { name, creative_config, generated_creative_id, media_upload_id, library_creative_id } = req.body;
     const result = await pool.query(
-      `INSERT INTO campaign_ads (adset_id, name, creative_config, generated_creative_id, media_upload_id)
-       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-      [adsetId, name, JSON.stringify(creative_config || {}), generated_creative_id || null, media_upload_id || null]
+      `INSERT INTO campaign_ads (adset_id, name, creative_config, generated_creative_id, media_upload_id, library_creative_id)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      [adsetId, name, JSON.stringify(creative_config || {}), generated_creative_id || null, media_upload_id || null, library_creative_id || null]
     );
     res.json(result.rows[0]);
   } catch (err) {

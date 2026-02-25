@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { fetchApiKeys, generateApiKey, revokeApiKey, ApiKey } from '../../lib/api';
+import { fetchApiKeys, generateApiKey, revokeApiKey, ApiKey, fetchWebhookApiKeys, generateWebhookApiKey, revokeWebhookApiKey, WebhookApiKey } from '../../lib/api';
 import PageShell from '../../components/shared/PageShell';
 
 export default function APIKeysPage() {
@@ -13,10 +13,22 @@ export default function APIKeysPage() {
   const [copied, setCopied] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+  // Webhook keys state
+  const [webhookKeys, setWebhookKeys] = useState<WebhookApiKey[]>([]);
+  const [showWebhookGenerate, setShowWebhookGenerate] = useState(false);
+  const [webhookKeyName, setWebhookKeyName] = useState('');
+  const [webhookGenerating, setWebhookGenerating] = useState(false);
+  const [newWebhookKey, setNewWebhookKey] = useState<string | null>(null);
+  const [webhookCopied, setWebhookCopied] = useState(false);
+
   const loadKeys = useCallback(async () => {
     try {
-      const data = await fetchApiKeys();
-      setKeys(data);
+      const [apiData, webhookData] = await Promise.all([
+        fetchApiKeys(),
+        fetchWebhookApiKeys(),
+      ]);
+      setKeys(apiData);
+      setWebhookKeys(webhookData);
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -74,6 +86,54 @@ export default function APIKeysPage() {
       document.body.removeChild(el);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  const handleWebhookGenerate = async () => {
+    if (!webhookKeyName.trim()) {
+      setMessage({ type: 'error', text: 'Please enter a name for the webhook key' });
+      return;
+    }
+    setWebhookGenerating(true);
+    setMessage(null);
+    try {
+      const result = await generateWebhookApiKey(webhookKeyName);
+      setNewWebhookKey(result.key);
+      setWebhookKeyName('');
+      loadKeys();
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.message });
+    } finally {
+      setWebhookGenerating(false);
+    }
+  };
+
+  const handleWebhookRevoke = async (id: number) => {
+    if (!confirm('Revoke this webhook key? This cannot be undone.')) return;
+    try {
+      await revokeWebhookApiKey(id);
+      setWebhookKeys((prev) => prev.filter((k) => k.id !== id));
+      setMessage({ type: 'success', text: 'Webhook key revoked' });
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.message });
+    }
+  };
+
+  const copyWebhookKey = async () => {
+    if (!newWebhookKey) return;
+    try {
+      await navigator.clipboard.writeText(newWebhookKey);
+      setWebhookCopied(true);
+      setTimeout(() => setWebhookCopied(false), 2000);
+    } catch {
+      const el = document.createElement('textarea');
+      el.value = newWebhookKey;
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand('copy');
+      document.body.removeChild(el);
+      setWebhookCopied(true);
+      setTimeout(() => setWebhookCopied(false), 2000);
     }
   };
 
@@ -230,6 +290,173 @@ export default function APIKeysPage() {
             </table>
           </div>
         )}
+      </div>
+
+      {/* Creative Webhook Keys */}
+      <div className="mb-6">
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <h3 className="text-sm font-bold text-ats-text">Creative Webhook Keys</h3>
+            <p className="text-xs text-ats-text-muted mt-0.5">
+              Allow external systems to push creatives into your library
+            </p>
+          </div>
+          <button
+            onClick={() => {
+              setShowWebhookGenerate(true);
+              setNewWebhookKey(null);
+            }}
+            className="px-3 py-1.5 bg-ats-accent text-white rounded-lg text-xs font-semibold hover:bg-blue-600 transition-colors"
+          >
+            + New Webhook Key
+          </button>
+        </div>
+
+        {/* Webhook Generate Modal */}
+        {showWebhookGenerate && (
+          <div className="fixed inset-0 flex items-center justify-center z-50 p-4" style={{ backgroundColor: 'var(--overlay-bg)' }}>
+            <div className="bg-ats-card border border-ats-border rounded-xl p-6 w-full max-w-md">
+              {newWebhookKey ? (
+                <>
+                  <h3 className="text-sm font-bold text-ats-text mb-3">Webhook Key Generated</h3>
+                  <p className="text-xs text-ats-text-muted mb-3">
+                    Copy this key now. It will not be shown again.
+                  </p>
+                  <div className="bg-ats-bg border border-ats-border rounded-lg p-3 mb-4 flex items-center gap-2">
+                    <code className="text-sm text-ats-green font-mono flex-1 break-all">{newWebhookKey}</code>
+                    <button
+                      onClick={copyWebhookKey}
+                      className="shrink-0 px-3 py-1.5 bg-ats-accent text-white rounded text-xs font-semibold hover:bg-blue-600 transition-colors"
+                    >
+                      {webhookCopied ? 'Copied!' : 'Copy'}
+                    </button>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setShowWebhookGenerate(false);
+                      setNewWebhookKey(null);
+                    }}
+                    className="w-full py-2 bg-ats-bg border border-ats-border text-ats-text rounded-lg text-sm hover:bg-ats-hover transition-colors"
+                  >
+                    Done
+                  </button>
+                </>
+              ) : (
+                <>
+                  <h3 className="text-sm font-bold text-ats-text mb-3">Generate Webhook Key</h3>
+                  <div className="mb-4">
+                    <label className="text-[11px] text-ats-text-muted block mb-1 uppercase tracking-wide">
+                      Key Name
+                    </label>
+                    <input
+                      value={webhookKeyName}
+                      onChange={(e) => setWebhookKeyName(e.target.value)}
+                      placeholder="e.g. Creative Pipeline, Design Tool"
+                      className="w-full px-3 py-2 bg-ats-bg border border-ats-border rounded-md text-ats-text text-sm outline-none focus:border-ats-accent"
+                      onKeyDown={(e) => e.key === 'Enter' && handleWebhookGenerate()}
+                      autoFocus
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handleWebhookGenerate}
+                      disabled={webhookGenerating}
+                      className="flex-1 py-2 bg-ats-accent text-white rounded-lg text-sm font-semibold hover:bg-blue-600 transition-colors disabled:opacity-60"
+                    >
+                      {webhookGenerating ? 'Generating...' : 'Generate'}
+                    </button>
+                    <button
+                      onClick={() => setShowWebhookGenerate(false)}
+                      className="px-4 py-2 bg-ats-bg border border-ats-border text-ats-text-muted rounded-lg text-sm hover:text-ats-text transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+
+        <div className="bg-ats-card border border-ats-border rounded-lg overflow-hidden">
+          {webhookKeys.length === 0 ? (
+            <div className="p-6 text-center">
+              <p className="text-xs text-ats-text-muted">No webhook keys yet. Generate one to enable creative ingestion.</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-ats-border text-ats-text-muted">
+                    <th className="text-left px-4 py-3 font-medium text-xs uppercase tracking-wide">Name</th>
+                    <th className="text-left px-4 py-3 font-medium text-xs uppercase tracking-wide">Key Prefix</th>
+                    <th className="text-left px-4 py-3 font-medium text-xs uppercase tracking-wide">Scopes</th>
+                    <th className="text-left px-4 py-3 font-medium text-xs uppercase tracking-wide">Created</th>
+                    <th className="text-left px-4 py-3 font-medium text-xs uppercase tracking-wide">Last Used</th>
+                    <th className="text-right px-4 py-3 font-medium text-xs uppercase tracking-wide">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {webhookKeys.map((wk) => (
+                    <tr key={wk.id} className="border-b border-ats-border/50 hover:bg-ats-hover">
+                      <td className="px-4 py-3 text-ats-text font-semibold">{wk.name}</td>
+                      <td className="px-4 py-3 text-ats-text-muted font-mono">{wk.key_prefix}...</td>
+                      <td className="px-4 py-3">
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 font-semibold">
+                          {wk.scopes.join(', ')}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-ats-text-muted text-xs">
+                        {new Date(wk.created_at).toLocaleDateString()}
+                      </td>
+                      <td className="px-4 py-3 text-ats-text-muted text-xs">
+                        {wk.last_used_at ? new Date(wk.last_used_at).toLocaleDateString() : 'Never'}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <button
+                          onClick={() => handleWebhookRevoke(wk.id)}
+                          className="text-xs text-ats-red hover:text-red-400 transition-colors"
+                        >
+                          Revoke
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        {/* Webhook Usage */}
+        <div className="mt-3 bg-ats-bg border border-ats-border rounded-lg p-4">
+          <h4 className="text-xs font-semibold text-ats-text-muted uppercase tracking-wide mb-2">
+            Webhook Endpoint
+          </h4>
+          <div className="bg-ats-card border border-ats-border rounded-lg p-3 mb-3">
+            <code className="text-xs text-ats-green font-mono">
+              POST /api/creatives/webhook
+            </code>
+          </div>
+          <h4 className="text-xs font-semibold text-ats-text-muted uppercase tracking-wide mb-2">
+            Example Request
+          </h4>
+          <div className="bg-ats-card border border-ats-border rounded-lg p-3">
+            <pre className="text-xs text-ats-text font-mono whitespace-pre-wrap">{`curl -X POST /api/creatives/webhook \\
+  -H "Authorization: Bearer wh_xxxxx" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "creatives": [{
+      "name": "Summer Sale V3",
+      "platform": "meta",
+      "creative_type": "image",
+      "image_url": "https://...",
+      "ad_copy": "Shop now!",
+      "headline": "Summer Sale"
+    }]
+  }'`}</pre>
+          </div>
+        </div>
       </div>
 
       {/* API Documentation */}
