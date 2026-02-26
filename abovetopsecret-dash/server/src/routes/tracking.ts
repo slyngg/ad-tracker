@@ -58,9 +58,11 @@ router.get('/pixel.js', async (req: Request, res: Response) => {
       return;
     }
 
-    // Determine the tracking endpoint base URL
-    const proto = req.headers['x-forwarded-proto'] || req.protocol || 'https';
-    const host = req.headers['x-forwarded-host'] || req.headers.host || '';
+    // Determine the tracking endpoint base URL — sanitize header values
+    const rawProto = String(req.headers['x-forwarded-proto'] || req.protocol || 'https');
+    const proto = /^https?$/.test(rawProto) ? rawProto : 'https';
+    const rawHost = String(req.headers['x-forwarded-host'] || req.headers.host || '');
+    const host = rawHost.replace(/[^a-zA-Z0-9.\-:]/g, '');
     const baseUrl = `${proto}://${host}`;
 
     const script = generatePixelScript(token, baseUrl);

@@ -17,12 +17,19 @@ router.get('/', async (req: Request, res: Response) => {
   }
 });
 
+// Settings that should never be writable via the API
+const PROTECTED_SETTINGS = ['auth_token', 'jwt_secret'];
+
 // POST /api/settings — bulk update settings
 router.post('/', async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user?.id as number | undefined;
     const updates = req.body as Record<string, string>;
     for (const [key, value] of Object.entries(updates)) {
+      if (PROTECTED_SETTINGS.includes(key)) {
+        res.status(403).json({ error: `Setting '${key}' cannot be modified via API` });
+        return;
+      }
       if (typeof value === 'string' && value.trim()) {
         await setSetting(key, value.trim(), 'admin', userId);
       }

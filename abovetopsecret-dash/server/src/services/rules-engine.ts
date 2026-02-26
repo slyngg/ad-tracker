@@ -575,10 +575,34 @@ async function executeCCCancelSubscription(rule: Rule, userId: number): Promise<
 
 // ── Webhook Handler ────────────────────────────────────────────
 
+function isUrlSafe(urlStr: string): boolean {
+  try {
+    const parsed = new URL(urlStr);
+    // Block private/internal IPs and non-HTTP(S) protocols
+    if (!['http:', 'https:'].includes(parsed.protocol)) return false;
+    const hostname = parsed.hostname.toLowerCase();
+    if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1') return false;
+    if (hostname === '0.0.0.0' || hostname.endsWith('.local')) return false;
+    // Block AWS/GCP/Azure metadata endpoints
+    if (hostname === '169.254.169.254' || hostname === 'metadata.google.internal') return false;
+    // Block private RFC1918 ranges
+    const parts = hostname.split('.').map(Number);
+    if (parts.length === 4 && !isNaN(parts[0])) {
+      if (parts[0] === 10) return false;
+      if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return false;
+      if (parts[0] === 192 && parts[1] === 168) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function executeWebhookWithRetry(rule: Rule, metrics: FullMetrics): Promise<any> {
   const config = rule.action_config;
   const url = config.url || config.webhook_url;
   if (!url) throw new Error('No webhook URL configured');
+  if (!isUrlSafe(url)) throw new Error('Webhook URL targets a blocked address');
 
   const maxAttempts = 3;
   const delays = [1000, 2000, 4000];
@@ -680,6 +704,8 @@ async function sendSlackNotification(
       },
     ],
   };
+
+  if (!isUrlSafe(webhookUrl)) throw new Error('Slack webhook URL targets a blocked address');
 
   const response = await fetch(webhookUrl, {
     method: 'POST',

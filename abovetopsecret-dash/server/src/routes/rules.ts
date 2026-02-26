@@ -109,21 +109,20 @@ router.delete('/:id', async (req: Request, res: Response) => {
     const userId = req.user?.id;
     const { id } = req.params;
 
-    // Delete execution logs first
-    await pool.query(
-      'DELETE FROM rule_execution_log WHERE rule_id = $1',
-      [id]
-    );
-
-    const result = await pool.query(
-      'DELETE FROM automation_rules WHERE id = $1 AND user_id = $2 RETURNING id',
+    // Verify ownership BEFORE deleting anything
+    const ruleCheck = await pool.query(
+      'SELECT id FROM automation_rules WHERE id = $1 AND user_id = $2',
       [id, userId]
     );
 
-    if (result.rows.length === 0) {
+    if (ruleCheck.rows.length === 0) {
       res.status(404).json({ error: 'Rule not found' });
       return;
     }
+
+    // Safe to delete — ownership verified
+    await pool.query('DELETE FROM rule_execution_log WHERE rule_id = $1', [id]);
+    await pool.query('DELETE FROM automation_rules WHERE id = $1', [id]);
 
     res.json({ success: true });
   } catch (err) {

@@ -5,8 +5,12 @@ const router = Router();
 
 router.get('/', async (req: Request, res: Response) => {
   try {
+    const userId = req.user?.id;
     // Get from data_dictionary table + auto-populate from information_schema
-    const customEntries = await pool.query('SELECT * FROM data_dictionary ORDER BY table_name, column_name');
+    const customEntries = await pool.query(
+      'SELECT * FROM data_dictionary WHERE user_id IS NULL OR user_id = $1 ORDER BY table_name, column_name',
+      [userId]
+    );
 
     const schemaResult = await pool.query(`
       SELECT table_name, column_name, data_type, is_nullable
@@ -42,15 +46,16 @@ router.get('/', async (req: Request, res: Response) => {
 
 router.post('/', async (req: Request, res: Response) => {
   try {
+    const userId = req.user?.id;
     const { table_name, column_name, description, example_value, category } = req.body;
     if (!table_name || !column_name) return res.status(400).json({ error: 'table_name and column_name required' });
 
     const result = await pool.query(`
-      INSERT INTO data_dictionary (table_name, column_name, description, example_value, category)
-      VALUES ($1, $2, $3, $4, $5)
+      INSERT INTO data_dictionary (table_name, column_name, description, example_value, category, user_id)
+      VALUES ($1, $2, $3, $4, $5, $6)
       ON CONFLICT (table_name, column_name) DO UPDATE SET description = EXCLUDED.description, example_value = EXCLUDED.example_value, category = EXCLUDED.category, updated_at = NOW()
       RETURNING *
-    `, [table_name, column_name, description, example_value, category]);
+    `, [table_name, column_name, description, example_value, category, userId]);
     res.json(result.rows[0]);
   } catch (err) {
     console.error('Error saving dictionary entry:', err);

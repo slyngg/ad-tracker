@@ -75,7 +75,7 @@ export default function CreativeDiversityPage() {
   return (
     <PageShell title="Creative Diversity" showDatePicker subtitle="Analyze your creative mix across 8 AI-tagged dimensions" actions={
       <button onClick={runDiversityCheck} disabled={streaming}
-        className="px-3 py-1.5 bg-purple-600/20 text-purple-400 rounded-lg text-sm font-semibold hover:bg-purple-600/30 disabled:opacity-50">
+        className="px-4 py-3 sm:py-1.5 bg-purple-600/20 text-purple-400 rounded-lg text-sm font-semibold hover:bg-purple-600/30 active:bg-purple-600/30 disabled:opacity-50">
         {streaming ? 'Analyzing...' : 'AI Diversity Review'}
       </button>
     }>
@@ -91,7 +91,7 @@ export default function CreativeDiversityPage() {
       )}
 
       {/* Diversity Charts */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-4 mb-4 sm:mb-6">
         {DIMENSIONS.map(dim => {
           const data = diversity[dim.key] || {};
           const entries = Object.entries(data);
@@ -103,25 +103,25 @@ export default function CreativeDiversityPage() {
               <h3 className="text-sm font-semibold text-ats-text mb-3 capitalize">{dim.label}</h3>
               {pieData.length > 0 ? (
                 <>
-                  <div className="flex justify-center mb-3">
-                    <div className="w-[100px] h-[100px] sm:w-[120px] sm:h-[120px] mx-auto"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={pieData} cx="50%" cy="50%" innerRadius="35%" outerRadius="85%" dataKey="value" stroke="none">{pieData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}</Pie><Tooltip /></PieChart></ResponsiveContainer></div>
-                  </div>
-                  <div className="space-y-1">
-                    {pieData.map((d, i) => {
-                      const pct = total > 0 ? ((d.value / total) * 100).toFixed(0) : '0';
-                      const isGap = total > 0 && (d.value / total) < 0.1;
-                      return (
-                        <div key={d.name} className="flex items-center gap-2">
-                          <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
-                          <span className={`text-xs capitalize ${isGap ? 'text-amber-400' : 'text-ats-text-muted'}`}>{d.name}</span>
-                          <span className="text-xs font-mono text-ats-text ml-auto">{d.value} ({pct}%)</span>
-                        </div>
-                      );
-                    })}
+                  <div className="flex items-center gap-4 sm:flex-col sm:gap-3">
+                    <div className="w-[120px] h-[120px] sm:w-[120px] sm:h-[120px] flex-shrink-0 sm:mx-auto"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={pieData} cx="50%" cy="50%" innerRadius="35%" outerRadius="85%" dataKey="value" stroke="none">{pieData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}</Pie><Tooltip /></PieChart></ResponsiveContainer></div>
+                    <div className="space-y-1.5 sm:space-y-1 flex-1">
+                      {pieData.map((d, i) => {
+                        const pct = total > 0 ? ((d.value / total) * 100).toFixed(0) : '0';
+                        const isGap = total > 0 && (d.value / total) < 0.1;
+                        return (
+                          <div key={d.name} className="flex items-center gap-2">
+                            <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
+                            <span className={`text-xs capitalize truncate ${isGap ? 'text-amber-400' : 'text-ats-text-muted'}`}>{d.name}</span>
+                            <span className="text-xs font-mono text-ats-text ml-auto whitespace-nowrap">{pct}%</span>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                   {entries.some(([, v]) => total > 0 && v / total < 0.1) && (
-                    <div className="mt-2 px-2 py-1 bg-amber-500/10 rounded text-[10px] text-amber-400">
-                      Gap detected: some categories are underrepresented (&lt;10%)
+                    <div className="mt-3 px-3 py-2 bg-amber-500/10 rounded-lg text-xs text-amber-400">
+                      Gap detected: underrepresented (&lt;10%)
                     </div>
                   )}
                 </>
@@ -133,7 +133,7 @@ export default function CreativeDiversityPage() {
         })}
       </div>
 
-      {/* Tag Performance Table */}
+      {/* Tag Performance */}
       <div className={cardCls}>
         <h3 className="text-sm font-semibold text-ats-text mb-3">Tag Performance (30d)</h3>
         <div className="space-y-4">
@@ -142,14 +142,29 @@ export default function CreativeDiversityPage() {
             if (rows.length === 0) return null;
             return (
               <div key={dim.key}>
-                <h4 className="text-xs font-semibold text-ats-text-muted uppercase mb-1">{dim.label}</h4>
-                <div className="overflow-x-auto">
+                <h4 className="text-xs font-semibold text-ats-text-muted uppercase mb-2">{dim.label}</h4>
+                {/* Mobile: compact cards */}
+                <div className="lg:hidden space-y-1.5">
+                  {rows.map((r: any, i: number) => (
+                    <div key={i} className="flex items-center justify-between py-2 px-3 bg-ats-bg rounded-lg">
+                      <span className="text-sm text-ats-text capitalize flex-1 truncate">{(r.val || '-').replace(/_/g, ' ')}</span>
+                      <div className="flex items-center gap-3 flex-shrink-0">
+                        <span className="text-xs font-mono text-ats-text-muted">${parseFloat(r.total_spend || 0).toFixed(0)}</span>
+                        <span className={`text-xs font-mono font-semibold min-w-[48px] text-right ${parseFloat(r.avg_roas || 0) >= 2 ? 'text-emerald-400' : 'text-ats-text'}`}>
+                          {parseFloat(r.avg_roas || 0).toFixed(2)}x
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                {/* Desktop: table */}
+                <div className="hidden lg:block overflow-x-auto">
                   <table className="w-full">
                     <thead><tr className="border-b border-ats-border">
-                      <th className="px-2 py-1 text-left text-xs sm:text-[10px] uppercase text-ats-text-muted">Value</th>
-                      <th className="px-2 py-1 text-right text-xs sm:text-[10px] uppercase text-ats-text-muted">Creatives</th>
-                      <th className="px-2 py-1 text-right text-xs sm:text-[10px] uppercase text-ats-text-muted">Spend</th>
-                      <th className="px-2 py-1 text-right text-xs sm:text-[10px] uppercase text-ats-text-muted">Avg ROAS</th>
+                      <th className="px-2 py-1 text-left text-[10px] uppercase text-ats-text-muted">Value</th>
+                      <th className="px-2 py-1 text-right text-[10px] uppercase text-ats-text-muted">Creatives</th>
+                      <th className="px-2 py-1 text-right text-[10px] uppercase text-ats-text-muted">Spend</th>
+                      <th className="px-2 py-1 text-right text-[10px] uppercase text-ats-text-muted">Avg ROAS</th>
                     </tr></thead>
                     <tbody>
                       {rows.map((r: any, i: number) => (

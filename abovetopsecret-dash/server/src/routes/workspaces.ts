@@ -57,9 +57,21 @@ router.delete('/:id', async (req: Request, res: Response) => {
   }
 });
 
+// Verify the authenticated user owns the workspace before any widget operation
+async function verifyWorkspaceOwner(workspaceId: number, userId: number | null): Promise<boolean> {
+  if (!userId) return false;
+  const result = await pool.query('SELECT id FROM workspaces WHERE id = $1 AND user_id = $2', [workspaceId, userId]);
+  return result.rows.length > 0;
+}
+
 router.get('/:id/widgets', async (req: Request, res: Response) => {
   try {
-    const result = await pool.query('SELECT * FROM workspace_widgets WHERE workspace_id = $1 ORDER BY position_y, position_x', [parseInt(req.params.id)]);
+    const userId = req.user?.id ?? null;
+    const workspaceId = parseInt(req.params.id);
+    if (!(await verifyWorkspaceOwner(workspaceId, userId))) {
+      return res.status(404).json({ error: 'Workspace not found' });
+    }
+    const result = await pool.query('SELECT * FROM workspace_widgets WHERE workspace_id = $1 ORDER BY position_y, position_x', [workspaceId]);
     res.json(result.rows);
   } catch (err) {
     console.error('Error fetching widgets:', err);
@@ -69,10 +81,15 @@ router.get('/:id/widgets', async (req: Request, res: Response) => {
 
 router.post('/:id/widgets', async (req: Request, res: Response) => {
   try {
+    const userId = req.user?.id ?? null;
+    const workspaceId = parseInt(req.params.id);
+    if (!(await verifyWorkspaceOwner(workspaceId, userId))) {
+      return res.status(404).json({ error: 'Workspace not found' });
+    }
     const { widget_type, title, config, position_x, position_y, width, height } = req.body;
     const result = await pool.query(
       'INSERT INTO workspace_widgets (workspace_id, widget_type, title, config, position_x, position_y, width, height) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *',
-      [parseInt(req.params.id), widget_type, title, JSON.stringify(config || {}), position_x || 0, position_y || 0, width || 1, height || 1]
+      [workspaceId, widget_type, title, JSON.stringify(config || {}), position_x || 0, position_y || 0, width || 1, height || 1]
     );
     res.json(result.rows[0]);
   } catch (err) {
@@ -83,10 +100,15 @@ router.post('/:id/widgets', async (req: Request, res: Response) => {
 
 router.put('/:id/widgets/:widgetId', async (req: Request, res: Response) => {
   try {
+    const userId = req.user?.id ?? null;
+    const workspaceId = parseInt(req.params.id);
+    if (!(await verifyWorkspaceOwner(workspaceId, userId))) {
+      return res.status(404).json({ error: 'Workspace not found' });
+    }
     const { title, config, position_x, position_y, width, height } = req.body;
     await pool.query(
       'UPDATE workspace_widgets SET title=COALESCE($1,title), config=COALESCE($2,config), position_x=COALESCE($3,position_x), position_y=COALESCE($4,position_y), width=COALESCE($5,width), height=COALESCE($6,height), updated_at=NOW() WHERE id=$7 AND workspace_id=$8',
-      [title, config ? JSON.stringify(config) : null, position_x, position_y, width, height, parseInt(req.params.widgetId), parseInt(req.params.id)]
+      [title, config ? JSON.stringify(config) : null, position_x, position_y, width, height, parseInt(req.params.widgetId), workspaceId]
     );
     res.json({ success: true });
   } catch (err) {
@@ -97,7 +119,12 @@ router.put('/:id/widgets/:widgetId', async (req: Request, res: Response) => {
 
 router.delete('/:id/widgets/:widgetId', async (req: Request, res: Response) => {
   try {
-    await pool.query('DELETE FROM workspace_widgets WHERE id = $1 AND workspace_id = $2', [parseInt(req.params.widgetId), parseInt(req.params.id)]);
+    const userId = req.user?.id ?? null;
+    const workspaceId = parseInt(req.params.id);
+    if (!(await verifyWorkspaceOwner(workspaceId, userId))) {
+      return res.status(404).json({ error: 'Workspace not found' });
+    }
+    await pool.query('DELETE FROM workspace_widgets WHERE id = $1 AND workspace_id = $2', [parseInt(req.params.widgetId), workspaceId]);
     res.json({ success: true });
   } catch (err) {
     console.error('Error deleting widget:', err);

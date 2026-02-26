@@ -87,9 +87,28 @@ export default function CompetitorResearchPage() {
 
   return (
     <PageShell title="Competitor Research" subtitle="Analyze saved competitor ads and detect creative patterns">
+      {/* Mobile: Brand selector dropdown */}
+      <div className="lg:hidden mb-4">
+        {brands.length === 0 ? (
+          <div className={`${cardCls} text-center py-4`}>
+            <p className="text-sm text-ats-text-muted">No brands followed. Go to <a href="/creative/inspo" className="text-ats-accent">Inspo</a> to follow brands.</p>
+          </div>
+        ) : (
+          <>
+            <select
+              value={selectedBrand}
+              onChange={e => { setSelectedBrand(e.target.value); setAiResult(''); }}
+              className="w-full bg-ats-card border border-ats-border rounded-lg px-3 py-3 text-sm text-ats-text font-semibold">
+              <option value="">Select a brand...</option>
+              {brands.map(b => <option key={b.id} value={b.brand_name}>{b.brand_name} ({b.platform})</option>)}
+            </select>
+          </>
+        )}
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-        {/* Left: Brand List */}
-        <div className="lg:col-span-1">
+        {/* Left: Brand List (desktop only) */}
+        <div className="hidden lg:block lg:col-span-1">
           <div className={cardCls}>
             <h3 className="text-sm font-semibold text-ats-text mb-3">Followed Brands</h3>
             {brands.length === 0 && (
@@ -110,23 +129,23 @@ export default function CompetitorResearchPage() {
         </div>
 
         {/* Right: Content */}
-        <div className="lg:col-span-3 space-y-4">
+        <div className="lg:col-span-3 space-y-3 sm:space-y-4">
           {!selectedBrand && (
-            <div className={`${cardCls} text-center py-12 text-ats-text-muted`}>
+            <div className={`${cardCls} text-center py-12 text-ats-text-muted hidden lg:block`}>
               Select a brand to view their saved ads and run competitive analysis.
             </div>
           )}
 
           {selectedBrand && (
             <>
-              {/* Action Buttons */}
-              <div className="flex gap-2">
+              {/* Action Buttons - stack on mobile */}
+              <div className="flex flex-col sm:flex-row gap-2">
                 <button onClick={analyzeCompetitor} disabled={streaming}
-                  className="px-4 py-2 bg-purple-600/20 text-purple-400 rounded-lg text-sm font-semibold hover:bg-purple-600/30 disabled:opacity-50">
+                  className="px-4 py-3 sm:py-2 bg-purple-600/20 text-purple-400 rounded-lg text-sm font-semibold hover:bg-purple-600/30 active:bg-purple-600/30 disabled:opacity-50">
                   {streaming ? 'Analyzing...' : `Analyze ${selectedBrand}`}
                 </button>
                 <button onClick={detectPatterns} disabled={patternsStreaming}
-                  className="px-4 py-2 bg-emerald-500/20 text-emerald-400 rounded-lg text-sm font-semibold hover:bg-emerald-500/30 disabled:opacity-50">
+                  className="px-4 py-3 sm:py-2 bg-emerald-500/20 text-emerald-400 rounded-lg text-sm font-semibold hover:bg-emerald-500/30 active:bg-emerald-500/30 disabled:opacity-50">
                   {patternsStreaming ? 'Detecting...' : 'Detect Winning Patterns'}
                 </button>
               </div>
@@ -156,18 +175,18 @@ export default function CompetitorResearchPage() {
               <div className={cardCls}>
                 <h3 className="text-sm font-semibold text-ats-text mb-3">Saved Ads from {selectedBrand} ({creatives.length})</h3>
                 {creatives.length === 0 && (
-                  <div className="text-xs text-ats-text-muted text-center py-8">
-                    No saved ads for this brand. Save some from the <a href="/creative/inspo" className="text-ats-accent hover:underline">Inspo library</a>.
+                  <div className="text-sm text-ats-text-muted text-center py-8">
+                    No saved ads for this brand. Save some from the <a href="/creative/inspo" className="text-ats-accent">Inspo library</a>.
                   </div>
                 )}
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
                   {creatives.map(c => (
                     <div key={c.id} className="bg-ats-bg rounded-lg p-3 border border-ats-border/50">
-                      {c.thumbnail_url && <img src={c.thumbnail_url} alt="" className="w-full h-28 object-cover rounded-lg mb-2" />}
+                      {c.thumbnail_url && <img src={c.thumbnail_url} alt="" className="w-full h-36 sm:h-28 object-cover rounded-lg mb-2" />}
                       {c.headline && <div className="text-sm font-semibold text-ats-text mb-1">{c.headline}</div>}
-                      {c.ad_copy && <div className="text-xs text-ats-text-muted line-clamp-3 mb-1">{c.ad_copy}</div>}
+                      {c.ad_copy && <div className="text-sm sm:text-xs text-ats-text-muted line-clamp-3 mb-1">{c.ad_copy}</div>}
                       <div className="flex items-center justify-between mt-2">
-                        <span className="text-[10px] text-ats-text-muted">{c.platform} | {new Date(c.saved_at).toLocaleDateString()}</span>
+                        <span className="text-xs text-ats-text-muted capitalize">{c.platform} · {new Date(c.saved_at).toLocaleDateString()}</span>
                       </div>
                     </div>
                   ))}

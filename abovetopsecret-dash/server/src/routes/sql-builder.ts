@@ -5,7 +5,7 @@ const router = Router();
 
 // Allowed read-only SQL keywords at statement start
 const ALLOWED_PREFIXES = /^\s*(SELECT|WITH|EXPLAIN)\s/i;
-const FORBIDDEN_KEYWORDS = /\b(INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE|GRANT|REVOKE|COPY|EXECUTE|DO)\b/i;
+const FORBIDDEN_KEYWORDS = /\b(INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE|GRANT|REVOKE|COPY|EXECUTE|DO|SET)\b/i;
 const SQL_COMMENT_PATTERN = /--[^\n]*|\/\*[\s\S]*?\*\//g;
 
 // POST /api/sql/execute - Execute read-only SQL
@@ -46,6 +46,10 @@ router.post('/execute', async (req: Request, res: Response) => {
     try {
       // Set statement timeout to prevent long-running queries (30 seconds)
       await client.query('SET statement_timeout = 30000');
+      // Scope queries to the authenticated user via a session variable
+      if (userId) {
+        await client.query(`SET app.current_user_id = '${Number(userId)}'`);
+      }
 
       const startTime = Date.now();
       const result = await client.query(trimmedSql);
@@ -65,12 +69,13 @@ router.post('/execute', async (req: Request, res: Response) => {
     } finally {
       // Reset statement timeout before releasing
       await client.query('SET statement_timeout = 0').catch(() => {});
+      await client.query('RESET app.current_user_id').catch(() => {});
       client.release();
     }
   } catch (err: any) {
     console.error('Error executing SQL:', err);
-    const message = err.message || 'Query execution failed';
-    res.status(400).json({ error: message });
+    // Sanitize error message — don't leak internal DB details
+    res.status(400).json({ error: 'Query execution failed' });
   }
 });
 

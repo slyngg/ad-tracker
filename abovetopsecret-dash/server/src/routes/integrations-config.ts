@@ -8,7 +8,7 @@ const router = Router();
 router.get('/configs', async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
-    const result = await pool.query('SELECT * FROM integration_configs WHERE user_id = $1', [userId]);
+    const result = await pool.query('SELECT id, user_id, platform, config, status, connection_method, error_message, created_at, updated_at FROM integration_configs WHERE user_id = $1', [userId]);
 
     // Return all platforms with status
     const configs = SUPPORTED_PLATFORMS.map(platform => {
@@ -34,7 +34,7 @@ router.post('/connect', async (req: Request, res: Response) => {
       INSERT INTO integration_configs (user_id, platform, credentials, config, status)
       VALUES ($1, $2, $3, $4, 'connected')
       ON CONFLICT (user_id, platform) DO UPDATE SET credentials = EXCLUDED.credentials, config = EXCLUDED.config, status = 'connected', updated_at = NOW()
-      RETURNING *
+      RETURNING id, user_id, platform, config, status, created_at, updated_at
     `, [userId, platform, JSON.stringify(credentials || {}), JSON.stringify(config || {})]);
 
     res.json(result.rows[0]);

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
+import { ChevronUp, ChevronDown } from 'lucide-react';
 import PageShell from '../../components/shared/PageShell';
 import { useChartTheme } from '../../hooks/useChartTheme';
 import {
@@ -67,7 +68,7 @@ function AIPanel({ filters, dateFrom, dateTo }: { filters: Record<string, string
     finally { setStreaming(false); }
   };
 
-  if (!open) return <button onClick={() => setOpen(true)} className="px-3 py-1.5 bg-purple-600/20 text-purple-400 rounded-lg text-sm font-semibold hover:bg-purple-600/30 transition-colors">AI Analysis</button>;
+  if (!open) return <button onClick={() => setOpen(true)} className="px-4 py-3 sm:py-1.5 bg-purple-600/20 text-purple-400 rounded-lg text-sm font-semibold hover:bg-purple-600/30 active:bg-purple-600/30 transition-colors">AI Analysis</button>;
 
   return (
     <div className={`${cardCls} mt-4`}>
@@ -76,9 +77,9 @@ function AIPanel({ filters, dateFrom, dateTo }: { filters: Record<string, string
         <button onClick={() => setOpen(false)} className="text-ats-text-muted text-xs hover:text-ats-text">Close</button>
       </div>
       <div className="flex flex-wrap gap-2 mb-3">
-        <button onClick={() => runAI('analyze-report')} disabled={streaming} className="px-3 py-1.5 bg-ats-accent/20 text-ats-accent rounded-lg text-xs font-semibold hover:bg-ats-accent/30 disabled:opacity-50">Analyze Report</button>
-        <button onClick={() => runAI('next-ads')} disabled={streaming} className="px-3 py-1.5 bg-emerald-500/20 text-emerald-400 rounded-lg text-xs font-semibold hover:bg-emerald-500/30 disabled:opacity-50">Next Ads to Make</button>
-        <button onClick={() => runAI('weekly-retro')} disabled={streaming} className="px-3 py-1.5 bg-amber-500/20 text-amber-400 rounded-lg text-xs font-semibold hover:bg-amber-500/30 disabled:opacity-50">Weekly Retro</button>
+        <button onClick={() => runAI('analyze-report')} disabled={streaming} className="px-4 py-2.5 sm:px-3 sm:py-1.5 bg-ats-accent/20 text-ats-accent rounded-lg text-sm sm:text-xs font-semibold hover:bg-ats-accent/30 active:bg-ats-accent/30 disabled:opacity-50">Analyze Report</button>
+        <button onClick={() => runAI('next-ads')} disabled={streaming} className="px-4 py-2.5 sm:px-3 sm:py-1.5 bg-emerald-500/20 text-emerald-400 rounded-lg text-sm sm:text-xs font-semibold hover:bg-emerald-500/30 active:bg-emerald-500/30 disabled:opacity-50">Next Ads to Make</button>
+        <button onClick={() => runAI('weekly-retro')} disabled={streaming} className="px-4 py-2.5 sm:px-3 sm:py-1.5 bg-amber-500/20 text-amber-400 rounded-lg text-sm sm:text-xs font-semibold hover:bg-amber-500/30 active:bg-amber-500/30 disabled:opacity-50">Weekly Retro</button>
       </div>
       {(result || streaming) && (
         <div className="bg-ats-bg rounded-lg p-3 text-sm text-ats-text whitespace-pre-wrap max-h-96 overflow-y-auto">
@@ -149,25 +150,78 @@ export default function CreativeAnalyticsPage() {
     { key: 'launch' as const, label: 'Launch Analysis' },
   ];
 
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const filterInputCls = 'w-full bg-ats-card border border-ats-border rounded-lg px-3 py-3 text-sm text-ats-text';
+
   return (
-    <PageShell title="Creative Analytics" showDatePicker subtitle="Motion-grade creative performance analysis" actions={
-      <div className="flex items-center gap-2">
+    <PageShell title="Creative Analytics" showDatePicker subtitle="Motion-grade creative performance analysis">
+      {/* Mobile: Action buttons */}
+      <div className="flex gap-2 mb-3 lg:hidden">
+        <button onClick={handleSnapshot} className="flex-1 px-3 py-3 bg-ats-card border border-ats-border rounded-lg text-sm text-ats-text-muted font-semibold active:bg-ats-hover">Share Snapshot</button>
+        <AIPanel filters={{ platform }} dateFrom={dateFrom} dateTo={dateTo} />
+      </div>
+
+      {/* Desktop: Action buttons */}
+      <div className="hidden lg:flex items-center gap-2 mb-4">
         <button onClick={handleSnapshot} className="px-3 py-1.5 bg-ats-card border border-ats-border rounded-lg text-sm text-ats-text-muted hover:text-ats-text">Share Snapshot</button>
         <AIPanel filters={{ platform }} dateFrom={dateFrom} dateTo={dateTo} />
       </div>
-    }>
-      {/* Tabs */}
-      <div className="flex gap-1 mb-4 bg-ats-card rounded-lg p-1 border border-ats-border w-fit">
+
+      {/* Tabs - full width on mobile */}
+      <div className="flex gap-1 mb-3 sm:mb-4 bg-ats-card rounded-lg p-1 border border-ats-border w-full sm:w-fit">
         {tabs.map(t => (
           <button key={t.key} onClick={() => setTab(t.key)}
-            className={`px-4 py-1.5 rounded-md text-sm font-semibold transition-colors ${tab === t.key ? 'bg-ats-accent text-white' : 'text-ats-text-muted hover:text-ats-text'}`}>
+            className={`flex-1 sm:flex-initial px-4 py-2.5 sm:py-1.5 rounded-md text-sm font-semibold transition-colors ${tab === t.key ? 'bg-ats-accent text-white' : 'text-ats-text-muted hover:text-ats-text'}`}>
             {t.label}
           </button>
         ))}
       </div>
 
-      {/* Filters */}
-      <div className="flex flex-wrap gap-2 mb-4">
+      {/* Mobile: Filter toggle + collapsible filters */}
+      <div className="lg:hidden mb-3">
+        <button onClick={() => setFiltersOpen(!filtersOpen)}
+          className={`w-full flex items-center justify-between px-4 py-3 rounded-lg text-sm font-semibold border transition-colors ${
+            filtersOpen ? 'bg-ats-accent/10 border-ats-accent text-ats-accent' : 'bg-ats-card border-ats-border text-ats-text-muted'
+          }`}>
+          <span>Filters & Date Range</span>
+          {filtersOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+        </button>
+        {filtersOpen && (
+          <div className="mt-2 space-y-2 bg-ats-card rounded-xl p-3 border border-ats-border">
+            <div className="grid grid-cols-2 gap-2">
+              <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className={filterInputCls} />
+              <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className={filterInputCls} />
+            </div>
+            {tab === 'top' && (
+              <>
+                <select value={platform} onChange={e => setPlatform(e.target.value)} className={filterInputCls}>
+                  <option value="">All Platforms</option><option value="meta">Meta</option><option value="tiktok">TikTok</option><option value="newsbreak">NewsBreak</option><option value="youtube">YouTube</option>
+                </select>
+                <select value={sortBy} onChange={e => setSortBy(e.target.value)} className={filterInputCls}>
+                  {SORT_OPTIONS.map(s => <option key={s} value={s}>Sort: {s.toUpperCase()}</option>)}
+                </select>
+                <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search ads..." className={filterInputCls} />
+              </>
+            )}
+            {tab === 'comparative' && (
+              <>
+                <select value={compDimension} onChange={e => setCompDimension(e.target.value)} className={filterInputCls}>
+                  {TAG_DIMENSIONS.map(d => <option key={d} value={d}>Group: {d.replace(/_/g, ' ')}</option>)}
+                  <option value="campaign_name">Group: Campaign</option>
+                  <option value="adset_name">Group: Adset</option>
+                  <option value="creative_type">Group: Type</option>
+                </select>
+                <select value={compMetric} onChange={e => setCompMetric(e.target.value)} className={filterInputCls}>
+                  {SORT_OPTIONS.map(s => <option key={s} value={s}>Metric: {s.toUpperCase()}</option>)}
+                </select>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Desktop: Inline filter row */}
+      <div className="hidden lg:flex flex-wrap gap-2 mb-4">
         <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="bg-ats-card border border-ats-border rounded-lg px-3 py-1.5 text-sm text-ats-text" />
         <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="bg-ats-card border border-ats-border rounded-lg px-3 py-1.5 text-sm text-ats-text" />
         {tab === 'top' && (
@@ -254,11 +308,31 @@ export default function CreativeAnalyticsPage() {
               </ResponsiveContainer></div>
             </div>
           )}
-          <div className={`${cardCls} overflow-x-auto`}>
+
+          {/* Mobile: Comparative cards */}
+          <div className="lg:hidden space-y-2">
+            {comparative.map((r, i) => (
+              <div key={i} className={cardCls}>
+                <div className="text-sm font-semibold text-ats-text capitalize mb-2">{(r.dimension_value || '-').replace(/_/g, ' ')}</div>
+                <div className="grid grid-cols-3 gap-2">
+                  <div><div className="text-[10px] text-ats-text-muted uppercase">Creatives</div><div className="text-sm font-mono text-ats-text">{r.creative_count}</div></div>
+                  <div><div className="text-[10px] text-ats-text-muted uppercase">Spend</div><div className="text-sm font-mono text-ats-text">${parseFloat(String(r.total_spend)).toFixed(0)}</div></div>
+                  <div><div className="text-[10px] text-ats-text-muted uppercase">ROAS</div><div className={`text-sm font-mono font-semibold ${parseFloat(String(r.avg_roas)) >= 2 ? 'text-emerald-400' : 'text-ats-text'}`}>{parseFloat(String(r.avg_roas)).toFixed(2)}x</div></div>
+                  <div><div className="text-[10px] text-ats-text-muted uppercase">CPA</div><div className="text-sm font-mono text-ats-text">${parseFloat(String(r.avg_cpa)).toFixed(2)}</div></div>
+                  <div><div className="text-[10px] text-ats-text-muted uppercase">CTR</div><div className="text-sm font-mono text-ats-text">{(parseFloat(String(r.avg_ctr)) * 100).toFixed(2)}%</div></div>
+                  <div><div className="text-[10px] text-ats-text-muted uppercase">CVR</div><div className="text-sm font-mono text-ats-text">{(parseFloat(String(r.avg_cvr)) * 100).toFixed(2)}%</div></div>
+                </div>
+              </div>
+            ))}
+            {comparative.length === 0 && <div className={`${cardCls} text-center py-8 text-ats-text-muted`}>No data for this period.</div>}
+          </div>
+
+          {/* Desktop: Comparative table */}
+          <div className={`${cardCls} overflow-x-auto hidden lg:block`}>
             <table className="w-full">
               <thead><tr className="border-b border-ats-border">
                 {['Dimension', 'Creatives', 'Total Spend', 'Avg ROAS', 'Avg CPA', 'Avg CTR', 'Avg CVR'].map(h => (
-                  <th key={h} className="px-3 py-2 text-left text-xs sm:text-[11px] uppercase tracking-wider font-semibold text-ats-text-muted">{h}</th>
+                  <th key={h} className="px-3 py-2 text-left text-[11px] uppercase tracking-wider font-semibold text-ats-text-muted">{h}</th>
                 ))}
               </tr></thead>
               <tbody>

@@ -1290,7 +1290,7 @@ export async function executeTool(
       const client = await pool.connect();
       try {
         await client.query('SET statement_timeout = 15000');
-        await client.query(`SET app.current_user_id = '${Number(userId)}'`);
+        await client.query('SET app.current_user_id = $1', [String(Number(userId))]);
         const result = await client.query(cleaned, []);
         return {
           result: {

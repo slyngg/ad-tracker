@@ -116,63 +116,72 @@ export default function CreativeBoardsPage() {
 
   return (
     <PageShell title="Creative Boards" subtitle="Organize saved ads into collections" actions={
-      <button onClick={() => setShowCreateModal(true)} className="px-3 py-1.5 bg-ats-accent text-white rounded-lg text-sm font-semibold">New Board</button>
+      <button onClick={() => setShowCreateModal(true)} className="px-4 py-3 sm:py-1.5 bg-ats-accent text-white rounded-lg text-sm font-semibold">New Board</button>
     }>
       {showCreateModal && <CreateBoardModal onClose={() => setShowCreateModal(false)} onSubmit={handleCreate} />}
 
       {loading && <div className="h-20 bg-ats-card rounded-xl animate-pulse" />}
 
       {!loading && (
-        <div className="grid gap-3">
+        <div className="grid gap-2 sm:gap-3">
           {boards.map(b => (
             <div key={b.id} className={cardCls}>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3 cursor-pointer" onClick={() => handleExpand(b.id)}>
-                  <div className="w-10 h-10 bg-ats-accent/20 rounded-lg flex items-center justify-center text-ats-accent font-bold text-lg">
-                    {b.name.charAt(0).toUpperCase()}
-                  </div>
-                  <div>
-                    {editingBoard === b.id ? (
-                      <input value={editName} onChange={e => setEditName(e.target.value)} onBlur={() => handleRename(b.id)} onKeyDown={e => e.key === 'Enter' && handleRename(b.id)}
-                        className="bg-ats-bg border border-ats-border rounded px-2 py-0.5 text-sm text-ats-text" autoFocus />
-                    ) : (
-                      <span className="text-sm font-semibold text-ats-text">{b.name}</span>
-                    )}
-                    {b.description && <p className="text-xs text-ats-text-muted">{b.description}</p>}
-                  </div>
+              {/* Board header - tap to expand */}
+              <div className="flex items-center gap-3 cursor-pointer active:bg-ats-hover/30 -m-4 p-4 rounded-xl" onClick={() => handleExpand(b.id)}>
+                <div className="w-11 h-11 sm:w-10 sm:h-10 bg-ats-accent/20 rounded-lg flex items-center justify-center text-ats-accent font-bold text-lg flex-shrink-0">
+                  {b.name.charAt(0).toUpperCase()}
                 </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-xs text-ats-text-muted">{b.item_count} items</span>
-                  <button onClick={() => { setEditingBoard(b.id); setEditName(b.name); }} className="text-xs text-ats-accent hover:underline">Rename</button>
-                  <button onClick={() => handleDelete(b.id)} className="text-xs text-red-400 hover:text-red-300">Delete</button>
-                  <span className="text-xs text-ats-text-muted">{expandedBoard === b.id ? '▼' : '▶'}</span>
+                <div className="flex-1 min-w-0">
+                  {editingBoard === b.id ? (
+                    <input value={editName} onChange={e => setEditName(e.target.value)}
+                      onBlur={() => handleRename(b.id)} onKeyDown={e => e.key === 'Enter' && handleRename(b.id)}
+                      onClick={e => e.stopPropagation()}
+                      className="bg-ats-bg border border-ats-border rounded-lg px-3 py-2 text-sm text-ats-text w-full" autoFocus />
+                  ) : (
+                    <span className="text-sm font-semibold text-ats-text">{b.name}</span>
+                  )}
+                  {b.description && <p className="text-xs text-ats-text-muted mt-0.5 truncate">{b.description}</p>}
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <span className="text-xs text-ats-text-muted bg-ats-bg px-2 py-1 rounded-full">{b.item_count}</span>
+                  <span className="text-ats-text-muted text-sm">{expandedBoard === b.id ? '▼' : '▶'}</span>
                 </div>
               </div>
 
+              {/* Board actions - visible when expanded */}
               {expandedBoard === b.id && (
-                <div className="mt-4 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
-                  {boardItems.map((item, i) => (
-                    <div key={i} className="bg-ats-bg rounded-lg p-2 border border-ats-border/50">
-                      {item.thumbnail_url && <img src={item.thumbnail_url} alt="" className="w-full h-20 object-cover rounded mb-1" />}
-                      <div className="text-xs font-semibold text-ats-text truncate">{item.headline || item.brand_name || 'Creative'}</div>
-                      <div className="text-[10px] text-ats-text-muted">{item.brand_name}</div>
-                    </div>
-                  ))}
-                  {boardItems.length === 0 && (
-                    <div className="col-span-full text-center py-4 text-xs text-ats-text-muted">
-                      No items in this board. Add creatives from the Inspo library.
-                    </div>
-                  )}
-                </div>
+                <>
+                  <div className="flex gap-2 mt-3 pt-3 border-t border-ats-border">
+                    <button onClick={(e) => { e.stopPropagation(); setEditingBoard(b.id); setEditName(b.name); }}
+                      className="px-4 py-2.5 sm:py-1.5 text-sm text-ats-accent hover:bg-ats-accent/10 rounded-lg transition-colors">Rename</button>
+                    <button onClick={(e) => { e.stopPropagation(); handleDelete(b.id); }}
+                      className="px-4 py-2.5 sm:py-1.5 text-sm text-red-400 hover:bg-red-400/10 rounded-lg transition-colors">Delete</button>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                    {boardItems.map((item, i) => (
+                      <div key={i} className="bg-ats-bg rounded-lg p-2 border border-ats-border/50">
+                        {item.thumbnail_url && <img src={item.thumbnail_url} alt="" className="w-full h-24 sm:h-20 object-cover rounded mb-1.5" />}
+                        <div className="text-xs font-semibold text-ats-text truncate">{item.headline || item.brand_name || 'Creative'}</div>
+                        <div className="text-[10px] text-ats-text-muted">{item.brand_name}</div>
+                      </div>
+                    ))}
+                    {boardItems.length === 0 && (
+                      <div className="col-span-full text-center py-6 text-sm text-ats-text-muted">
+                        No items yet. Add creatives from the Inspo library.
+                      </div>
+                    )}
+                  </div>
+                </>
               )}
             </div>
           ))}
           {boards.length === 0 && (
-            <div className={`${cardCls} text-center py-8`}>
+            <div className={`${cardCls} text-center py-10`}>
               <div className="text-3xl mb-3">📋</div>
-              <h3 className="text-sm font-semibold text-ats-text mb-1">No Boards Yet</h3>
-              <p className="text-xs text-ats-text-muted mb-3">Create boards to organize your saved competitor ads.</p>
-              <button onClick={() => setShowCreateModal(true)} className="px-4 py-2 bg-ats-accent text-white rounded-lg text-sm font-semibold">Create First Board</button>
+              <h3 className="text-base font-semibold text-ats-text mb-1">No Boards Yet</h3>
+              <p className="text-sm text-ats-text-muted mb-4">Create boards to organize your saved competitor ads.</p>
+              <button onClick={() => setShowCreateModal(true)} className="px-6 py-3 bg-ats-accent text-white rounded-lg text-sm font-semibold">Create First Board</button>
             </div>
           )}
         </div>

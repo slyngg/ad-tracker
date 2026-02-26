@@ -14,8 +14,14 @@ router.get('/performance', async (req: Request, res: Response) => {
     const params: any[] = userId ? [userId] : [];
 
     let filters = '';
-    if (platform && platform !== 'all') { filters += ` AND platform = '${String(platform).replace(/'/g, '')}'`; }
-    if (type && type !== 'all') { filters += ` AND creative_type = '${String(type).replace(/'/g, '')}'`; }
+    if (platform && platform !== 'all') {
+      params.push(String(platform));
+      filters += ` AND platform = $${params.length}`;
+    }
+    if (type && type !== 'all') {
+      params.push(String(type));
+      filters += ` AND creative_type = $${params.length}`;
+    }
 
     const result = await pool.query(`
       SELECT

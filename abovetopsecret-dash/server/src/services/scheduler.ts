@@ -9,6 +9,8 @@ import { syncAllNewsBreakForUser } from './newsbreak-sync';
 import { syncAllKlaviyoData } from './klaviyo-sync';
 import { syncFollowedBrands } from './ad-library';
 import { processUnsentEvents } from './meta-capi';
+import { processUnsentEvents as processGoogleUnsentEvents } from './google-enhanced-conversions';
+import { computeAttributionForAllUsers } from './pixel-attribution';
 import { getSetting } from './settings';
 import { evaluateRules } from './rules-engine';
 import { checkThresholds } from './notifications';
@@ -42,6 +44,7 @@ const LOCK_SHOPIFY_SYNC = 100008;
 const LOCK_TIKTOK_SYNC = 100009;
 const LOCK_KLAVIYO_SYNC = 100010;
 const LOCK_NEWSBREAK_SYNC = 100012;
+const LOCK_PIXEL_ATTRIBUTION = 100015;
 
 async function withAdvisoryLock(
   lockId: number,
@@ -497,5 +500,35 @@ export function startScheduler(): void {
     });
   });
 
-  console.log('[Scheduler] Cron jobs registered: Meta Ads (*/2), CC poll (* * *), GA4 (3,18,33,48), CC full sync (0 */4), Creative (5,35), Daily reset (0 *), OAuth refresh (0 *), Shopify (30 */6), TikTok (*/2), NewsBreak (1/2), Klaviyo (15 */2), Ad Library (45 */2), CAPI relay (1/2)');
+  // Google Enhanced Conversions relay every 2 minutes (offset from CAPI relay)
+  const LOCK_GOOGLE_RELAY = 100014;
+  cron.schedule('*/2 * * * *', async () => {
+    await withAdvisoryLock(LOCK_GOOGLE_RELAY, 'Google relay', async () => {
+      try {
+        const result = await processGoogleUnsentEvents();
+        if (result.totalSent > 0 || result.totalFailed > 0) {
+          console.log(`[Scheduler] Google relay: ${result.totalSent} sent, ${result.totalFailed} failed, ${result.totalSkipped} skipped across ${result.configsProcessed} configs`);
+        }
+      } catch (err) {
+        console.error('[Scheduler] Google Enhanced Conversions relay failed:', err);
+      }
+    });
+  });
+
+  // Pixel attribution computation daily at 3:00 AM UTC
+  cron.schedule('0 3 * * *', async () => {
+    await withAdvisoryLock(LOCK_PIXEL_ATTRIBUTION, 'Pixel attribution', async () => {
+      console.log('[Scheduler] Running pixel attribution computation...');
+      try {
+        const result = await computeAttributionForAllUsers();
+        if (result.totalOrders > 0) {
+          console.log(`[Scheduler] Pixel attribution: ${result.usersProcessed} users, ${result.totalOrders} orders, ${result.totalResults} results`);
+        }
+      } catch (err) {
+        console.error('[Scheduler] Pixel attribution computation failed:', err);
+      }
+    }, 10 * 60 * 1000); // 10-minute timeout for attribution (can be heavy)
+  });
+
+  console.log('[Scheduler] Cron jobs registered: Meta Ads (*/2), CC poll (* * *), GA4 (3,18,33,48), CC full sync (0 */4), Creative (5,35), Daily reset (0 *), OAuth refresh (0 *), Shopify (30 */6), TikTok (*/2), NewsBreak (1/2), Klaviyo (15 */2), Ad Library (45 */2), CAPI relay (1/2), Google relay (*/2), Pixel attribution (0 3)');
 }

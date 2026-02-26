@@ -45,9 +45,11 @@ router.put('/:id', async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
     const { role, permissions } = req.body;
+    const validRoles = ['admin', 'viewer'];
+    const safeRole = role && validRoles.includes(role) ? role : undefined;
     await pool.query(
       'UPDATE team_members SET role = COALESCE($1, role), permissions = COALESCE($2, permissions), updated_at = NOW() WHERE id = $3 AND invited_by = $4',
-      [role, permissions ? JSON.stringify(permissions) : null, parseInt(req.params.id), userId]
+      [safeRole || null, permissions ? JSON.stringify(permissions) : null, parseInt(req.params.id), userId]
     );
     res.json({ success: true });
   } catch (err) {

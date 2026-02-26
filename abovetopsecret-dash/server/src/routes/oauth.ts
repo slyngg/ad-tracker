@@ -276,7 +276,12 @@ router.get('/status', authMiddleware, async (req: Request, res: Response) => {
 });
 
 // ── Callback HTML ───────────────────────────────────────────────
+function escapeHtml(str: string): string {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 function callbackHtml(success: boolean, message: string): string {
+  const safeMessage = escapeHtml(message);
   return `<!DOCTYPE html>
 <html><head><title>OAuth ${success ? 'Success' : 'Error'}</title>
 <style>
@@ -288,12 +293,12 @@ function callbackHtml(success: boolean, message: string): string {
 </style></head><body>
 <div class="card">
   <div class="icon">${success ? '&#10004;' : '&#10006;'}</div>
-  <div class="msg">${message}</div>
+  <div class="msg">${safeMessage}</div>
   <div class="sub">This window will close automatically...</div>
 </div>
 <script>
   if (window.opener) {
-    window.opener.postMessage({ type: 'oauth-callback', success: ${success}, message: '${message.replace(/'/g, "\\'")}' }, '*');
+    window.opener.postMessage({ type: 'oauth-callback', success: ${success}, message: ${JSON.stringify(safeMessage)} }, '*');
   }
   setTimeout(function() { window.close(); }, 1500);
 </script>

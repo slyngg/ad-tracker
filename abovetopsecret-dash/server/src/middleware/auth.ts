@@ -63,14 +63,16 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
 
   const header = req.headers.authorization;
 
-  // No auth header — check dev mode (legacy: no token set means no auth)
+  // No auth header — reject in production, allow dev mode only in development
   if (!header || !header.startsWith('Bearer ')) {
-    const authToken = await getSetting('auth_token');
-    if (!authToken) {
-      // Dev mode: no auth required, no user scope
-      req.user = { id: null };
-      next();
-      return;
+    if (process.env.NODE_ENV !== 'production') {
+      const authToken = await getSetting('auth_token');
+      if (!authToken) {
+        // Dev mode: no auth required, no user scope
+        req.user = { id: null };
+        next();
+        return;
+      }
     }
     res.status(401).json({ error: 'Missing or invalid Authorization header' });
     return;
@@ -91,9 +93,13 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
   // Legacy token auth
   const authToken = await getSetting('auth_token');
   if (!authToken) {
-    // Dev mode with a non-JWT token — allow but no user scope
-    req.user = { id: null };
-    next();
+    if (process.env.NODE_ENV !== 'production') {
+      // Dev mode with a non-JWT token — allow but no user scope
+      req.user = { id: null };
+      next();
+      return;
+    }
+    res.status(401).json({ error: 'Invalid token' });
     return;
   }
 
