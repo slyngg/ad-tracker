@@ -168,21 +168,27 @@ export async function createNewsBreakAd(
     ad_text: string;
     headline?: string;
     image_url?: string;
+    video_url?: string;
     landing_page_url?: string;
     call_to_action?: string;
   },
   accessToken: string
 ): Promise<{ ad_id: string }> {
-  const data = await newsbreakRequest('POST', '/business-api/v1/ads/create', accessToken, {
+  const body: Record<string, any> = {
     advertiser_id: accountId,
     adgroup_id: params.adgroup_id,
     ad_name: params.ad_name,
     ad_text: params.ad_text,
     headline: params.headline,
-    image_url: params.image_url,
     landing_page_url: params.landing_page_url,
     call_to_action: params.call_to_action || 'LEARN_MORE',
-  });
+  };
+  if (params.video_url) {
+    body.video_url = params.video_url;
+  } else if (params.image_url) {
+    body.image_url = params.image_url;
+  }
+  const data = await newsbreakRequest('POST', '/business-api/v1/ads/create', accessToken, body);
   return { ad_id: String(data.ad_id) };
 }
 

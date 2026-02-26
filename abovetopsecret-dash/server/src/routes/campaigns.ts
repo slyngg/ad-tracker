@@ -920,7 +920,7 @@ router.post('/quick-create', publishLimiter, async (req: Request, res: Response)
     const {
       account_id, platform, campaign_name, objective,
       daily_budget, adset_name,
-      ad_name, headline, ad_text, image_url, landing_page_url, call_to_action,
+      ad_name, headline, ad_text, image_url, video_url, landing_page_url, call_to_action,
     } = req.body;
 
     if (!platform || !campaign_name || !ad_text) {
@@ -957,8 +957,9 @@ router.post('/quick-create', publishLimiter, async (req: Request, res: Response)
     if (headline) creativeConfig.headline = headline;
     if (ad_text) creativeConfig.primary_text = ad_text;
     if (image_url) creativeConfig.image_url = image_url;
-    if (landing_page_url) creativeConfig.landing_page_url = landing_page_url;
-    if (call_to_action) creativeConfig.call_to_action = call_to_action;
+    if (video_url) creativeConfig.video_url = video_url;
+    if (landing_page_url) creativeConfig.link_url = landing_page_url;
+    if (call_to_action) creativeConfig.cta = call_to_action;
 
     await pool.query(
       `INSERT INTO campaign_ads (adset_id, name, creative_config) VALUES ($1, $2, $3)`,

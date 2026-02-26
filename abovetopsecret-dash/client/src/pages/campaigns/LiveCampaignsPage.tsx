@@ -93,7 +93,8 @@ interface CreatorState {
   adName: string;
   headline: string;
   adText: string;
-  imageUrl: string;
+  mediaType: 'image' | 'video';
+  mediaUrl: string;
   landingUrl: string;
   cta: string;
 }
@@ -111,7 +112,8 @@ const INITIAL_CREATOR: CreatorState = {
   adName: '',
   headline: '',
   adText: '',
-  imageUrl: '',
+  mediaType: 'image',
+  mediaUrl: '',
   landingUrl: '',
   cta: 'LEARN_MORE',
 };
@@ -125,7 +127,7 @@ function CampaignCreator({ onClose, onSuccess, accounts }: {
   const [publishing, setPublishing] = useState(false);
   const [result, setResult] = useState<{ success: boolean; error?: string } | null>(null);
   const [uploading, setUploading] = useState(false);
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [mediaPreview, setMediaPreview] = useState<string | null>(null);
   const [step, setStep] = useState(0); // 0 = campaign, 1 = ad set, 2 = creative
 
   const platformAccounts = accounts.filter(a => a.platform === form.platform && a.status === 'active');
@@ -145,14 +147,19 @@ function CampaignCreator({ onClose, onSuccess, accounts }: {
     setForm(f => ({ ...f, [key]: value }));
   }
 
-  async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handleMediaUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
+    const isVideo = file.type.startsWith('video/');
     setUploading(true);
     try {
       const res = await uploadCampaignMedia(file, form.accountId);
-      setForm(f => ({ ...f, imageUrl: `/api/campaigns/media/${res.id}` }));
-      setImagePreview(URL.createObjectURL(file));
+      setForm(f => ({
+        ...f,
+        mediaUrl: `/api/campaigns/media/${res.id}`,
+        mediaType: isVideo ? 'video' : 'image',
+      }));
+      setMediaPreview(URL.createObjectURL(file));
     } catch (err: any) {
       alert(err.message || 'Upload failed');
     } finally {
@@ -178,7 +185,8 @@ function CampaignCreator({ onClose, onSuccess, accounts }: {
         ad_name: form.adName.trim() || undefined,
         headline: form.headline.trim() || undefined,
         ad_text: form.adText.trim(),
-        image_url: form.imageUrl.trim() || undefined,
+        image_url: form.mediaType === 'image' && form.mediaUrl.trim() ? form.mediaUrl.trim() : undefined,
+        video_url: form.mediaType === 'video' && form.mediaUrl.trim() ? form.mediaUrl.trim() : undefined,
         landing_page_url: form.landingUrl.trim() || undefined,
         call_to_action: form.cta,
       });
@@ -389,37 +397,67 @@ function CampaignCreator({ onClose, onSuccess, accounts }: {
                 />
               </div>
 
-              {/* Image */}
+              {/* Media (Image or Video) */}
               <div>
-                <Label>Image</Label>
-                {imagePreview ? (
-                  <div className="relative rounded-xl overflow-hidden border border-ats-border mt-1.5">
-                    <img src={imagePreview} alt="Creative" className="w-full h-44 object-cover" />
+                <Label>Media</Label>
+                {/* Type toggle */}
+                <div className="flex gap-2 mt-1.5 mb-2">
+                  {(['image', 'video'] as const).map(t => (
                     <button
-                      onClick={() => { setImagePreview(null); set('imageUrl', ''); }}
+                      key={t}
+                      onClick={() => { set('mediaType', t); set('mediaUrl', ''); setMediaPreview(null); }}
+                      className={`flex-1 px-3 py-2 rounded-lg text-xs font-semibold border transition-all ${
+                        form.mediaType === t
+                          ? 'bg-ats-accent/15 border-ats-accent text-ats-accent'
+                          : 'bg-ats-card border-ats-border text-ats-text-muted hover:bg-ats-hover'
+                      }`}
+                    >
+                      {t === 'image' ? 'Image' : 'Video'}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Preview */}
+                {mediaPreview ? (
+                  <div className="relative rounded-xl overflow-hidden border border-ats-border">
+                    {form.mediaType === 'video' ? (
+                      <video src={mediaPreview} className="w-full h-44 object-cover" controls muted />
+                    ) : (
+                      <img src={mediaPreview} alt="Creative" className="w-full h-44 object-cover" />
+                    )}
+                    <button
+                      onClick={() => { setMediaPreview(null); set('mediaUrl', ''); }}
                       className="absolute top-2 right-2 p-1.5 bg-black/60 rounded-lg text-white hover:bg-black/80"
                     >
                       <X className="w-4 h-4" />
                     </button>
                   </div>
                 ) : (
-                  <label className="flex flex-col items-center justify-center gap-2 h-36 rounded-xl border-2 border-dashed border-ats-border hover:border-ats-accent/50 cursor-pointer transition-colors bg-ats-card/50 mt-1.5">
-                    <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
+                  <label className="flex flex-col items-center justify-center gap-2 h-36 rounded-xl border-2 border-dashed border-ats-border hover:border-ats-accent/50 cursor-pointer transition-colors bg-ats-card/50">
+                    <input
+                      type="file"
+                      accept={form.mediaType === 'video' ? 'video/mp4,video/quicktime' : 'image/*'}
+                      onChange={handleMediaUpload}
+                      className="hidden"
+                    />
                     {uploading ? (
                       <Loader2 className="w-6 h-6 text-ats-text-muted animate-spin" />
                     ) : (
                       <>
                         <ImageIcon className="w-6 h-6 text-ats-text-muted" />
-                        <span className="text-xs text-ats-text-muted">Click to upload or drag &amp; drop</span>
+                        <span className="text-xs text-ats-text-muted">
+                          Upload {form.mediaType === 'video' ? 'video (MP4, MOV)' : 'image (JPG, PNG, GIF)'}
+                        </span>
+                        <span className="text-[10px] text-ats-text-muted/50">Max 30MB</span>
                       </>
                     )}
                   </label>
                 )}
-                {!imagePreview && (
+                {!mediaPreview && (
                   <input
-                    value={form.imageUrl}
-                    onChange={(e) => set('imageUrl', e.target.value)}
-                    placeholder="or paste image URL"
+                    value={form.mediaUrl}
+                    onChange={(e) => set('mediaUrl', e.target.value)}
+                    placeholder={`or paste ${form.mediaType} URL`}
                     className="w-full px-3 py-2.5 bg-ats-card border border-ats-border rounded-lg text-sm text-ats-text placeholder-ats-text-muted/50 focus:outline-none focus:border-ats-accent text-xs mt-2"
                   />
                 )}

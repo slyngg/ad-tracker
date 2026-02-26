@@ -1317,6 +1317,7 @@ export interface QuickCreateParams {
   headline?: string;
   ad_text: string;
   image_url?: string;
+  video_url?: string;
   landing_page_url?: string;
   call_to_action?: string;
 }
