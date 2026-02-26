@@ -1327,6 +1327,22 @@ export function fetchAdGroupBudgets(platform: string, campaignId: string): Promi
   return request<AdGroupBudget[]>(`/campaigns/live/budgets/${platform}/${encodeURIComponent(campaignId)}`);
 }
 
+// ── Campaign→Account Mapping ─────────────────────────────────
+
+export interface CampaignAccountMap {
+  campaign_id: string;
+  account_id: number;
+  account_name: string;
+}
+
+export function fetchCampaignAccountMap(): Promise<CampaignAccountMap[]> {
+  return request<CampaignAccountMap[]>('/campaigns/account-map');
+}
+
+export function assignCampaignAccount(campaignId: string, accountId: number): Promise<{ success: boolean }> {
+  return request<{ success: boolean }>('/campaigns/assign-account', { method: 'POST', body: JSON.stringify({ campaign_id: campaignId, account_id: accountId }) });
+}
+
 export interface QuickCreateParams {
   account_id?: number;
   platform: string;

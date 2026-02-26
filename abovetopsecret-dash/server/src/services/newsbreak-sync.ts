@@ -50,33 +50,47 @@ function fetchNewsBreakJSON(accessToken: string, body: any): Promise<any> {
  * with its own advertiser_id so data is properly separated.
  */
 export async function syncAllNewsBreakForUser(userId: number): Promise<{ synced: number; skipped: boolean; accounts: number }> {
-  // Get API credentials (may be one key that works for all advertiser accounts)
+  // Get API credentials (one key accesses all advertiser accounts)
   const auth = await getNewsBreakAuth(userId);
   if (!auth) return { synced: 0, skipped: true, accounts: 0 };
 
-  // Get all NB accounts from the accounts table — each has a distinct platform_account_id (advertiser_id)
-  const acctRes = await pool.query(
-    `SELECT id, platform_account_id FROM accounts WHERE user_id = $1 AND platform = 'newsbreak' AND status = 'active' ORDER BY id`,
-    [userId]
-  );
+  // NB reports API ignores advertiser_id — returns ALL campaigns regardless.
+  // So we sync once and then apply the campaign→account mapping from nb_campaign_account_map.
+  const result = await syncNewsBreakAds(userId, auth);
 
-  // If no accounts in the table, fall back to single sync with the auth's accountId
-  if (acctRes.rows.length === 0) {
-    const result = await syncNewsBreakAds(userId, auth);
-    return { synced: result.synced, skipped: false, accounts: 1 };
+  // Apply campaign→account mapping so account_id reflects user's assignment
+  if (userId) {
+    await applyCampaignAccountMap(userId);
   }
 
-  let totalSynced = 0;
-  for (const acct of acctRes.rows) {
-    const advertiserId = acct.platform_account_id;
-    if (!advertiserId) continue;
-    // Override the auth's accountId with this specific advertiser's ID
-    const acctAuth: NewsBreakAuth = { ...auth, accountId: advertiserId };
-    const result = await syncNewsBreakAds(userId, acctAuth);
-    totalSynced += result.synced;
-  }
+  return { synced: result.synced, skipped: false, accounts: 1 };
+}
 
-  return { synced: totalSynced, skipped: false, accounts: acctRes.rows.length };
+/**
+ * Apply the nb_campaign_account_map to newsbreak_ads_today:
+ * For each mapped campaign, update its rows to use the mapped account's platform_account_id.
+ */
+async function applyCampaignAccountMap(userId: number): Promise<void> {
+  try {
+    const mapRes = await pool.query(
+      `SELECT m.campaign_id, a.platform_account_id
+       FROM nb_campaign_account_map m
+       JOIN accounts a ON a.id = m.account_id
+       WHERE m.user_id = $1`,
+      [userId]
+    );
+    if (mapRes.rows.length === 0) return;
+
+    for (const { campaign_id, platform_account_id } of mapRes.rows) {
+      await pool.query(
+        `UPDATE newsbreak_ads_today SET account_id = $1 WHERE user_id = $2 AND campaign_id = $3`,
+        [platform_account_id, userId, campaign_id]
+      );
+    }
+    log.info({ userId, mappings: mapRes.rows.length }, 'Applied campaign→account mappings');
+  } catch (err) {
+    log.error({ err }, 'Failed to apply campaign→account map');
+  }
 }
 
 export async function syncNewsBreakAds(userId?: number, authOverride?: NewsBreakAuth): Promise<{ synced: number; skipped: boolean }> {

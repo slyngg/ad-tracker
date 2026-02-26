@@ -1078,6 +1078,63 @@ router.get('/live/budgets/:platform/:campaignId', async (req: Request, res: Resp
   }
 });
 
+// ── Assign campaign to account (NB campaign→account mapping) ──
+
+router.post('/assign-account', async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+    const { campaign_id, account_id } = req.body;
+    if (!campaign_id || !account_id) { res.status(400).json({ error: 'Missing campaign_id or account_id' }); return; }
+
+    // Verify account belongs to user
+    const acctCheck = await pool.query(
+      'SELECT id, platform_account_id FROM accounts WHERE id = $1 AND user_id = $2',
+      [account_id, userId]
+    );
+    if (acctCheck.rows.length === 0) { res.status(403).json({ error: 'Account not found' }); return; }
+
+    // Upsert mapping
+    await pool.query(
+      `INSERT INTO nb_campaign_account_map (user_id, campaign_id, account_id)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (user_id, campaign_id) DO UPDATE SET account_id = EXCLUDED.account_id`,
+      [userId, campaign_id, account_id]
+    );
+
+    // Immediately update newsbreak_ads_today so the change is visible
+    const platformAcctId = acctCheck.rows[0].platform_account_id;
+    await pool.query(
+      `UPDATE newsbreak_ads_today SET account_id = $1 WHERE user_id = $2 AND campaign_id = $3`,
+      [platformAcctId, userId, campaign_id]
+    );
+
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error('Error assigning campaign account:', err);
+    res.status(500).json({ error: err.message || 'Failed to assign account' });
+  }
+});
+
+// ── Get campaign→account mappings ──
+
+router.get('/account-map', async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+    const result = await pool.query(
+      `SELECT m.campaign_id, m.account_id, a.name as account_name
+       FROM nb_campaign_account_map m
+       JOIN accounts a ON a.id = m.account_id
+       WHERE m.user_id = $1`,
+      [userId]
+    );
+    res.json(result.rows);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to fetch account map' });
+  }
+});
+
 // ── Quick Ad Creator (one-shot: draft → adset → ad → publish) ─
 
 router.post('/quick-create', publishLimiter, async (req: Request, res: Response) => {

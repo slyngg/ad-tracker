@@ -11,6 +11,8 @@ import {
   fetchAccounts,
   uploadCampaignMedia,
   fetchAdGroupBudgets,
+  fetchCampaignAccountMap,
+  assignCampaignAccount,
   LiveCampaign,
   LiveAdset,
   LiveAd,
@@ -1472,6 +1474,8 @@ export default function LiveCampaignsPage() {
   const [budgetModal, setBudgetModal] = useState<{ platform: string; entityId: string; currentBudget?: number } | null>(null);
   const [budgetValue, setBudgetValue] = useState('');
   const [adsetBudgets, setAdsetBudgets] = useState<Record<string, number>>({});
+  const [campaignAccountMap, setCampaignAccountMap] = useState<Record<string, number>>({});
+  const [assigningCampaign, setAssigningCampaign] = useState<string | null>(null);
 
   // Date range
   const dateRange = useDateRangeStore((s) => s.dateRange);
@@ -1484,6 +1488,11 @@ export default function LiveCampaignsPage() {
   useEffect(() => {
     load();
     fetchAccounts().then(setAccounts).catch(() => {});
+    fetchCampaignAccountMap().then(maps => {
+      const m: Record<string, number> = {};
+      for (const row of maps) m[row.campaign_id] = row.account_id;
+      setCampaignAccountMap(m);
+    }).catch(() => {});
   }, [platformFilter, accountFilter, dateRange]);
 
   // Reset account filter when platform changes (so user doesn't get stuck on a meta account while viewing newsbreak)
@@ -1569,6 +1578,18 @@ export default function LiveCampaignsPage() {
       setExpandedAds(p => ({ ...p, [key]: data }));
     } catch {
       setExpandedAds(p => { const n = { ...p }; delete n[key]; return n; });
+    }
+  }
+
+  async function handleAssignAccount(campaignId: string, accountId: number) {
+    try {
+      await assignCampaignAccount(campaignId, accountId);
+      setCampaignAccountMap(prev => ({ ...prev, [campaignId]: accountId }));
+      setAssigningCampaign(null);
+      // Reload to reflect new account assignment
+      load();
+    } catch (err: any) {
+      console.error('Failed to assign account:', err);
     }
   }
 
@@ -1788,7 +1809,26 @@ export default function LiveCampaignsPage() {
                       </td>
                       <td className="px-4 py-3">
                         <div className="font-medium text-ats-text">{c.campaign_name || c.campaign_id}</div>
-                        <div className="text-[11px] text-ats-text-muted">{c.account_name} &middot; {c.adset_count} adsets &middot; {c.ad_count} ads</div>
+                        <div className="text-[11px] text-ats-text-muted flex items-center gap-1 flex-wrap">
+                          {c.platform === 'newsbreak' ? (
+                            <span className="relative" onClick={e => { e.stopPropagation(); setAssigningCampaign(prev => prev === c.campaign_id ? null : c.campaign_id); }}>
+                              <span className="underline decoration-dotted cursor-pointer hover:text-ats-text">{c.account_name}</span>
+                              {assigningCampaign === c.campaign_id && (
+                                <div className="absolute left-0 top-5 z-50 bg-ats-card border border-ats-border rounded-lg shadow-xl py-1 min-w-[180px]">
+                                  {accounts.filter(a => a.platform === 'newsbreak' && a.status === 'active').map(a => (
+                                    <button key={a.id} onClick={e => { e.stopPropagation(); handleAssignAccount(c.campaign_id, a.id); }}
+                                      className={`block w-full text-left px-3 py-1.5 text-xs hover:bg-ats-hover ${campaignAccountMap[c.campaign_id] === a.id ? 'text-ats-accent font-semibold' : 'text-ats-text'}`}>
+                                      {a.name}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                            </span>
+                          ) : (
+                            <span>{c.account_name}</span>
+                          )}
+                          <span>&middot; {c.adset_count} adsets &middot; {c.ad_count} ads</span>
+                        </div>
                       </td>
                       <td className="px-4 py-3 hidden md:table-cell">
                         <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold ${PLATFORM_BADGE[c.platform]?.bg} ${PLATFORM_BADGE[c.platform]?.text}`}>
