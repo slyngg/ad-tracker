@@ -62,15 +62,19 @@ export default function AttributionDashboard() {
     undefined, undefined, handleUnauthorized
   );
 
-  // Load attribution model data
+  // Load attribution model data — derive ISO strings outside the callback for stable deps
+  const toIso = (d: Date) => d.toISOString().split('T')[0];
+  const dateFrom = toIso(dateRange.from);
+  const dateTo = toIso(dateRange.to);
+  const isToday = dateRange.isToday;
+
   const loadAttr = useCallback(() => {
-    const toIso = (d: Date) => d.toISOString().split('T')[0];
-    const dateParams = dateRange.isToday ? '' : `&start_date=${toIso(dateRange.from)}&end_date=${toIso(dateRange.to)}`;
-    const dateQs = dateRange.isToday ? '' : `?start_date=${toIso(dateRange.from)}&end_date=${toIso(dateRange.to)}`;
+    const dateParams = isToday ? '' : `&start_date=${dateFrom}&end_date=${dateTo}`;
+    const dateQs = isToday ? '' : `?start_date=${dateFrom}&end_date=${dateTo}`;
     apiFetch<{ model: string; data: AttrRow[] }>(`/attribution-models/data?model=${model}${dateParams}`).then(r => setAttrData(r.data || [])).catch(() => {});
     apiFetch<OverlapRow[]>(`/attribution-models/overlap${dateQs}`).then(setOverlap).catch(() => {});
     apiFetch<AdRow[]>(`/attribution-models/ads${dateQs}`).then(setAdRows).catch(() => {});
-  }, [model, dateRange]);
+  }, [model, dateFrom, dateTo, isToday]);
 
   useEffect(() => { loadAttr(); }, [loadAttr]);
   useLiveRefresh(loadAttr);
