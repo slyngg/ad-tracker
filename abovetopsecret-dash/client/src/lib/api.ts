@@ -1374,17 +1374,19 @@ export function updateLiveEntityBudget(platform: string, entityId: string, budge
   return request<{ success: boolean }>('/campaigns/live/budget', { method: 'POST', body: JSON.stringify({ platform, entity_id: entityId, budget_dollars: budgetDollars, old_budget: oldBudget ?? null }) });
 }
 
-export interface BudgetChangeRecord {
+export interface ActivityLogEntry {
   id: number;
   platform: string;
   entity_id: string;
+  entity_type: string;
+  action: 'budget_change' | 'pause' | 'resume';
   old_budget: number | null;
-  new_budget: number;
+  new_budget: number | null;
   created_at: string;
 }
 
-export function fetchBudgetHistory(entityId: string): Promise<BudgetChangeRecord[]> {
-  return request<BudgetChangeRecord[]>(`/campaigns/live/budget-history/${encodeURIComponent(entityId)}`);
+export function fetchActivityLog(entityId: string): Promise<ActivityLogEntry[]> {
+  return request<ActivityLogEntry[]>(`/campaigns/live/activity-log/${encodeURIComponent(entityId)}`);
 }
 
 export interface AdGroupBudget {

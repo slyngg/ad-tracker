@@ -1126,6 +1126,17 @@ router.post('/live/status', publishLimiter, async (req: Request, res: Response) 
     }
     // Meta and TikTok status updates can be added here
 
+    // Log pause/resume to activity log
+    try {
+      await pool.query(
+        `INSERT INTO campaign_activity_log (user_id, platform, entity_id, entity_type, action)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [userId, platform, entity_id, entity_type, enable ? 'resume' : 'pause']
+      );
+    } catch (logErr) {
+      console.error('Failed to log status change:', logErr);
+    }
+
     res.json({ success: true });
   } catch (err: any) {
     console.error('Error updating live status:', err);
@@ -1151,11 +1162,11 @@ router.post('/live/budget', publishLimiter, async (req: Request, res: Response) 
     }
     // Meta and TikTok budget adjustments can be added here
 
-    // Log budget change to history
+    // Log budget change to activity log
     try {
       await pool.query(
-        `INSERT INTO budget_change_history (user_id, platform, entity_id, old_budget, new_budget)
-         VALUES ($1, $2, $3, $4, $5)`,
+        `INSERT INTO campaign_activity_log (user_id, platform, entity_id, entity_type, action, old_budget, new_budget)
+         VALUES ($1, $2, $3, 'adset', 'budget_change', $4, $5)`,
         [userId, platform, entity_id, oldBudget, budget_dollars]
       );
     } catch (logErr) {
@@ -1187,16 +1198,16 @@ router.get('/live/budgets/:platform/:campaignId', async (req: Request, res: Resp
   }
 });
 
-// ── Budget change history ──────────────────────────────────────
+// ── Activity log (budget changes + pause/resume) ──────────────
 
-router.get('/live/budget-history/:entityId', async (req: Request, res: Response) => {
+router.get('/live/activity-log/:entityId', async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
     if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
     const { entityId } = req.params;
     const { rows } = await pool.query(
-      `SELECT id, platform, entity_id, old_budget, new_budget, created_at
-       FROM budget_change_history
+      `SELECT id, platform, entity_id, entity_type, action, old_budget, new_budget, created_at
+       FROM campaign_activity_log
        WHERE user_id = $1 AND entity_id = $2
        ORDER BY created_at DESC
        LIMIT 50`,
@@ -1204,7 +1215,7 @@ router.get('/live/budget-history/:entityId', async (req: Request, res: Response)
     );
     res.json(rows);
   } catch (err: any) {
-    res.status(500).json({ error: err.message || 'Failed to fetch budget history' });
+    res.status(500).json({ error: err.message || 'Failed to fetch activity log' });
   }
 });
 

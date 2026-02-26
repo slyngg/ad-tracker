@@ -15,19 +15,21 @@ import {
   assignCampaignAccount,
   bulkAssignCampaignAccount,
   triggerPlatformSync,
-  fetchBudgetHistory,
+  fetchActivityLog,
   fetchNewsBreakAudiences,
   createNBCustomAudience,
   uploadNBAudienceData,
   createNBLookalikeAudience,
   deleteNBAudience,
+  fetchCampaignTemplates,
   LiveCampaign,
   LiveAdset,
   LiveAd,
   Account,
   AdGroupBudget,
-  BudgetChangeRecord,
+  ActivityLogEntry,
   NewsBreakAudience,
+  CampaignTemplate,
 } from '../../lib/api';
 import {
   ChevronDown,
@@ -59,6 +61,8 @@ import {
   Users,
   Upload,
   Trash2,
+  FileText,
+  Sparkles,
 } from 'lucide-react';
 import PageShell from '../../components/shared/PageShell';
 import { useDateRangeStore } from '../../stores/dateRangeStore';
@@ -70,6 +74,7 @@ const PLATFORM_BADGE: Record<string, { bg: string; text: string; label: string }
   meta:      { bg: 'bg-blue-500/15',   text: 'text-blue-400',   label: 'Meta' },
   tiktok:    { bg: 'bg-pink-500/15',   text: 'text-pink-400',   label: 'TikTok' },
   newsbreak: { bg: 'bg-orange-500/15', text: 'text-orange-400', label: 'NewsBreak' },
+  google:    { bg: 'bg-violet-500/15', text: 'text-violet-400', label: 'Google' },
 };
 
 const OBJECTIVES: Record<string, { value: string; label: string }[]> = {
@@ -251,10 +256,55 @@ function CampaignCreator({ onClose, onSuccess, accounts }: {
   const [mediaPreview, setMediaPreview] = useState<string | null>(null);
   const [thumbPreview, setThumbPreview] = useState<string | null>(null);
   const [step, setStep] = useState(0);
+  const [showTemplatePicker, setShowTemplatePicker] = useState(true);
+  const [templates, setTemplates] = useState<CampaignTemplate[]>([]);
+  const [templatesLoading, setTemplatesLoading] = useState(true);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<number | null>(null);
   const headlineRef = useRef<HTMLInputElement>(null);
   const [nbAudiences, setNbAudiences] = useState<NewsBreakAudience[]>([]);
   useEffect(() => { if (form.platform === 'newsbreak') fetchNewsBreakAudiences().then(setNbAudiences).catch(() => {}); }, [form.platform]);
   const adTextRef = useRef<HTMLTextAreaElement>(null);
+
+  // Load campaign templates on mount
+  useEffect(() => {
+    fetchCampaignTemplates()
+      .then(t => { setTemplates(t); setTemplatesLoading(false); })
+      .catch(() => setTemplatesLoading(false));
+  }, []);
+
+  function applyTemplate(t: CampaignTemplate) {
+    const tgt = t.targeting || {};
+    const bc = t.budget_config || {};
+    const cc = t.creative_config || {};
+    const cfg = t.config || {};
+    // Determine platform from template config or objective prefix
+    const plat = cfg.platform || (t.objective?.startsWith('OUTCOME_') ? 'meta' : 'newsbreak');
+    const platAccounts = accounts.filter(a => a.platform === plat && a.status === 'active');
+    setForm(f => ({
+      ...f,
+      platform: plat,
+      accountId: platAccounts[0]?.id,
+      campaignName: '',
+      objective: t.objective || (OBJECTIVES[plat] || OBJECTIVES.newsbreak)[0]?.value || 'TRAFFIC',
+      dailyBudget: String((bc.budget_cents || 2000) / 100),
+      budgetType: bc.budget_type || 'daily',
+      bidType: bc.bid_strategy || 'LOWEST_COST_WITHOUT_CAP',
+      ageMin: String(tgt.age_min || 18),
+      ageMax: String(tgt.age_max || 65),
+      gender: tgt.genders?.length === 1 ? tgt.genders[0] : 'all',
+      locations: (tgt.locations || ['US']).join(', '),
+      cta: cc.call_to_action_type || 'LEARN_MORE',
+      landingUrl: cc.link_url || '',
+      headline: cc.headline || '',
+      adText: cc.primary_text || '',
+      mediaType: cc.media_type === 'video' ? 'video' : 'image',
+      optimizationGoal: bc.optimization_goal || cfg.optimization_goal || 'CONVERSIONS',
+      eventType: cfg.conversion_event || '',
+    }));
+    setSelectedTemplateId(t.id);
+    setShowTemplatePicker(false);
+    setStep(0);
+  }
 
   const platformAccounts = accounts.filter(a => a.platform === form.platform && a.status === 'active');
   const objectives = OBJECTIVES[form.platform] || OBJECTIVES.newsbreak;
@@ -385,14 +435,151 @@ function CampaignCreator({ onClose, onSuccess, accounts }: {
         {/* Header */}
         <div className="shrink-0 border-b border-ats-border px-5 py-4 flex items-center justify-between">
           <div>
-            <h2 className="text-base font-bold text-ats-text">New Campaign</h2>
-            <p className="text-[11px] text-ats-text-muted mt-0.5">Set up &amp; publish in one go</p>
+            <h2 className="text-base font-bold text-ats-text">
+              {showTemplatePicker ? 'Start from a Template' : 'New Campaign'}
+            </h2>
+            <p className="text-[11px] text-ats-text-muted mt-0.5">
+              {showTemplatePicker ? 'Pick a preset — targeting, budget & settings pre-filled' : 'Set up & publish in one go'}
+            </p>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-ats-hover text-ats-text-muted">
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            {!showTemplatePicker && (
+              <button
+                onClick={() => setShowTemplatePicker(true)}
+                className="p-1.5 rounded-lg hover:bg-ats-hover text-ats-text-muted"
+                title="Back to templates"
+              >
+                <FileText className="w-5 h-5" />
+              </button>
+            )}
+            <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-ats-hover text-ats-text-muted">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
+        {/* Template picker */}
+        {showTemplatePicker ? (
+          <div className="flex-1 overflow-y-auto px-5 py-5">
+            {templatesLoading ? (
+              <div className="flex items-center justify-center py-16">
+                <Loader2 className="w-6 h-6 animate-spin text-ats-text-muted" />
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {templates.length > 0 && (
+                  <>
+                    {/* Group by platform */}
+                    {['meta', 'newsbreak', 'tiktok', 'google'].map(plat => {
+                      const platTemplates = templates.filter(t => {
+                        const cfg = t.config || {};
+                        if (plat === 'meta') return t.objective?.startsWith('OUTCOME_') && cfg.platform !== 'newsbreak' && cfg.platform !== 'tiktok' && cfg.platform !== 'google';
+                        return cfg.platform === plat;
+                      });
+                      if (platTemplates.length === 0) return null;
+                      const badge = PLATFORM_BADGE[plat] || { bg: 'bg-violet-500/15', text: 'text-violet-400', label: plat.charAt(0).toUpperCase() + plat.slice(1) };
+                      return (
+                        <Fragment key={plat}>
+                          <div className="flex items-center gap-2 pt-2">
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${badge.bg} ${badge.text}`}>
+                              {badge.label}
+                            </span>
+                            <div className="flex-1 h-px bg-ats-border" />
+                          </div>
+                          {platTemplates.map(t => {
+                            const bc = t.budget_config || {};
+                            const tgt = t.targeting || {};
+                            const cc = t.creative_config || {};
+                            const budgetLabel = `$${((bc.budget_cents || 2000) / 100).toFixed(0)}/day`;
+                            const allObjs = Object.values(OBJECTIVES).flat();
+                            const objLabel = allObjs.find(o => o.value === t.objective)?.label || t.objective || '';
+                            const ageLabel = `${tgt.age_min || 18}-${tgt.age_max || 65}`;
+                            const geoLabel = (tgt.locations || ['US']).join(', ');
+                            const ctaLabel = (cc.call_to_action_type || 'LEARN_MORE').replace(/_/g, ' ');
+                            const isRetargeting = t.config?.audience_type === 'retargeting';
+                            const isLookalike = t.config?.audience_type === 'lookalike';
+                            const isCBO = t.config?.campaign_budget_optimization;
+                            const isVideo = cc.media_type === 'video';
+
+                            return (
+                              <button
+                                key={t.id}
+                                onClick={() => applyTemplate(t)}
+                                className={`w-full text-left p-4 rounded-xl border transition-all hover:border-ats-accent/50 hover:bg-ats-accent/5 ${
+                                  selectedTemplateId === t.id
+                                    ? 'border-ats-accent bg-ats-accent/10'
+                                    : 'border-ats-border bg-ats-card'
+                                }`}
+                              >
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2 mb-1">
+                                      <span className="text-sm font-semibold text-ats-text">{t.name}</span>
+                                    </div>
+                                    <p className="text-[11px] text-ats-text-muted leading-relaxed mb-2.5">{t.description}</p>
+                                    <div className="flex flex-wrap gap-1.5">
+                                      <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold bg-blue-500/15 text-blue-400">
+                                        {objLabel}
+                                      </span>
+                                      <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-medium bg-emerald-500/10 text-emerald-400">
+                                        {budgetLabel}
+                                      </span>
+                                      <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-medium bg-ats-hover text-ats-text-muted">
+                                        {geoLabel} &middot; {ageLabel}
+                                      </span>
+                                      <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-medium bg-ats-hover text-ats-text-muted">
+                                        {ctaLabel}
+                                      </span>
+                                      {isRetargeting && (
+                                        <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold bg-amber-500/15 text-amber-400">Retargeting</span>
+                                      )}
+                                      {isLookalike && (
+                                        <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold bg-purple-500/15 text-purple-400">Lookalike</span>
+                                      )}
+                                      {isCBO && (
+                                        <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold bg-pink-500/15 text-pink-400">CBO</span>
+                                      )}
+                                      {isVideo && (
+                                        <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold bg-cyan-500/15 text-cyan-400">Video</span>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <Sparkles className="w-4 h-4 text-ats-accent shrink-0 mt-1" />
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </Fragment>
+                      );
+                    })}
+                  </>
+                )}
+
+                {templates.length === 0 && !templatesLoading && (
+                  <div className="text-center py-12">
+                    <FileText className="w-8 h-8 text-ats-text-muted mx-auto mb-3 opacity-50" />
+                    <p className="text-sm text-ats-text-muted">No templates yet</p>
+                  </div>
+                )}
+
+                {/* Start from scratch */}
+                <button
+                  onClick={() => { setShowTemplatePicker(false); setStep(0); }}
+                  className="w-full text-left p-4 rounded-xl border border-dashed border-ats-border bg-transparent hover:border-ats-text-muted/30 hover:bg-ats-hover/50 transition-all"
+                >
+                  <div className="flex items-center gap-3">
+                    <Plus className="w-5 h-5 text-ats-text-muted" />
+                    <div>
+                      <span className="text-sm font-semibold text-ats-text-muted">Start from Scratch</span>
+                      <p className="text-[11px] text-ats-text-muted/70 mt-0.5">Configure everything manually</p>
+                    </div>
+                  </div>
+                </button>
+              </div>
+            )}
+          </div>
+        ) : (
+        <>
         {/* Step tabs */}
         <div className="shrink-0 flex border-b border-ats-border">
           {['Campaign', 'Ad Set', 'Creative'].map((label, i) => (
@@ -949,8 +1136,11 @@ function CampaignCreator({ onClose, onSuccess, accounts }: {
             </div>
           )}
         </div>
+        </>
+        )}
 
         {/* Footer summary */}
+        {!showTemplatePicker && (
         <div className="shrink-0 border-t border-ats-border px-5 py-3 flex items-center gap-3 text-[11px] text-ats-text-muted bg-ats-card/50">
           <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${PLATFORM_BADGE[form.platform]?.bg} ${PLATFORM_BADGE[form.platform]?.text}`}>
             {PLATFORM_BADGE[form.platform]?.label}
@@ -958,6 +1148,7 @@ function CampaignCreator({ onClose, onSuccess, accounts }: {
           {form.campaignName && <span className="truncate">{form.campaignName}</span>}
           <span className="ml-auto">{fmt$(parseFloat(form.dailyBudget) || 0)}/{form.budgetType === 'daily' ? 'day' : 'total'}</span>
         </div>
+        )}
       </div>
     </div>
   );
@@ -1841,8 +2032,8 @@ export default function LiveCampaignsPage() {
   const [budgetModal, setBudgetModal] = useState<{ platform: string; entityId: string; currentBudget?: number } | null>(null);
   const [budgetValue, setBudgetValue] = useState('');
   const [budgetTab, setBudgetTab] = useState<'adjust' | 'history'>('adjust');
-  const [budgetHistory, setBudgetHistory] = useState<BudgetChangeRecord[]>([]);
-  const [budgetHistoryLoading, setBudgetHistoryLoading] = useState(false);
+  const [activityLog, setActivityLog] = useState<ActivityLogEntry[]>([]);
+  const [activityLogLoading, setActivityLogLoading] = useState(false);
   const [adsetBudgets, setAdsetBudgets] = useState<Record<string, number>>({});
   const [campaignAccountMap, setCampaignAccountMap] = useState<Record<string, number>>({});
   const [assigningCampaign, setAssigningCampaign] = useState<string | null>(null);
@@ -2052,15 +2243,15 @@ export default function LiveCampaignsPage() {
     }
   }
 
-  async function loadBudgetHistory(entityId: string) {
-    setBudgetHistoryLoading(true);
+  async function loadActivityLog(entityId: string) {
+    setActivityLogLoading(true);
     try {
-      const history = await fetchBudgetHistory(entityId);
-      setBudgetHistory(history);
+      const log = await fetchActivityLog(entityId);
+      setActivityLog(log);
     } catch {
-      setBudgetHistory([]);
+      setActivityLog([]);
     } finally {
-      setBudgetHistoryLoading(false);
+      setActivityLogLoading(false);
     }
   }
 
@@ -2477,7 +2668,7 @@ export default function LiveCampaignsPage() {
                 <DollarSign className="w-3 h-3" />Adjust
               </button>
               <button
-                onClick={() => { setBudgetTab('history'); loadBudgetHistory(budgetModal.entityId); }}
+                onClick={() => { setBudgetTab('history'); loadActivityLog(budgetModal.entityId); }}
                 className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-md text-xs font-semibold transition-colors ${budgetTab === 'history' ? 'bg-ats-card text-ats-text shadow-sm' : 'text-ats-text-muted hover:text-ats-text'}`}
               >
                 <History className="w-3 h-3" />History
@@ -2549,24 +2740,48 @@ export default function LiveCampaignsPage() {
             {/* History tab */}
             {budgetTab === 'history' && (
               <div className="px-6 pb-5">
-                {budgetHistoryLoading ? (
+                {activityLogLoading ? (
                   <div className="flex items-center justify-center py-8">
                     <Loader2 className="w-5 h-5 animate-spin text-ats-text-muted" />
                   </div>
-                ) : budgetHistory.length === 0 ? (
+                ) : activityLog.length === 0 ? (
                   <div className="text-center py-8">
                     <History className="w-8 h-8 text-ats-text-muted/40 mx-auto mb-2" />
-                    <p className="text-sm text-ats-text-muted">No budget changes yet</p>
-                    <p className="text-[11px] text-ats-text-muted/60 mt-1">Changes will appear here after your first adjustment</p>
+                    <p className="text-sm text-ats-text-muted">No activity yet</p>
+                    <p className="text-[11px] text-ats-text-muted/60 mt-1">Budget changes and pause/resume events will appear here</p>
                   </div>
                 ) : (
-                  <div className="space-y-0 max-h-72 overflow-y-auto">
-                    {budgetHistory.map((entry, i) => {
-                      const change = entry.old_budget != null ? entry.new_budget - entry.old_budget : null;
+                  <div className="space-y-0 max-h-80 overflow-y-auto">
+                    {activityLog.map((entry, i) => {
+                      const date = new Date(entry.created_at);
+                      const isPause = entry.action === 'pause';
+                      const isResume = entry.action === 'resume';
+                      const isBudget = entry.action === 'budget_change';
+
+                      if (isPause || isResume) {
+                        return (
+                          <div key={entry.id} className={`flex items-center gap-3 py-3 ${i > 0 ? 'border-t border-ats-border/50' : ''}`}>
+                            <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 ${isPause ? 'bg-yellow-500/10' : 'bg-emerald-500/10'}`}>
+                              {isPause ? <Pause className="w-3 h-3 text-yellow-400" /> : <Play className="w-3 h-3 text-emerald-400" />}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <span className={`text-sm font-semibold ${isPause ? 'text-yellow-400' : 'text-emerald-400'}`}>
+                                {isPause ? 'Paused' : 'Resumed'}
+                              </span>
+                            </div>
+                            <div className="text-right flex-shrink-0">
+                              <p className="text-[11px] text-ats-text-muted">{date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</p>
+                              <p className="text-[10px] text-ats-text-muted/60">{date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}</p>
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      // Budget change
+                      const change = entry.old_budget != null && entry.new_budget != null ? entry.new_budget - entry.old_budget : null;
                       const changePct = entry.old_budget ? ((change! / entry.old_budget) * 100) : null;
                       const isDecrease = change != null && change < 0;
                       const isIncrease = change != null && change > 0;
-                      const date = new Date(entry.created_at);
                       return (
                         <div key={entry.id} className={`flex items-start gap-3 py-3 ${i > 0 ? 'border-t border-ats-border/50' : ''}`}>
                           <div className={`mt-0.5 w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 ${isDecrease ? 'bg-red-500/10' : isIncrease ? 'bg-green-500/10' : 'bg-ats-bg'}`}>
@@ -2574,10 +2789,10 @@ export default function LiveCampaignsPage() {
                           </div>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-baseline gap-2">
-                              <span className="text-sm font-semibold text-ats-text font-mono">{fmt$(entry.new_budget)}</span>
+                              <span className="text-sm font-semibold text-ats-text font-mono">{entry.new_budget != null ? fmt$(entry.new_budget) : '—'}</span>
                               {change != null && (
                                 <span className={`text-[11px] font-semibold ${isDecrease ? 'text-red-400' : 'text-green-400'}`}>
-                                  {change > 0 ? '+' : ''}{fmt$(change)} ({change > 0 ? '+' : ''}{changePct!.toFixed(1)}%)
+                                  {change > 0 ? '+' : ''}{fmt$(change)}{changePct != null ? ` (${change > 0 ? '+' : ''}${changePct.toFixed(1)}%)` : ''}
                                 </span>
                               )}
                             </div>
