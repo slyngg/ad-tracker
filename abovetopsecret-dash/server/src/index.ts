@@ -47,9 +47,11 @@ import templatesRouter from './routes/templates';
 import adLibraryRouter from './routes/ad-library';
 import capiRelayRouter from './routes/capi-relay';
 import tiktokRelayRouter from './routes/tiktok-relay';
+import googleRelayRouter from './routes/google-relay';
 import healthRouter from './routes/health';
 import trackingRouter from './routes/tracking';
 import pixelSitesRouter from './routes/pixel-sites';
+import pixelAttributionRouter from './routes/pixel-attribution';
 import { authMiddleware } from './middleware/auth';
 import { startScheduler } from './services/scheduler';
 import { initJobQueue, shutdownJobQueue, registerRepeatableJobs, startSyncWorker } from './services/job-queue';
@@ -59,6 +61,9 @@ import pool from './db';
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '4000', 10);
+
+// Trust first proxy (Caddy/Nginx) so rate limiters and IP detection work correctly
+app.set('trust proxy', 1);
 
 // CORS: restrict to configured origin, fall back to same-origin
 const allowedOrigin = process.env.ALLOWED_ORIGIN || '';
@@ -78,6 +83,15 @@ app.use(express.json({
   },
 }));
 app.use(express.urlencoded({ extended: true }));
+
+// Security headers
+app.disable('x-powered-by');
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  next();
+});
 
 // Rate limiters
 const apiLimiter = rateLimit({
@@ -121,8 +135,10 @@ app.use('/api/auth/register', loginLimiter);
 app.use('/api/auth', authReadLimiter);
 app.use('/api', apiLimiter);
 
-// Health check (no auth for basic, auth for data checks)
-app.use('/api/health', healthRouter);
+// Basic health check (no auth); data health requires auth and is mounted below
+app.get('/api/health', (_req, res) => {
+  pool.query('SELECT 1').then(() => res.json({ status: 'ok', db: true })).catch(() => res.status(503).json({ status: 'error', db: false }));
+});
 
 // Auth routes (no auth middleware needed - they handle their own auth)
 app.use('/api/auth', authRouter);
@@ -162,6 +178,9 @@ app.get('/api/creatives/public/snapshot/:token', async (req, res) => {
 
 // Apply auth middleware to all other /api routes
 app.use('/api', authMiddleware);
+
+// Detailed health check behind auth
+app.use('/api/health', healthRouter);
 
 // Authenticated routes
 app.use('/api/metrics', metricsRouter);
@@ -207,6 +226,8 @@ app.use('/api/templates', templatesRouter);
 app.use('/api/ad-library', adLibraryRouter);
 app.use('/api/capi-relay', capiRelayRouter);
 app.use('/api/tiktok-relay', tiktokRelayRouter);
+app.use('/api/google-relay', googleRelayRouter);
+app.use('/api/pixel-attribution', pixelAttributionRouter);
 
 const httpServer = createServer(app);
 
