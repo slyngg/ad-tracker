@@ -1154,9 +1154,11 @@ router.post('/batch-create', publishLimiter, async (req: Request, res: Response)
 
       for (let si = 0; si < adsetCount; si++) {
         const sName = `${cName} - Ad Set ${si + 1}`;
-        const targetingObj = ac.targeting || {};
+        const targetingObj: Record<string, any> = { ...(ac.targeting || {}) };
         if (ac.placements) targetingObj.placements = ac.placements;
         if (ac.event_type) targetingObj.event_type = ac.event_type;
+        if (ac.optimization_goal) targetingObj.optimization_goal = ac.optimization_goal;
+        if (ac.bid_amount) targetingObj.bid_amount = ac.bid_amount;
 
         const adsetRes = await pool.query(
           `INSERT INTO campaign_adsets (draft_id, name, budget_type, budget_cents, bid_strategy, targeting, schedule_start, schedule_end)

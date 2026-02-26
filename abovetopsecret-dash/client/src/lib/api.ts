@@ -1348,6 +1348,8 @@ export interface BatchCreateParams {
     daily_budget?: number;
     budget_type?: string;
     bid_type?: string;
+    bid_amount?: number;
+    optimization_goal?: string;
     targeting?: Record<string, any>;
     placements?: string[];
     event_type?: string;
