@@ -1671,12 +1671,12 @@ export default function LiveCampaignsPage() {
           </button>
         ))}
 
-        {/* Account selector */}
+        {/* Account selector — always show when accounts exist */}
         {(() => {
           const filteredAccounts = platformFilter === 'all'
             ? accounts.filter(a => a.status === 'active')
             : accounts.filter(a => a.platform === platformFilter && a.status === 'active');
-          if (filteredAccounts.length <= 1) return null;
+          if (filteredAccounts.length === 0) return null;
           return (
             <select
               value={accountFilter}
@@ -1686,7 +1686,7 @@ export default function LiveCampaignsPage() {
               <option value="all">All Accounts</option>
               {filteredAccounts.map(a => (
                 <option key={a.id} value={a.id}>
-                  {a.name}{platformFilter === 'all' ? ` (${PLATFORM_BADGE[a.platform]?.label || a.platform})` : ''}
+                  {a.name || a.platform_account_id}{platformFilter === 'all' ? ` (${PLATFORM_BADGE[a.platform]?.label || a.platform})` : ''}
                 </option>
               ))}
             </select>
@@ -1809,15 +1809,22 @@ export default function LiveCampaignsPage() {
                             <td className="px-4 py-2.5 text-right font-mono text-emerald-400 text-xs">{fmt$(as.conversion_value)}</td>
                             <td className="hidden sm:table-cell" />
                             <td className="px-4 py-2.5 text-right" onClick={e => e.stopPropagation()}>
-                              <div className="flex items-center justify-end gap-0.5">
+                              <div className="flex items-center justify-end gap-1">
                                 {actionLoading[`status:adset:${as.adset_id}`] ? <Loader2 className="w-3 h-3 animate-spin text-ats-text-muted" /> : (
                                   <>
-                                    <button onClick={() => handleStatus(c.platform, 'adset', as.adset_id, false)} className="p-1 rounded-md hover:bg-yellow-500/20 text-ats-text-muted hover:text-yellow-400" title="Pause"><Pause className="w-3 h-3" /></button>
-                                    <button onClick={() => { setBudgetModal({ platform: c.platform, entityId: as.adset_id }); setBudgetValue(''); }} className="p-1 rounded-md hover:bg-emerald-500/20 text-ats-text-muted hover:text-emerald-400" title="Budget"><DollarSign className="w-3 h-3" /></button>
+                                    <button onClick={() => handleStatus(c.platform, 'adset', as.adset_id, false)} className="p-1.5 rounded-md hover:bg-yellow-500/20 text-ats-text-muted hover:text-yellow-400" title="Pause"><Pause className="w-3 h-3" /></button>
+                                    <button
+                                      onClick={() => { setBudgetModal({ platform: c.platform, entityId: as.adset_id }); setBudgetValue(''); }}
+                                      className="flex items-center gap-1 px-2 py-1 rounded-md bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 text-[10px] font-semibold transition-colors"
+                                      title="Adjust Budget"
+                                    >
+                                      <DollarSign className="w-3 h-3" />
+                                      <span className="hidden sm:inline">Budget</span>
+                                    </button>
                                     <button
                                       onClick={() => handleDuplicate('adset', parseInt(as.adset_id))}
                                       disabled={actionLoading[`dup:adset:${as.adset_id}`]}
-                                      className="p-1 rounded-md hover:bg-blue-500/20 text-ats-text-muted hover:text-blue-400"
+                                      className="p-1.5 rounded-md hover:bg-blue-500/20 text-ats-text-muted hover:text-blue-400"
                                       title="Duplicate"
                                     >
                                       {actionLoading[`dup:adset:${as.adset_id}`] ? <Loader2 className="w-3 h-3 animate-spin" /> : <Copy className="w-3 h-3" />}
@@ -1908,8 +1915,9 @@ function Stat({ label, value, cls = 'text-ats-text' }: { label: string; value: s
 
 function TH({ children, align = 'right', hide, className = '' }: { children?: React.ReactNode; align?: 'left' | 'right'; hide?: string; className?: string }) {
   const hidden = hide ? `hidden ${hide}:table-cell` : '';
+  const alignCls = align === 'left' ? 'text-left' : 'text-right';
   return (
-    <th className={`text-${align} px-4 py-3 text-[11px] text-ats-text-muted uppercase tracking-wide font-medium ${hidden} ${className}`}>
+    <th className={`${alignCls} px-4 py-3 text-[11px] text-ats-text-muted uppercase tracking-wide font-medium ${hidden} ${className}`}>
       {children}
     </th>
   );
@@ -1926,9 +1934,10 @@ function SortTH({ label, sortKey, currentKey, dir, onSort, align = 'right', hide
 }) {
   const active = sortKey === currentKey;
   const hidden = hide ? `hidden ${hide}:table-cell` : '';
+  const alignCls = align === 'left' ? 'text-left' : 'text-right';
   return (
     <th
-      className={`text-${align} px-4 py-3 text-[11px] uppercase tracking-wide font-medium cursor-pointer select-none hover:text-ats-text transition-colors ${hidden} ${active ? 'text-ats-accent' : 'text-ats-text-muted'}`}
+      className={`${alignCls} px-4 py-3 text-[11px] uppercase tracking-wide font-medium cursor-pointer select-none hover:text-ats-text transition-colors ${hidden} ${active ? 'text-ats-accent' : 'text-ats-text-muted'}`}
       onClick={() => onSort(sortKey)}
     >
       <span className="inline-flex items-center gap-1">

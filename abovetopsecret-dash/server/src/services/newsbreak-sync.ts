@@ -116,12 +116,24 @@ export async function syncNewsBreakAds(userId?: number, authOverride?: NewsBreak
       return { synced: 0, skipped: false };
     }
 
+    // Log all available fields from the first row so we can discover new API fields
+    if (rows[0]) {
+      log.info({ rowKeys: Object.keys(rows[0]), sampleAdvertiserId: rows[0].advertiserId, sampleAccountId: rows[0].accountId }, 'NB API row structure');
+    }
+
+    // Collect distinct advertiser IDs from the response for auto-account creation
+    const seenAdvertiserIds = new Set<string>();
+
     await dbClient.query('BEGIN');
 
     for (const row of rows) {
       try {
         const adId = row.adId;
         if (!adId) continue;
+
+        // Use per-row advertiserId if the API provides it, otherwise fall back to auth accountId
+        const rowAccountId = row.advertiserId ? String(row.advertiserId) : accountId;
+        if (row.advertiserId) seenAdvertiserIds.add(String(row.advertiserId));
 
         // API returns monetary values in cents — convert to dollars
         const spend = (parseFloat(row.costDecimal) || row.cost || 0) / 100;
@@ -152,7 +164,7 @@ export async function syncNewsBreakAds(userId?: number, authOverride?: NewsBreak
              ctr = EXCLUDED.ctr, cpc = EXCLUDED.cpc, cpm = EXCLUDED.cpm, cpa = EXCLUDED.cpa,
              roas = EXCLUDED.roas, cvr = EXCLUDED.cvr, synced_at = NOW()`,
           [
-            userId || null, accountId,
+            userId || null, rowAccountId,
             row.campaignId || null, row.campaign || null,
             row.adSetId || null, row.adSet || null,
             adId, row.ad || null,
@@ -169,7 +181,27 @@ export async function syncNewsBreakAds(userId?: number, authOverride?: NewsBreak
     }
 
     await dbClient.query('COMMIT');
-    log.info({ synced, userId }, `Synced ${synced} ad rows`);
+    log.info({ synced, userId, discoveredAdvertiserIds: [...seenAdvertiserIds] }, `Synced ${synced} ad rows`);
+
+    // Auto-create account rows for any newly discovered advertiser IDs
+    if (userId && seenAdvertiserIds.size > 0) {
+      for (const advId of seenAdvertiserIds) {
+        try {
+          const existing = await pool.query(
+            `SELECT id FROM accounts WHERE user_id = $1 AND platform = 'newsbreak' AND platform_account_id = $2`,
+            [userId, advId]
+          );
+          if (existing.rows.length === 0) {
+            await pool.query(
+              `INSERT INTO accounts (user_id, name, platform, platform_account_id, currency, timezone, color, status)
+               VALUES ($1, $2, 'newsbreak', $3, 'USD', 'America/New_York', '#e11d48', 'active')`,
+              [userId, `NewsBreak ${advId.slice(-6)}`, advId]
+            );
+            log.info({ userId, advertiserId: advId }, 'Auto-created NewsBreak account from API advertiserId');
+          }
+        } catch { /* ignore duplicate */ }
+      }
+    }
 
     // Ingest creatives into ad_creatives + creative_metrics_daily
     if (userId) {

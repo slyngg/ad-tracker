@@ -788,7 +788,7 @@ router.get('/live', async (req: Request, res: Response) => {
             SUM((ad_data->>'spend')::numeric), SUM((ad_data->>'clicks')::numeric), SUM((ad_data->>'impressions')::numeric),
             COALESCE(SUM((ad_data->>'conversions')::numeric), 0), COALESCE(SUM((ad_data->>'conversion_value')::numeric), 0),
             COUNT(DISTINCT ad_data->>'adset_id'), COUNT(DISTINCT ad_data->>'ad_name')
-          FROM newsbreak_ads_archive n LEFT JOIN accounts a ON a.platform = 'newsbreak' AND a.user_id = n.user_id
+          FROM newsbreak_ads_archive n LEFT JOIN accounts a ON a.platform = 'newsbreak' AND a.platform_account_id = n.account_id AND a.user_id = n.user_id
           WHERE n.user_id = $1 AND n.archived_date BETWEEN $2 AND $3${newsbreakAccountFilter}
           GROUP BY ad_data->>'campaign_id', ad_data->>'campaign_name', a.name
         )
@@ -818,7 +818,7 @@ router.get('/live', async (req: Request, res: Response) => {
             SUM(n.spend), SUM(n.clicks), SUM(n.impressions),
             COALESCE(SUM(n.conversions), 0), COALESCE(SUM(n.conversion_value), 0),
             COUNT(DISTINCT n.adset_id), COUNT(DISTINCT n.ad_name)
-          FROM newsbreak_ads_today n LEFT JOIN accounts a ON a.platform = 'newsbreak' AND a.user_id = n.user_id
+          FROM newsbreak_ads_today n LEFT JOIN accounts a ON a.platform = 'newsbreak' AND a.platform_account_id = n.account_id AND a.user_id = n.user_id
           WHERE n.user_id = $1${newsbreakAccountFilter}
           GROUP BY n.campaign_id, n.campaign_name, a.name
         )
