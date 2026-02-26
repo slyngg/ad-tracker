@@ -713,39 +713,119 @@ router.get('/live', async (req: Request, res: Response) => {
     const userId = req.user?.id;
     if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
     const platform = req.query.platform as string | undefined;
+    const startDate = req.query.startDate as string | undefined;
+    const endDate = req.query.endDate as string | undefined;
+    const accountIdParam = req.query.account_id as string | undefined;
+    const useArchive = startDate && endDate;
 
     const platformFilter = platform && platform !== 'all'
       ? `AND platform = '${platform === 'meta' ? 'meta' : platform}'`
       : '';
 
-    const result = await pool.query(`
-      WITH all_campaigns AS (
-        SELECT 'meta' AS platform, campaign_id, campaign_name, account_name,
-          SUM(spend) AS spend, SUM(clicks) AS clicks, SUM(impressions) AS impressions,
-          0::numeric AS conversions, 0::numeric AS conversion_value,
-          COUNT(DISTINCT ad_set_id) AS adset_count, COUNT(DISTINCT ad_name) AS ad_count
-        FROM fb_ads_today WHERE user_id = $1
-        GROUP BY campaign_id, campaign_name, account_name
-        UNION ALL
-        SELECT 'tiktok' AS platform, campaign_id, campaign_name, COALESCE(a.name, 'TikTok') AS account_name,
-          SUM(t.spend), SUM(t.clicks), SUM(t.impressions),
-          COALESCE(SUM(t.conversions), 0), COALESCE(SUM(t.conversion_value), 0),
-          COUNT(DISTINCT t.adgroup_id), COUNT(DISTINCT t.ad_name)
-        FROM tiktok_ads_today t LEFT JOIN accounts a ON a.id = t.account_id
-        WHERE t.user_id = $1
-        GROUP BY t.campaign_id, t.campaign_name, a.name
-        UNION ALL
-        SELECT 'newsbreak' AS platform, campaign_id, campaign_name, COALESCE(a.name, 'NewsBreak') AS account_name,
-          SUM(n.spend), SUM(n.clicks), SUM(n.impressions),
-          COALESCE(SUM(n.conversions), 0), COALESCE(SUM(n.conversion_value), 0),
-          COUNT(DISTINCT n.adset_id), COUNT(DISTINCT n.ad_name)
-        FROM newsbreak_ads_today n LEFT JOIN accounts a ON a.platform = 'newsbreak' AND a.user_id = n.user_id
-        WHERE n.user_id = $1
-        GROUP BY n.campaign_id, n.campaign_name, a.name
-      )
-      SELECT * FROM all_campaigns WHERE 1=1 ${platformFilter}
-      ORDER BY spend DESC
-    `, [userId]);
+    // Resolve account filter: internal account_id → platform-specific filters
+    let metaAccountFilter = '';
+    let tiktokAccountFilter = '';
+    let newsbreakAccountFilter = '';
+    const queryParams: any[] = [userId];
+
+    if (accountIdParam && accountIdParam !== 'all') {
+      const acctId = parseInt(accountIdParam, 10);
+      if (!isNaN(acctId)) {
+        // Look up the account to determine platform and platform_account_id
+        const acctRes = await pool.query(
+          'SELECT id, platform, platform_account_id FROM accounts WHERE id = $1 AND user_id = $2',
+          [acctId, userId]
+        );
+        if (acctRes.rows.length > 0) {
+          const acct = acctRes.rows[0];
+          if (acct.platform === 'meta') {
+            metaAccountFilter = ` AND account_id = ${acctId}`;
+          } else if (acct.platform === 'tiktok') {
+            tiktokAccountFilter = ` AND t.account_id = ${acctId}`;
+          } else if (acct.platform === 'newsbreak') {
+            // newsbreak_ads_today.account_id is TEXT (platform-level ID)
+            const platformAcctId = acct.platform_account_id || '';
+            newsbreakAccountFilter = ` AND n.account_id = '${platformAcctId.replace(/'/g, "''")}'`;
+          }
+        }
+      }
+    }
+
+    let result;
+    if (useArchive) {
+      queryParams.push(startDate, endDate);
+      // Historical data from archive tables
+      result = await pool.query(`
+        WITH all_campaigns AS (
+          SELECT 'meta' AS platform,
+            ad_data->>'campaign_id' AS campaign_id,
+            ad_data->>'campaign_name' AS campaign_name,
+            ad_data->>'account_name' AS account_name,
+            SUM((ad_data->>'spend')::numeric) AS spend,
+            SUM((ad_data->>'clicks')::numeric) AS clicks,
+            SUM((ad_data->>'impressions')::numeric) AS impressions,
+            0::numeric AS conversions, 0::numeric AS conversion_value,
+            COUNT(DISTINCT ad_data->>'ad_set_id') AS adset_count,
+            COUNT(DISTINCT ad_data->>'ad_name') AS ad_count
+          FROM fb_ads_archive WHERE user_id = $1 AND archived_date BETWEEN $2 AND $3${metaAccountFilter}
+          GROUP BY ad_data->>'campaign_id', ad_data->>'campaign_name', ad_data->>'account_name'
+          UNION ALL
+          SELECT 'tiktok' AS platform,
+            ad_data->>'campaign_id' AS campaign_id,
+            ad_data->>'campaign_name' AS campaign_name,
+            COALESCE(a.name, 'TikTok') AS account_name,
+            SUM((ad_data->>'spend')::numeric), SUM((ad_data->>'clicks')::numeric), SUM((ad_data->>'impressions')::numeric),
+            COALESCE(SUM((ad_data->>'conversions')::numeric), 0), COALESCE(SUM((ad_data->>'conversion_value')::numeric), 0),
+            COUNT(DISTINCT ad_data->>'adgroup_id'), COUNT(DISTINCT ad_data->>'ad_name')
+          FROM tiktok_ads_archive t LEFT JOIN accounts a ON a.id = t.account_id
+          WHERE t.user_id = $1 AND t.archived_date BETWEEN $2 AND $3${tiktokAccountFilter}
+          GROUP BY ad_data->>'campaign_id', ad_data->>'campaign_name', a.name
+          UNION ALL
+          SELECT 'newsbreak' AS platform,
+            ad_data->>'campaign_id' AS campaign_id,
+            ad_data->>'campaign_name' AS campaign_name,
+            COALESCE(a.name, 'NewsBreak') AS account_name,
+            SUM((ad_data->>'spend')::numeric), SUM((ad_data->>'clicks')::numeric), SUM((ad_data->>'impressions')::numeric),
+            COALESCE(SUM((ad_data->>'conversions')::numeric), 0), COALESCE(SUM((ad_data->>'conversion_value')::numeric), 0),
+            COUNT(DISTINCT ad_data->>'adset_id'), COUNT(DISTINCT ad_data->>'ad_name')
+          FROM newsbreak_ads_archive n LEFT JOIN accounts a ON a.platform = 'newsbreak' AND a.user_id = n.user_id
+          WHERE n.user_id = $1 AND n.archived_date BETWEEN $2 AND $3${newsbreakAccountFilter}
+          GROUP BY ad_data->>'campaign_id', ad_data->>'campaign_name', a.name
+        )
+        SELECT * FROM all_campaigns WHERE 1=1 ${platformFilter}
+        ORDER BY spend DESC
+      `, queryParams);
+    } else {
+      // Today's live data
+      result = await pool.query(`
+        WITH all_campaigns AS (
+          SELECT 'meta' AS platform, campaign_id, campaign_name, account_name,
+            SUM(spend) AS spend, SUM(clicks) AS clicks, SUM(impressions) AS impressions,
+            0::numeric AS conversions, 0::numeric AS conversion_value,
+            COUNT(DISTINCT ad_set_id) AS adset_count, COUNT(DISTINCT ad_name) AS ad_count
+          FROM fb_ads_today WHERE user_id = $1${metaAccountFilter}
+          GROUP BY campaign_id, campaign_name, account_name
+          UNION ALL
+          SELECT 'tiktok' AS platform, campaign_id, campaign_name, COALESCE(a.name, 'TikTok') AS account_name,
+            SUM(t.spend), SUM(t.clicks), SUM(t.impressions),
+            COALESCE(SUM(t.conversions), 0), COALESCE(SUM(t.conversion_value), 0),
+            COUNT(DISTINCT t.adgroup_id), COUNT(DISTINCT t.ad_name)
+          FROM tiktok_ads_today t LEFT JOIN accounts a ON a.id = t.account_id
+          WHERE t.user_id = $1${tiktokAccountFilter}
+          GROUP BY t.campaign_id, t.campaign_name, a.name
+          UNION ALL
+          SELECT 'newsbreak' AS platform, campaign_id, campaign_name, COALESCE(a.name, 'NewsBreak') AS account_name,
+            SUM(n.spend), SUM(n.clicks), SUM(n.impressions),
+            COALESCE(SUM(n.conversions), 0), COALESCE(SUM(n.conversion_value), 0),
+            COUNT(DISTINCT n.adset_id), COUNT(DISTINCT n.ad_name)
+          FROM newsbreak_ads_today n LEFT JOIN accounts a ON a.platform = 'newsbreak' AND a.user_id = n.user_id
+          WHERE n.user_id = $1${newsbreakAccountFilter}
+          GROUP BY n.campaign_id, n.campaign_name, a.name
+        )
+        SELECT * FROM all_campaigns WHERE 1=1 ${platformFilter}
+        ORDER BY spend DESC
+      `, queryParams);
+    }
 
     res.json(result.rows.map(r => ({
       platform: r.platform,
@@ -773,31 +853,67 @@ router.get('/live/:platform/:campaignId/adsets', async (req: Request, res: Respo
     const userId = req.user?.id;
     if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
     const { platform, campaignId } = req.params;
+    const startDate = req.query.startDate as string | undefined;
+    const endDate = req.query.endDate as string | undefined;
+    const useArchive = startDate && endDate;
 
     let query: string;
-    if (platform === 'meta') {
-      query = `SELECT ad_set_id AS adset_id, ad_set_name AS adset_name,
-        SUM(spend) AS spend, SUM(clicks) AS clicks, SUM(impressions) AS impressions,
-        0::numeric AS conversions, 0::numeric AS conversion_value, COUNT(DISTINCT ad_name) AS ad_count
-        FROM fb_ads_today WHERE user_id = $1 AND campaign_id = $2
-        GROUP BY ad_set_id, ad_set_name ORDER BY spend DESC`;
-    } else if (platform === 'tiktok') {
-      query = `SELECT adgroup_id AS adset_id, adgroup_name AS adset_name,
-        SUM(spend) AS spend, SUM(clicks) AS clicks, SUM(impressions) AS impressions,
-        COALESCE(SUM(conversions), 0) AS conversions, COALESCE(SUM(conversion_value), 0) AS conversion_value,
-        COUNT(DISTINCT ad_name) AS ad_count
-        FROM tiktok_ads_today WHERE user_id = $1 AND campaign_id = $2
-        GROUP BY adgroup_id, adgroup_name ORDER BY spend DESC`;
+    const params: any[] = [userId, campaignId];
+
+    if (useArchive) {
+      params.push(startDate, endDate);
+      if (platform === 'meta') {
+        query = `SELECT ad_data->>'ad_set_id' AS adset_id, ad_data->>'ad_set_name' AS adset_name,
+          SUM((ad_data->>'spend')::numeric) AS spend, SUM((ad_data->>'clicks')::numeric) AS clicks,
+          SUM((ad_data->>'impressions')::numeric) AS impressions,
+          0::numeric AS conversions, 0::numeric AS conversion_value,
+          COUNT(DISTINCT ad_data->>'ad_name') AS ad_count
+          FROM fb_ads_archive WHERE user_id = $1 AND ad_data->>'campaign_id' = $2 AND archived_date BETWEEN $3 AND $4
+          GROUP BY ad_data->>'ad_set_id', ad_data->>'ad_set_name' ORDER BY spend DESC`;
+      } else if (platform === 'tiktok') {
+        query = `SELECT ad_data->>'adgroup_id' AS adset_id, ad_data->>'adgroup_name' AS adset_name,
+          SUM((ad_data->>'spend')::numeric) AS spend, SUM((ad_data->>'clicks')::numeric) AS clicks,
+          SUM((ad_data->>'impressions')::numeric) AS impressions,
+          COALESCE(SUM((ad_data->>'conversions')::numeric), 0) AS conversions,
+          COALESCE(SUM((ad_data->>'conversion_value')::numeric), 0) AS conversion_value,
+          COUNT(DISTINCT ad_data->>'ad_name') AS ad_count
+          FROM tiktok_ads_archive WHERE user_id = $1 AND ad_data->>'campaign_id' = $2 AND archived_date BETWEEN $3 AND $4
+          GROUP BY ad_data->>'adgroup_id', ad_data->>'adgroup_name' ORDER BY spend DESC`;
+      } else {
+        query = `SELECT ad_data->>'adset_id' AS adset_id, ad_data->>'adset_name' AS adset_name,
+          SUM((ad_data->>'spend')::numeric) AS spend, SUM((ad_data->>'clicks')::numeric) AS clicks,
+          SUM((ad_data->>'impressions')::numeric) AS impressions,
+          COALESCE(SUM((ad_data->>'conversions')::numeric), 0) AS conversions,
+          COALESCE(SUM((ad_data->>'conversion_value')::numeric), 0) AS conversion_value,
+          COUNT(DISTINCT ad_data->>'ad_name') AS ad_count
+          FROM newsbreak_ads_archive WHERE user_id = $1 AND ad_data->>'campaign_id' = $2 AND archived_date BETWEEN $3 AND $4
+          GROUP BY ad_data->>'adset_id', ad_data->>'adset_name' ORDER BY spend DESC`;
+      }
     } else {
-      query = `SELECT adset_id, adset_name,
-        SUM(spend) AS spend, SUM(clicks) AS clicks, SUM(impressions) AS impressions,
-        COALESCE(SUM(conversions), 0) AS conversions, COALESCE(SUM(conversion_value), 0) AS conversion_value,
-        COUNT(DISTINCT ad_name) AS ad_count
-        FROM newsbreak_ads_today WHERE user_id = $1 AND campaign_id = $2
-        GROUP BY adset_id, adset_name ORDER BY spend DESC`;
+      if (platform === 'meta') {
+        query = `SELECT ad_set_id AS adset_id, ad_set_name AS adset_name,
+          SUM(spend) AS spend, SUM(clicks) AS clicks, SUM(impressions) AS impressions,
+          0::numeric AS conversions, 0::numeric AS conversion_value, COUNT(DISTINCT ad_name) AS ad_count
+          FROM fb_ads_today WHERE user_id = $1 AND campaign_id = $2
+          GROUP BY ad_set_id, ad_set_name ORDER BY spend DESC`;
+      } else if (platform === 'tiktok') {
+        query = `SELECT adgroup_id AS adset_id, adgroup_name AS adset_name,
+          SUM(spend) AS spend, SUM(clicks) AS clicks, SUM(impressions) AS impressions,
+          COALESCE(SUM(conversions), 0) AS conversions, COALESCE(SUM(conversion_value), 0) AS conversion_value,
+          COUNT(DISTINCT ad_name) AS ad_count
+          FROM tiktok_ads_today WHERE user_id = $1 AND campaign_id = $2
+          GROUP BY adgroup_id, adgroup_name ORDER BY spend DESC`;
+      } else {
+        query = `SELECT adset_id, adset_name,
+          SUM(spend) AS spend, SUM(clicks) AS clicks, SUM(impressions) AS impressions,
+          COALESCE(SUM(conversions), 0) AS conversions, COALESCE(SUM(conversion_value), 0) AS conversion_value,
+          COUNT(DISTINCT ad_name) AS ad_count
+          FROM newsbreak_ads_today WHERE user_id = $1 AND campaign_id = $2
+          GROUP BY adset_id, adset_name ORDER BY spend DESC`;
+      }
     }
 
-    const result = await pool.query(query, [userId, campaignId]);
+    const result = await pool.query(query, params);
     res.json(result.rows.map(r => ({
       adset_id: r.adset_id,
       adset_name: r.adset_name,
@@ -819,23 +935,56 @@ router.get('/live/:platform/:adsetId/ads', async (req: Request, res: Response) =
     const userId = req.user?.id;
     if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
     const { platform, adsetId } = req.params;
+    const startDate = req.query.startDate as string | undefined;
+    const endDate = req.query.endDate as string | undefined;
+    const useArchive = startDate && endDate;
 
     let query: string;
-    if (platform === 'meta') {
-      query = `SELECT ad_name, spend, clicks, impressions, landing_page_views,
-        0::numeric AS conversions, 0::numeric AS conversion_value
-        FROM fb_ads_today WHERE user_id = $1 AND ad_set_id = $2 ORDER BY spend DESC`;
-    } else if (platform === 'tiktok') {
-      query = `SELECT ad_name, spend, clicks, impressions, 0 AS landing_page_views,
-        COALESCE(conversions, 0) AS conversions, COALESCE(conversion_value, 0) AS conversion_value
-        FROM tiktok_ads_today WHERE user_id = $1 AND adgroup_id = $2 ORDER BY spend DESC`;
+    const params: any[] = [userId, adsetId];
+
+    if (useArchive) {
+      params.push(startDate, endDate);
+      if (platform === 'meta') {
+        query = `SELECT ad_data->>'ad_name' AS ad_name,
+          SUM((ad_data->>'spend')::numeric) AS spend, SUM((ad_data->>'clicks')::numeric) AS clicks,
+          SUM((ad_data->>'impressions')::numeric) AS impressions,
+          0::numeric AS conversions, 0::numeric AS conversion_value
+          FROM fb_ads_archive WHERE user_id = $1 AND ad_data->>'ad_set_id' = $2 AND archived_date BETWEEN $3 AND $4
+          GROUP BY ad_data->>'ad_name' ORDER BY spend DESC`;
+      } else if (platform === 'tiktok') {
+        query = `SELECT ad_data->>'ad_name' AS ad_name,
+          SUM((ad_data->>'spend')::numeric) AS spend, SUM((ad_data->>'clicks')::numeric) AS clicks,
+          SUM((ad_data->>'impressions')::numeric) AS impressions,
+          COALESCE(SUM((ad_data->>'conversions')::numeric), 0) AS conversions,
+          COALESCE(SUM((ad_data->>'conversion_value')::numeric), 0) AS conversion_value
+          FROM tiktok_ads_archive WHERE user_id = $1 AND ad_data->>'adgroup_id' = $2 AND archived_date BETWEEN $3 AND $4
+          GROUP BY ad_data->>'ad_name' ORDER BY spend DESC`;
+      } else {
+        query = `SELECT ad_data->>'ad_id' AS ad_id, ad_data->>'ad_name' AS ad_name,
+          SUM((ad_data->>'spend')::numeric) AS spend, SUM((ad_data->>'clicks')::numeric) AS clicks,
+          SUM((ad_data->>'impressions')::numeric) AS impressions,
+          COALESCE(SUM((ad_data->>'conversions')::numeric), 0) AS conversions,
+          COALESCE(SUM((ad_data->>'conversion_value')::numeric), 0) AS conversion_value
+          FROM newsbreak_ads_archive WHERE user_id = $1 AND ad_data->>'adset_id' = $2 AND archived_date BETWEEN $3 AND $4
+          GROUP BY ad_data->>'ad_id', ad_data->>'ad_name' ORDER BY spend DESC`;
+      }
     } else {
-      query = `SELECT ad_id, ad_name, spend, clicks, impressions, 0 AS landing_page_views,
-        COALESCE(conversions, 0) AS conversions, COALESCE(conversion_value, 0) AS conversion_value
-        FROM newsbreak_ads_today WHERE user_id = $1 AND adset_id = $2 ORDER BY spend DESC`;
+      if (platform === 'meta') {
+        query = `SELECT ad_name, spend, clicks, impressions, landing_page_views,
+          0::numeric AS conversions, 0::numeric AS conversion_value
+          FROM fb_ads_today WHERE user_id = $1 AND ad_set_id = $2 ORDER BY spend DESC`;
+      } else if (platform === 'tiktok') {
+        query = `SELECT ad_name, spend, clicks, impressions, 0 AS landing_page_views,
+          COALESCE(conversions, 0) AS conversions, COALESCE(conversion_value, 0) AS conversion_value
+          FROM tiktok_ads_today WHERE user_id = $1 AND adgroup_id = $2 ORDER BY spend DESC`;
+      } else {
+        query = `SELECT ad_id, ad_name, spend, clicks, impressions, 0 AS landing_page_views,
+          COALESCE(conversions, 0) AS conversions, COALESCE(conversion_value, 0) AS conversion_value
+          FROM newsbreak_ads_today WHERE user_id = $1 AND adset_id = $2 ORDER BY spend DESC`;
+      }
     }
 
-    const result = await pool.query(query, [userId, adsetId]);
+    const result = await pool.query(query, params);
     res.json(result.rows.map(r => ({
       ad_id: r.ad_id || null,
       ad_name: r.ad_name,

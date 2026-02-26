@@ -1285,17 +1285,27 @@ export interface LiveAd {
   conversion_value: number;
 }
 
-export function fetchLiveCampaigns(platform?: string): Promise<LiveCampaign[]> {
-  const qs = platform && platform !== 'all' ? `?platform=${platform}` : '';
-  return request<LiveCampaign[]>(`/campaigns/live${qs}`);
+export function fetchLiveCampaigns(platform?: string, startDate?: string, endDate?: string, accountId?: number | string): Promise<LiveCampaign[]> {
+  const params = new URLSearchParams();
+  if (platform && platform !== 'all') params.set('platform', platform);
+  if (startDate && endDate) { params.set('startDate', startDate); params.set('endDate', endDate); }
+  if (accountId && accountId !== 'all') params.set('account_id', String(accountId));
+  const qs = params.toString();
+  return request<LiveCampaign[]>(`/campaigns/live${qs ? `?${qs}` : ''}`);
 }
 
-export function fetchLiveAdsets(platform: string, campaignId: string): Promise<LiveAdset[]> {
-  return request<LiveAdset[]>(`/campaigns/live/${platform}/${encodeURIComponent(campaignId)}/adsets`);
+export function fetchLiveAdsets(platform: string, campaignId: string, startDate?: string, endDate?: string): Promise<LiveAdset[]> {
+  const params = new URLSearchParams();
+  if (startDate && endDate) { params.set('startDate', startDate); params.set('endDate', endDate); }
+  const qs = params.toString();
+  return request<LiveAdset[]>(`/campaigns/live/${platform}/${encodeURIComponent(campaignId)}/adsets${qs ? `?${qs}` : ''}`);
 }
 
-export function fetchLiveAds(platform: string, adsetId: string): Promise<LiveAd[]> {
-  return request<LiveAd[]>(`/campaigns/live/${platform}/${encodeURIComponent(adsetId)}/ads`);
+export function fetchLiveAds(platform: string, adsetId: string, startDate?: string, endDate?: string): Promise<LiveAd[]> {
+  const params = new URLSearchParams();
+  if (startDate && endDate) { params.set('startDate', startDate); params.set('endDate', endDate); }
+  const qs = params.toString();
+  return request<LiveAd[]>(`/campaigns/live/${platform}/${encodeURIComponent(adsetId)}/ads${qs ? `?${qs}` : ''}`);
 }
 
 export function updateLiveEntityStatus(platform: string, entityType: string, entityId: string, status: string): Promise<{ success: boolean }> {

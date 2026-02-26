@@ -37,6 +37,7 @@ import {
   Zap,
 } from 'lucide-react';
 import PageShell from '../../components/shared/PageShell';
+import { useDateRangeStore } from '../../stores/dateRangeStore';
 
 // ── Constants ───────────────────────────────────────────────
 
@@ -1456,6 +1457,7 @@ export default function LiveCampaignsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [platformFilter, setPlatformFilter] = useState('all');
+  const [accountFilter, setAccountFilter] = useState<string>('all');
   const [showCreator, setShowCreator] = useState(false);
   const [showFormatLauncher, setShowFormatLauncher] = useState(false);
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -1466,6 +1468,10 @@ export default function LiveCampaignsPage() {
   const [budgetModal, setBudgetModal] = useState<{ platform: string; entityId: string } | null>(null);
   const [budgetValue, setBudgetValue] = useState('');
 
+  // Date range
+  const dateRange = useDateRangeStore((s) => s.dateRange);
+  const toIso = (d: Date) => d.toISOString().split('T')[0];
+
   // Sorting
   const [sortKey, setSortKey] = useState<SortKey>('spend');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
@@ -1473,13 +1479,22 @@ export default function LiveCampaignsPage() {
   useEffect(() => {
     load();
     fetchAccounts().then(setAccounts).catch(() => {});
+  }, [platformFilter, accountFilter, dateRange]);
+
+  // Reset account filter when platform changes (so user doesn't get stuck on a meta account while viewing newsbreak)
+  useEffect(() => {
+    setAccountFilter('all');
   }, [platformFilter]);
 
   async function load() {
     setLoading(true);
     setError(null);
+    setExpanded({});
+    setExpandedAds({});
     try {
-      setCampaigns(await fetchLiveCampaigns(platformFilter));
+      const startDate = dateRange.isToday ? undefined : toIso(dateRange.from);
+      const endDate = dateRange.isToday ? undefined : toIso(dateRange.to);
+      setCampaigns(await fetchLiveCampaigns(platformFilter, startDate, endDate, accountFilter));
     } catch (err: any) {
       setError(err.message || 'Failed to load campaigns');
     } finally {
@@ -1511,7 +1526,9 @@ export default function LiveCampaignsPage() {
     }
     setExpanded(p => ({ ...p, [key]: 'loading' }));
     try {
-      const data = await fetchLiveAdsets(c.platform, c.campaign_id);
+      const startDate = dateRange.isToday ? undefined : toIso(dateRange.from);
+      const endDate = dateRange.isToday ? undefined : toIso(dateRange.to);
+      const data = await fetchLiveAdsets(c.platform, c.campaign_id, startDate, endDate);
       setExpanded(p => ({ ...p, [key]: data }));
     } catch {
       setExpanded(p => { const n = { ...p }; delete n[key]; return n; });
@@ -1526,7 +1543,9 @@ export default function LiveCampaignsPage() {
     }
     setExpandedAds(p => ({ ...p, [key]: 'loading' }));
     try {
-      const data = await fetchLiveAds(platform, adsetId);
+      const startDate = dateRange.isToday ? undefined : toIso(dateRange.from);
+      const endDate = dateRange.isToday ? undefined : toIso(dateRange.to);
+      const data = await fetchLiveAds(platform, adsetId, startDate, endDate);
       setExpandedAds(p => ({ ...p, [key]: data }));
     } catch {
       setExpandedAds(p => { const n = { ...p }; delete n[key]; return n; });
@@ -1579,7 +1598,7 @@ export default function LiveCampaignsPage() {
   // Loading skeleton
   if (loading && campaigns.length === 0) {
     return (
-      <PageShell title="Campaign Manager" subtitle="Create, monitor & manage your campaigns">
+      <PageShell title="Campaign Manager" subtitle="Create, monitor & manage your campaigns" showDatePicker>
         <div className="space-y-3">
           {[1, 2, 3].map(i => <div key={i} className="h-16 bg-ats-card rounded-xl animate-pulse border border-ats-border" />)}
         </div>
@@ -1589,7 +1608,7 @@ export default function LiveCampaignsPage() {
 
   if (error) {
     return (
-      <PageShell title="Campaign Manager" subtitle="Create, monitor & manage your campaigns">
+      <PageShell title="Campaign Manager" subtitle="Create, monitor & manage your campaigns" showDatePicker>
         <div className="px-4 py-3 rounded-lg text-sm bg-red-900/50 text-red-300">{error}</div>
       </PageShell>
     );
@@ -1604,6 +1623,7 @@ export default function LiveCampaignsPage() {
     <PageShell
       title="Campaign Manager"
       subtitle="Create, monitor & manage your campaigns"
+      showDatePicker
       actions={
         <div className="flex items-center gap-2">
           <button onClick={load} className="p-2 rounded-lg text-ats-text-muted hover:bg-ats-hover transition-colors" title="Refresh">
@@ -1630,13 +1650,13 @@ export default function LiveCampaignsPage() {
       {/* Summary */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
         <Stat label="Campaigns" value={String(campaigns.length)} />
-        <Stat label="Today's Spend" value={fmt$(totals.spend)} />
+        <Stat label={dateRange.isToday ? "Today's Spend" : 'Total Spend'} value={fmt$(totals.spend)} />
         <Stat label="Conversions" value={fmtNum(totals.conv)} />
         <Stat label="Revenue" value={fmt$(totals.rev)} cls="text-emerald-400" />
       </div>
 
       {/* Filters */}
-      <div className="flex items-center gap-2 mb-4">
+      <div className="flex items-center gap-2 mb-4 flex-wrap">
         {['all', 'meta', 'tiktok', 'newsbreak'].map(p => (
           <button
             key={p}
@@ -1650,6 +1670,29 @@ export default function LiveCampaignsPage() {
             {PLATFORM_BADGE[p]?.label}
           </button>
         ))}
+
+        {/* Account selector */}
+        {(() => {
+          const filteredAccounts = platformFilter === 'all'
+            ? accounts.filter(a => a.status === 'active')
+            : accounts.filter(a => a.platform === platformFilter && a.status === 'active');
+          if (filteredAccounts.length <= 1) return null;
+          return (
+            <select
+              value={accountFilter}
+              onChange={(e) => setAccountFilter(e.target.value)}
+              className="px-3 py-1.5 rounded-lg text-xs font-semibold border bg-ats-card border-ats-border text-ats-text hover:bg-ats-hover transition-colors focus:outline-none focus:border-ats-accent ml-1"
+            >
+              <option value="all">All Accounts</option>
+              {filteredAccounts.map(a => (
+                <option key={a.id} value={a.id}>
+                  {a.name}{platformFilter === 'all' ? ` (${PLATFORM_BADGE[a.platform]?.label || a.platform})` : ''}
+                </option>
+              ))}
+            </select>
+          );
+        })()}
+
         {loading && <Loader2 className="w-4 h-4 text-ats-text-muted animate-spin ml-1" />}
       </div>
 
