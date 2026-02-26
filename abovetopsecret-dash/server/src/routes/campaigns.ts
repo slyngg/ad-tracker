@@ -910,4 +910,73 @@ router.post('/live/budget', publishLimiter, async (req: Request, res: Response) 
   }
 });
 
+// ── Quick Ad Creator (one-shot: draft → adset → ad → publish) ─
+
+router.post('/quick-create', publishLimiter, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+
+    const {
+      account_id, platform, campaign_name, objective,
+      daily_budget, adset_name,
+      ad_name, headline, ad_text, image_url, landing_page_url, call_to_action,
+    } = req.body;
+
+    if (!platform || !campaign_name || !ad_text) {
+      res.status(400).json({ error: 'Missing required fields: platform, campaign_name, ad_text' });
+      return;
+    }
+
+    // Verify account
+    if (account_id) {
+      const check = await pool.query('SELECT id FROM accounts WHERE id = $1 AND user_id = $2', [account_id, userId]);
+      if (check.rows.length === 0) { res.status(403).json({ error: 'Account not found' }); return; }
+    }
+
+    const budgetCents = Math.round((daily_budget || 10) * 100);
+
+    // 1. Create draft
+    const draftRes = await pool.query(
+      `INSERT INTO campaign_drafts (user_id, account_id, name, objective, platform, status)
+       VALUES ($1, $2, $3, $4, $5, 'draft') RETURNING id`,
+      [userId, account_id || null, campaign_name, objective || 'TRAFFIC', platform]
+    );
+    const draftId = draftRes.rows[0].id;
+
+    // 2. Create ad set
+    const adsetRes = await pool.query(
+      `INSERT INTO campaign_adsets (draft_id, name, budget_type, budget_cents, bid_strategy, targeting)
+       VALUES ($1, $2, 'daily', $3, 'LOWEST_COST_WITHOUT_CAP', '{}') RETURNING id`,
+      [draftId, adset_name || `${campaign_name} - Ad Set`, budgetCents]
+    );
+    const adsetId = adsetRes.rows[0].id;
+
+    // 3. Create ad
+    const creativeConfig: Record<string, any> = {};
+    if (headline) creativeConfig.headline = headline;
+    if (ad_text) creativeConfig.primary_text = ad_text;
+    if (image_url) creativeConfig.image_url = image_url;
+    if (landing_page_url) creativeConfig.landing_page_url = landing_page_url;
+    if (call_to_action) creativeConfig.call_to_action = call_to_action;
+
+    await pool.query(
+      `INSERT INTO campaign_ads (adset_id, name, creative_config) VALUES ($1, $2, $3)`,
+      [adsetId, ad_name || `${campaign_name} - Ad`, JSON.stringify(creativeConfig)]
+    );
+
+    // 4. Publish
+    const { publishDraft } = await import('../services/campaign-publisher');
+    const publishResult = await publishDraft(draftId, userId);
+
+    res.json({
+      ...publishResult,
+      draft_id: draftId,
+    });
+  } catch (err: any) {
+    console.error('Error in quick-create:', err);
+    res.status(500).json({ error: err.message || 'Failed to create and publish campaign' });
+  }
+});
+
 export default router;

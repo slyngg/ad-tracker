@@ -1306,6 +1306,25 @@ export function updateLiveEntityBudget(platform: string, entityId: string, budge
   return request<{ success: boolean }>('/campaigns/live/budget', { method: 'POST', body: JSON.stringify({ platform, entity_id: entityId, budget_dollars: budgetDollars }) });
 }
 
+export interface QuickCreateParams {
+  account_id?: number;
+  platform: string;
+  campaign_name: string;
+  objective?: string;
+  daily_budget?: number;
+  adset_name?: string;
+  ad_name?: string;
+  headline?: string;
+  ad_text: string;
+  image_url?: string;
+  landing_page_url?: string;
+  call_to_action?: string;
+}
+
+export function quickCreateCampaign(params: QuickCreateParams): Promise<PublishResult & { draft_id: number }> {
+  return request('/campaigns/quick-create', { method: 'POST', body: JSON.stringify(params) });
+}
+
 // --- Creative Templates types (Phase 2) ---
 export interface CreativeTemplate {
   id: number;
