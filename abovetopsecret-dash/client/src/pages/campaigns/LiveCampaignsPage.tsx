@@ -88,10 +88,11 @@ const EVENTS = [
 ];
 
 const NB_PLACEMENTS = [
-  { value: 'FEED', label: 'News Feed' },
-  { value: 'DETAIL_PAGE', label: 'Detail Page' },
-  { value: 'PUSH', label: 'Push Notification' },
   { value: 'ALL', label: 'All Placements' },
+  { value: 'NEWSBREAK', label: 'NewsBreak' },
+  { value: 'SCOOPZ', label: 'Scoopz' },
+  { value: 'UNLIMITED', label: 'Unlimited' },
+  { value: 'PREMIUM_PARTNERS', label: 'Premium Partners' },
 ];
 
 const DYNAMIC_VARS = [
