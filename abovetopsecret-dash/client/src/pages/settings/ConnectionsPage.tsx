@@ -537,11 +537,18 @@ export default function ConnectionsPage() {
                         </p>
                       </div>
                       <div>
-                        <label className={labelCls}>Webhook URL</label>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-[10px] text-ats-text-muted uppercase tracking-widest font-mono">Webhook URL</label>
+                          <a href="https://help.checkoutchamp.com/crm/admin-setup/export-webhook-profiles/postback-export-profiles" target="_blank" rel="noopener noreferrer"
+                            className="text-[10px] text-ats-accent hover:underline transition-colors">
+                            Where to paste this in CC &rarr;
+                          </a>
+                        </div>
                         <div className="flex gap-1.5">
                           <input readOnly value={`${webhookBaseUrl}/api/webhooks/checkout-champ`} className={`${inputCls} text-ats-text-muted flex-1 min-w-0`} />
                           <button onClick={() => copy(`${webhookBaseUrl}/api/webhooks/checkout-champ`)} className={`${btnSecondary} shrink-0`}>Copy</button>
                         </div>
+                        <div className="text-[10px] text-ats-text-muted mt-0.5">Copy this URL and add it as a Postback export in CC under <strong>Admin &gt; Exports</strong></div>
                       </div>
                       <div>
                         <div className="flex items-center justify-between mb-1">
