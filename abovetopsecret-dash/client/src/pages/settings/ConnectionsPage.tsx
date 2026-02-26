@@ -80,12 +80,14 @@ export default function ConnectionsPage() {
   const [fbTestMessage, setFbTestMessage] = useState('');
   const [ccTestStatus, setCcTestStatus] = useState<StatusType>('idle');
   const [ccTestMessage, setCcTestMessage] = useState('');
+  const [ccVerified, setCcVerified] = useState<boolean | null>(null);
   const [nbTestStatus, setNbTestStatus] = useState<StatusType>('idle');
   const [nbTestMessage, setNbTestMessage] = useState('');
 
   // OAuth + UI state
   const [oauthStatuses, setOauthStatuses] = useState<OAuthStatus[]>([]);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [visibleFields, setVisibleFields] = useState<Record<string, boolean>>({});
 
   // Webhook tokens
   const [tokens, setTokens] = useState<WebhookToken[]>([]);
@@ -134,6 +136,13 @@ export default function ConnectionsPage() {
 
   useEffect(() => { loadSettings(); loadOAuthStatus(); loadTokens(); loadNbAccounts(); }, [loadSettings, loadOAuthStatus, loadTokens, loadNbAccounts]);
 
+  // Auto-verify CC connection on page load if credentials exist
+  useEffect(() => {
+    if (settings.cc_login_id && settings.cc_password && ccVerified === null) {
+      testCCConnection().then(r => setCcVerified(r.success)).catch(() => setCcVerified(false));
+    }
+  }, [settings.cc_login_id, settings.cc_password, ccVerified]);
+
   // Helpers
   const oauthFor = (platform: string) => oauthStatuses.find(s => s.platform === platform);
   const isOAuthConnected = (platform: string) => {
@@ -148,7 +157,7 @@ export default function ConnectionsPage() {
     if (platform === 'meta') return !!(settings.fb_access_token && settings.fb_ad_account_ids);
     if (platform === 'google') return !!settings.ga4_property_id;
     if (platform === 'shopify') return !!settings.shopify_webhook_secret;
-    if (platform === 'checkoutchamp') return !!(settings.cc_login_id && settings.cc_password);
+    if (platform === 'checkoutchamp') return ccVerified === true;
     if (platform === 'newsbreak') return nbAccounts.some(a => a.has_access_token && a.platform_account_id) || !!(settings.newsbreak_api_key && settings.newsbreak_account_id);
     return false;
   };
@@ -233,7 +242,8 @@ export default function ConnectionsPage() {
       const r = await testCCConnection();
       setCcTestStatus(r.success ? 'success' : 'error');
       setCcTestMessage(r.success ? (r.message || 'Connected') : (r.error || 'Failed'));
-    } catch { setCcTestStatus('error'); setCcTestMessage('Connection failed'); }
+      setCcVerified(r.success);
+    } catch { setCcTestStatus('error'); setCcTestMessage('Connection failed'); setCcVerified(false); }
   };
 
   const handleTestNB = async () => {
@@ -305,6 +315,24 @@ export default function ConnectionsPage() {
   const labelCls = 'text-[10px] text-ats-text-muted block mb-1 uppercase tracking-widest font-mono';
   const btnSecondary = 'px-3 py-1.5 bg-ats-surface border border-ats-border rounded-lg text-xs text-ats-text font-medium hover:bg-ats-hover active:scale-[0.98] transition-all';
   const btnDanger = 'px-3 py-1.5 rounded-lg text-xs font-medium text-red-400 border border-red-900/40 hover:bg-red-900/20 active:scale-[0.98] transition-all';
+  const toggleFieldVisibility = (field: string) => setVisibleFields(p => ({ ...p, [field]: !p[field] }));
+  const eyeBtn = (field: string) => (
+    <button type="button" onClick={() => toggleFieldVisibility(field)}
+      className="absolute right-2 top-1/2 -translate-y-1/2 text-ats-text-muted hover:text-ats-text transition-colors p-0.5"
+      title={visibleFields[field] ? 'Hide' : 'Show'}>
+      {visibleFields[field] ? (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
+          <path fillRule="evenodd" d="M3.28 2.22a.75.75 0 00-1.06 1.06l14.5 14.5a.75.75 0 101.06-1.06l-1.745-1.745a10.029 10.029 0 003.3-4.38 1.651 1.651 0 000-1.185A10.004 10.004 0 009.999 3a9.956 9.956 0 00-4.744 1.194L3.28 2.22zM7.752 6.69l1.092 1.092a2.5 2.5 0 013.374 3.373l1.092 1.092a4 4 0 00-5.558-5.558z" clipRule="evenodd" />
+          <path d="M10.748 13.93l2.523 2.523A9.987 9.987 0 0110 17c-4.257 0-7.893-2.66-9.336-6.41a1.651 1.651 0 010-1.186A10.007 10.007 0 014.09 5.12L6.07 7.1A4 4 0 0010.748 13.93z" />
+        </svg>
+      ) : (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
+          <path d="M10 12.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" />
+          <path fillRule="evenodd" d="M.664 10.59a1.651 1.651 0 010-1.186A10.004 10.004 0 0110 3c4.257 0 7.893 2.66 9.336 6.41.147.381.146.804 0 1.186A10.004 10.004 0 0110 17c-4.257 0-7.893-2.66-9.336-6.41zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" />
+        </svg>
+      )}
+    </button>
+  );
 
   const statusDot = (platform: string) => {
     const connected = isAnyConnected(platform);
@@ -318,6 +346,26 @@ export default function ConnectionsPage() {
           <span className="text-[10px] text-red-400">Expired — reconnect</span>
         </span>
       );
+    }
+
+    // CC special states: credentials saved but auth failed
+    if (platform === 'checkoutchamp' && settings.cc_login_id && settings.cc_password) {
+      if (ccVerified === null) {
+        return (
+          <span className="flex items-center gap-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+            <span className="text-[10px] text-amber-400">Verifying...</span>
+          </span>
+        );
+      }
+      if (ccVerified === false) {
+        return (
+          <span className="flex items-center gap-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
+            <span className="text-[10px] text-red-400">Auth failed</span>
+          </span>
+        );
+      }
     }
 
     if (connected && oauth?.tokenExpiresAt) {
@@ -351,7 +399,7 @@ export default function ConnectionsPage() {
         <div className="flex items-center gap-3 flex-wrap text-xs text-ats-text-muted">
           {PLATFORMS.map(p => (
             <span key={p.key} className="flex items-center gap-1">
-              <span className={`w-1.5 h-1.5 rounded-full ${isAnyConnected(p.oauthPlatform || p.key) ? 'bg-emerald-500' : isExpired(p.oauthPlatform || p.key) ? 'bg-red-500' : 'bg-ats-text-muted'}`} />
+              <span className={`w-1.5 h-1.5 rounded-full ${isAnyConnected(p.oauthPlatform || p.key) ? 'bg-emerald-500' : isExpired(p.oauthPlatform || p.key) ? 'bg-red-500' : (p.key === 'checkoutchamp' && ccVerified === false) ? 'bg-red-500' : 'bg-ats-text-muted'}`} />
               {p.key === 'checkoutchamp' ? 'CC' : p.key.charAt(0).toUpperCase() + p.key.slice(1)}
             </span>
           ))}
@@ -466,8 +514,11 @@ export default function ConnectionsPage() {
                       )}
                       <div>
                         <label className={labelCls}>Webhook Secret</label>
-                        <input type="password" value={shopifySecret} onChange={e => setShopifySecret(e.target.value)}
-                          placeholder={settings.shopify_webhook_secret || 'shpss_...'} className={inputCls} />
+                        <div className="relative">
+                          <input type={visibleFields['shopify_secret'] ? 'text' : 'password'} value={shopifySecret} onChange={e => setShopifySecret(e.target.value)}
+                            placeholder={settings.shopify_webhook_secret || 'shpss_...'} className={`${inputCls} pr-8`} />
+                          {eyeBtn('shopify_secret')}
+                        </div>
                       </div>
                       <div>
                         <label className={labelCls}>Webhook URL</label>
@@ -490,8 +541,11 @@ export default function ConnectionsPage() {
                             Generate token &rarr;
                           </a>
                         </div>
-                        <input type="password" value={fbToken} onChange={e => { setFbToken(e.target.value); autoSave({ fb_access_token: e.target.value }); }}
-                          placeholder={settings.fb_access_token ? '••••••••' : 'EAAxxxxxxxx...'} className={inputCls} />
+                        <div className="relative">
+                          <input type={visibleFields['fb_token'] ? 'text' : 'password'} value={fbToken} onChange={e => { setFbToken(e.target.value); autoSave({ fb_access_token: e.target.value }); }}
+                            placeholder={settings.fb_access_token ? '••••••••' : 'EAAxxxxxxxx...'} className={`${inputCls} pr-8`} />
+                          {eyeBtn('fb_token')}
+                        </div>
                       </div>
                       <div>
                         <label className={labelCls}>Ad Account IDs</label>
@@ -527,12 +581,23 @@ export default function ConnectionsPage() {
                   {/* CheckoutChamp */}
                   {platform.manualFields === 'checkoutchamp' && (
                     <>
-                      <div className="p-2.5 rounded-lg bg-ats-accent/5 border border-ats-accent/20 mb-1">
+                      <div className="p-2.5 rounded-lg bg-ats-accent/5 border border-ats-accent/20 mb-1 space-y-1.5">
                         <p className="text-[11px] text-ats-text-muted leading-relaxed">
-                          To get your API credentials, go to <strong className="text-ats-text">Admin &gt; Users</strong> in your CheckoutChamp CRM and create an API user.{' '}
+                          <strong className="text-ats-text">Step 1:</strong> Create an API user in CC under <strong className="text-ats-text">Admin &gt; Users</strong>.{' '}
                           <a href="https://help.checkoutchamp.com/crm/admin-setup/create-a-user/create-an-api-user" target="_blank" rel="noopener noreferrer"
                             className="text-ats-accent hover:underline transition-colors font-medium">
-                            View setup guide &rarr;
+                            Setup guide &rarr;
+                          </a>
+                        </p>
+                        <p className="text-[11px] text-ats-text-muted leading-relaxed">
+                          <strong className="text-ats-text">Step 2:</strong> Whitelist our server IP on that API user:{' '}
+                          <code className="px-1.5 py-0.5 bg-ats-bg rounded text-ats-accent font-mono text-[10px] select-all cursor-pointer" onClick={() => copy('46.62.221.65')}>46.62.221.65</code>
+                        </p>
+                        <p className="text-[11px] text-ats-text-muted leading-relaxed">
+                          <strong className="text-ats-text">Step 3:</strong> Set up a Postback export in <strong className="text-ats-text">Admin &gt; Exports</strong> and paste the webhook URL below.{' '}
+                          <a href="https://help.checkoutchamp.com/crm/admin-setup/export-webhook-profiles/postback-export-profiles" target="_blank" rel="noopener noreferrer"
+                            className="text-ats-accent hover:underline transition-colors font-medium">
+                            Postback guide &rarr;
                           </a>
                         </p>
                       </div>
@@ -558,13 +623,19 @@ export default function ConnectionsPage() {
                             Find credentials &rarr;
                           </a>
                         </div>
-                        <input type="password" value={ccLoginId} onChange={e => { setCcLoginId(e.target.value); autoSave({ cc_login_id: e.target.value }); }}
-                          placeholder={settings.cc_login_id ? '••••••••' : 'Your CC API login ID'} className={inputCls} />
+                        <div className="relative">
+                          <input type={visibleFields['cc_login'] ? 'text' : 'password'} value={ccLoginId} onChange={e => { setCcLoginId(e.target.value); autoSave({ cc_login_id: e.target.value }); }}
+                            placeholder={settings.cc_login_id ? '••••••••' : 'Your CC API login ID'} className={`${inputCls} pr-8`} />
+                          {eyeBtn('cc_login')}
+                        </div>
                       </div>
                       <div>
                         <label className={labelCls}>API Password</label>
-                        <input type="password" value={ccPassword} onChange={e => { setCcPassword(e.target.value); autoSave({ cc_password: e.target.value }); }}
-                          placeholder={settings.cc_password ? '••••••••' : 'Your CC API password'} className={inputCls} />
+                        <div className="relative">
+                          <input type={visibleFields['cc_password'] ? 'text' : 'password'} value={ccPassword} onChange={e => { setCcPassword(e.target.value); autoSave({ cc_password: e.target.value }); }}
+                            placeholder={settings.cc_password ? '••••••••' : 'Your CC API password'} className={`${inputCls} pr-8`} />
+                          {eyeBtn('cc_password')}
+                        </div>
                         <div className="text-[10px] text-ats-text-muted mt-0.5">Password must not contain &amp; characters</div>
                       </div>
                       <div>
@@ -580,8 +651,11 @@ export default function ConnectionsPage() {
                       </div>
                       <div>
                         <label className={labelCls}>Webhook Secret</label>
-                        <input type="password" value={ccWebhookSecret} onChange={e => { setCcWebhookSecret(e.target.value); autoSave({ cc_webhook_secret: e.target.value }); }}
-                          placeholder={settings.cc_webhook_secret ? '••••••••' : 'whsec_...'} className={inputCls} />
+                        <div className="relative">
+                          <input type={visibleFields['cc_webhook_secret'] ? 'text' : 'password'} value={ccWebhookSecret} onChange={e => { setCcWebhookSecret(e.target.value); autoSave({ cc_webhook_secret: e.target.value }); }}
+                            placeholder={settings.cc_webhook_secret ? '••••••••' : 'whsec_...'} className={`${inputCls} pr-8`} />
+                          {eyeBtn('cc_webhook_secret')}
+                        </div>
                       </div>
                       <div className="flex items-center gap-2">
                         <button onClick={handleTestCC} className={btnSecondary}>
@@ -638,8 +712,11 @@ export default function ConnectionsPage() {
                           </div>
                           <div>
                             <label className={labelCls}>API Key</label>
-                            <input type="password" value={nbNewApiKey} onChange={e => setNbNewApiKey(e.target.value)}
-                              placeholder="Enter your NewsBreak API key" className={inputCls} />
+                            <div className="relative">
+                              <input type={visibleFields['nb_api_key'] ? 'text' : 'password'} value={nbNewApiKey} onChange={e => setNbNewApiKey(e.target.value)}
+                                placeholder="Enter your NewsBreak API key" className={`${inputCls} pr-8`} />
+                              {eyeBtn('nb_api_key')}
+                            </div>
                             <div className="text-[10px] text-ats-text-muted mt-0.5">From Ad Manager &gt; Resources &gt; API Access Tokens</div>
                           </div>
                           <div>
