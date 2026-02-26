@@ -9,6 +9,7 @@ import { syncAllNewsBreakForUser } from './newsbreak-sync';
 import { syncAllKlaviyoData } from './klaviyo-sync';
 import { syncFollowedBrands } from './ad-library';
 import { processUnsentEvents } from './meta-capi';
+import { processUnsentEvents as processTikTokUnsentEvents } from './tiktok-events-api';
 import { processUnsentEvents as processGoogleUnsentEvents } from './google-enhanced-conversions';
 import { computeAttributionForAllUsers } from './pixel-attribution';
 import { getSetting } from './settings';
@@ -485,9 +486,9 @@ export function startScheduler(): void {
     });
   });
 
-  // Meta CAPI relay every 2 minutes (offset by 1 min from Meta Ads sync)
+  // Meta CAPI relay every minute
   const LOCK_CAPI_RELAY = 100013;
-  cron.schedule('1-59/2 * * * *', async () => {
+  cron.schedule('* * * * *', async () => {
     await withAdvisoryLock(LOCK_CAPI_RELAY, 'Meta CAPI relay', async () => {
       try {
         const result = await processUnsentEvents();
@@ -500,9 +501,24 @@ export function startScheduler(): void {
     });
   });
 
-  // Google Enhanced Conversions relay every 2 minutes (offset from CAPI relay)
+  // TikTok Events API relay every minute
+  const LOCK_TIKTOK_RELAY = 100016;
+  cron.schedule('* * * * *', async () => {
+    await withAdvisoryLock(LOCK_TIKTOK_RELAY, 'TikTok Events relay', async () => {
+      try {
+        const result = await processTikTokUnsentEvents();
+        if (result.totalSent > 0 || result.totalFailed > 0) {
+          console.log(`[Scheduler] TikTok relay: ${result.totalSent} sent, ${result.totalFailed} failed, ${result.totalSkipped} skipped across ${result.configsProcessed} configs`);
+        }
+      } catch (err) {
+        console.error('[Scheduler] TikTok Events relay failed:', err);
+      }
+    });
+  });
+
+  // Google Enhanced Conversions relay every minute
   const LOCK_GOOGLE_RELAY = 100014;
-  cron.schedule('*/2 * * * *', async () => {
+  cron.schedule('* * * * *', async () => {
     await withAdvisoryLock(LOCK_GOOGLE_RELAY, 'Google relay', async () => {
       try {
         const result = await processGoogleUnsentEvents();
@@ -530,5 +546,5 @@ export function startScheduler(): void {
     }, 10 * 60 * 1000); // 10-minute timeout for attribution (can be heavy)
   });
 
-  console.log('[Scheduler] Cron jobs registered: Meta Ads (*/2), CC poll (* * *), GA4 (3,18,33,48), CC full sync (0 */4), Creative (5,35), Daily reset (0 *), OAuth refresh (0 *), Shopify (30 */6), TikTok (*/2), NewsBreak (1/2), Klaviyo (15 */2), Ad Library (45 */2), CAPI relay (1/2), Google relay (*/2), Pixel attribution (0 3)');
+  console.log('[Scheduler] Cron jobs registered: Meta Ads (*/2), CC poll (* * *), GA4 (3,18,33,48), CC full sync (0 */4), Creative (5,35), Daily reset (0 *), OAuth refresh (0 *), Shopify (30 */6), TikTok (*/2), NewsBreak (1/2), Klaviyo (15 */2), Ad Library (45 */2), Meta CAPI relay (*/1), TikTok relay (*/1), Google relay (*/1), Pixel attribution (0 3)');
 }

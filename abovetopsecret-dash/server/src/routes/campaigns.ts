@@ -1002,10 +1002,17 @@ router.get('/live/:platform/:adsetId/ads', async (req: Request, res: Response) =
 
 import {
   updateNewsBreakCampaignStatus,
-  updateNewsBreakAdGroupStatus,
+  updateNewsBreakAdSetStatus,
   updateNewsBreakAdStatus,
   adjustNewsBreakBudget,
-  getNewsBreakAdGroupBudgets,
+  getNewsBreakAdSetBudgets,
+  getNewsBreakAuth,
+  getNewsBreakCampaignList,
+  getNewsBreakAdSetList,
+  getNewsBreakAdList,
+  createNewsBreakCampaign,
+  createNewsBreakAdSet,
+  createNewsBreakAd,
 } from '../services/newsbreak-api';
 
 router.post('/live/status', publishLimiter, async (req: Request, res: Response) => {
@@ -1026,7 +1033,7 @@ router.post('/live/status', publishLimiter, async (req: Request, res: Response) 
       if (entity_type === 'campaign') {
         await updateNewsBreakCampaignStatus(entity_id, nbStatus, userId);
       } else if (entity_type === 'adset') {
-        await updateNewsBreakAdGroupStatus(entity_id, nbStatus, userId);
+        await updateNewsBreakAdSetStatus(entity_id, nbStatus, userId);
       } else if (entity_type === 'ad') {
         await updateNewsBreakAdStatus(entity_id, nbStatus, userId);
       }
@@ -1071,7 +1078,7 @@ router.get('/live/budgets/:platform/:campaignId', async (req: Request, res: Resp
     if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
     const { platform, campaignId } = req.params;
     if (platform === 'newsbreak') {
-      const budgets = await getNewsBreakAdGroupBudgets(campaignId, userId);
+      const budgets = await getNewsBreakAdSetBudgets(campaignId, userId);
       res.json(budgets);
     } else {
       res.json([]);
@@ -1267,15 +1274,182 @@ router.post('/duplicate', async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
     if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
-    const { entity_type, entity_id, target_parent_id } = req.body;
+    const { entity_type, entity_id, target_parent_id, platform } = req.body;
 
     if (!entity_type || !entity_id) {
       res.status(400).json({ error: 'Missing entity_type or entity_id' });
       return;
     }
 
+    // ── Live NewsBreak entity duplication (via NB API) ──────────
+    if (platform === 'newsbreak') {
+      const auth = await getNewsBreakAuth(userId);
+      if (!auth) { res.status(400).json({ error: 'No NewsBreak credentials configured' }); return; }
+
+      if (entity_type === 'campaign') {
+        // Fetch campaign details, find the matching campaign
+        const campaigns = await getNewsBreakCampaignList(auth.accountId, auth.accessToken);
+        const campaign = campaigns.find((c: any) => String(c.campaign_id) === String(entity_id));
+        if (!campaign) { res.status(404).json({ error: 'Campaign not found on NewsBreak' }); return; }
+
+        // Create new campaign with (Copy) suffix
+        const newCampaign = await createNewsBreakCampaign(
+          auth.accountId,
+          {
+            campaign_name: `${campaign.campaign_name} (Copy)`,
+            objective: campaign.objective || 'TRAFFIC',
+            daily_budget: campaign.budget || 50,
+          },
+          auth.accessToken
+        );
+
+        // Duplicate all ad sets + ads under this campaign
+        const adSets = await getNewsBreakAdSetList(auth.accountId, String(entity_id), auth.accessToken);
+        const adsetResults: any[] = [];
+        for (const adSet of adSets) {
+          try {
+            const newAdSet = await createNewsBreakAdSet(
+              auth.accountId,
+              {
+                campaign_id: newCampaign.campaign_id,
+                adset_name: adSet.adset_name || adSet.name || 'Ad Set (Copy)',
+                budget: adSet.budget || 50,
+                budget_mode: adSet.budget_mode || 'BUDGET_MODE_DAY',
+                schedule_start_time: adSet.schedule_start_time,
+                schedule_end_time: adSet.schedule_end_time,
+                targeting: adSet.targeting || {},
+              },
+              auth.accessToken
+            );
+
+            // Duplicate ads under this ad set
+            const ads = await getNewsBreakAdList(auth.accountId, String(adSet.adset_id || adSet.id), auth.accessToken);
+            for (const ad of ads) {
+              try {
+                await createNewsBreakAd(
+                  auth.accountId,
+                  {
+                    adset_id: newAdSet.adset_id,
+                    ad_name: ad.ad_name || ad.name || 'Ad (Copy)',
+                    ad_text: ad.ad_text || '',
+                    headline: ad.headline,
+                    image_url: ad.image_url,
+                    video_url: ad.video_url,
+                    thumbnail_url: ad.thumbnail_url,
+                    landing_page_url: ad.landing_page_url,
+                    call_to_action: ad.call_to_action,
+                    brand_name: ad.brand_name,
+                  },
+                  auth.accessToken
+                );
+              } catch (adErr: any) {
+                console.error(`Error duplicating NB ad ${ad.ad_id}:`, adErr.message);
+              }
+            }
+            adsetResults.push({ adset_id: newAdSet.adset_id });
+          } catch (asErr: any) {
+            console.error(`Error duplicating NB adset ${adSet.adset_id}:`, asErr.message);
+          }
+        }
+
+        res.json({ success: true, new_id: newCampaign.campaign_id, adsets: adsetResults });
+
+      } else if (entity_type === 'adset') {
+        // Need the parent campaign_id — look up from synced data
+        const parentCampaignId = target_parent_id;
+        if (!parentCampaignId) {
+          // Try to find the campaign from synced data
+          const syncRes = await pool.query(
+            `SELECT campaign_id FROM newsbreak_ads_today WHERE user_id = $1 AND adset_id = $2 LIMIT 1`,
+            [userId, String(entity_id)]
+          );
+          if (syncRes.rows.length === 0) { res.status(404).json({ error: 'Cannot determine parent campaign for this ad set' }); return; }
+          var campaignId = syncRes.rows[0].campaign_id;
+        } else {
+          var campaignId = parentCampaignId;
+        }
+
+        // Fetch the ad set details
+        const adSets = await getNewsBreakAdSetList(auth.accountId, campaignId, auth.accessToken);
+        const adSet = adSets.find((as: any) => String(as.adset_id || as.id) === String(entity_id));
+        if (!adSet) { res.status(404).json({ error: 'Ad set not found on NewsBreak' }); return; }
+
+        const newAdSet = await createNewsBreakAdSet(
+          auth.accountId,
+          {
+            campaign_id: campaignId,
+            adset_name: `${adSet.adset_name || adSet.name} (Copy)`,
+            budget: adSet.budget || 50,
+            budget_mode: adSet.budget_mode || 'BUDGET_MODE_DAY',
+            schedule_start_time: adSet.schedule_start_time,
+            schedule_end_time: adSet.schedule_end_time,
+            targeting: adSet.targeting || {},
+          },
+          auth.accessToken
+        );
+
+        // Duplicate ads under this ad set
+        const ads = await getNewsBreakAdList(auth.accountId, String(entity_id), auth.accessToken);
+        for (const ad of ads) {
+          try {
+            await createNewsBreakAd(
+              auth.accountId,
+              {
+                adset_id: newAdSet.adset_id,
+                ad_name: ad.ad_name || ad.name || 'Ad (Copy)',
+                ad_text: ad.ad_text || '',
+                headline: ad.headline,
+                image_url: ad.image_url,
+                video_url: ad.video_url,
+                thumbnail_url: ad.thumbnail_url,
+                landing_page_url: ad.landing_page_url,
+                call_to_action: ad.call_to_action,
+                brand_name: ad.brand_name,
+              },
+              auth.accessToken
+            );
+          } catch (adErr: any) {
+            console.error(`Error duplicating NB ad ${ad.ad_id}:`, adErr.message);
+          }
+        }
+
+        res.json({ success: true, new_id: newAdSet.adset_id });
+
+      } else if (entity_type === 'ad') {
+        // Need the parent adset_id
+        const parentAdsetId = target_parent_id;
+        if (!parentAdsetId) { res.status(400).json({ error: 'target_parent_id (adset_id) is required when duplicating an ad' }); return; }
+
+        // Fetch the ad set's ads to find the source ad
+        const ads = await getNewsBreakAdList(auth.accountId, String(parentAdsetId), auth.accessToken);
+        const ad = ads.find((a: any) => String(a.ad_id || a.id) === String(entity_id));
+        if (!ad) { res.status(404).json({ error: 'Ad not found on NewsBreak' }); return; }
+
+        const newAd = await createNewsBreakAd(
+          auth.accountId,
+          {
+            adset_id: String(parentAdsetId),
+            ad_name: `${ad.ad_name || ad.name} (Copy)`,
+            ad_text: ad.ad_text || '',
+            headline: ad.headline,
+            image_url: ad.image_url,
+            video_url: ad.video_url,
+            thumbnail_url: ad.thumbnail_url,
+            landing_page_url: ad.landing_page_url,
+            call_to_action: ad.call_to_action,
+            brand_name: ad.brand_name,
+          },
+          auth.accessToken
+        );
+        res.json({ success: true, new_id: newAd.ad_id });
+      } else {
+        res.status(400).json({ error: 'Invalid entity_type' });
+      }
+      return;
+    }
+
+    // ── Draft entity duplication (DB-level copy) ────────────────
     if (entity_type === 'campaign') {
-      // Duplicate an entire draft: campaign + adsets + ads
       const draftRes = await pool.query(
         'SELECT * FROM campaign_drafts WHERE id = $1 AND user_id = $2',
         [entity_id, userId]
@@ -1309,7 +1483,6 @@ router.post('/duplicate', async (req: Request, res: Response) => {
       res.json({ success: true, new_id: newDraftId });
 
     } else if (entity_type === 'adset') {
-      // Duplicate an adset + its ads
       const asRes = await pool.query(
         `SELECT ca.* FROM campaign_adsets ca
          JOIN campaign_drafts cd ON cd.id = ca.draft_id

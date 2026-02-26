@@ -1407,8 +1407,8 @@ export function batchCreateCampaign(params: BatchCreateParams): Promise<{ succes
   return request('/campaigns/batch-create', { method: 'POST', body: JSON.stringify(params) });
 }
 
-export function duplicateLiveEntity(entityType: string, entityId: number, targetParentId?: number): Promise<{ success: boolean; new_id: number }> {
-  return request('/campaigns/duplicate', { method: 'POST', body: JSON.stringify({ entity_type: entityType, entity_id: entityId, target_parent_id: targetParentId }) });
+export function duplicateLiveEntity(entityType: string, entityId: number | string, targetParentId?: number | string, platform?: string): Promise<{ success: boolean; new_id: number | string }> {
+  return request('/campaigns/duplicate', { method: 'POST', body: JSON.stringify({ entity_type: entityType, entity_id: entityId, target_parent_id: targetParentId, platform }) });
 }
 
 // --- Creative Templates types (Phase 2) ---

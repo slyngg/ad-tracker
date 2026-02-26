@@ -97,13 +97,21 @@ function newsbreakRequest(method: string, path: string, accessToken: string, bod
       res.on('end', () => {
         try {
           const parsed = JSON.parse(data);
-          if (parsed.code !== 0) {
-            reject(new Error(parsed.errMsg || `NewsBreak API error (code ${parsed.code})`));
+          const code = parsed.code;
+          // code=0 or code='0' means success; undefined/null code with 2xx status is also success
+          if (code != null && code !== 0 && code !== '0') {
+            reject(new Error(parsed.errMsg || parsed.message || `NewsBreak API error (code ${code})`));
+          } else if (code == null && res.statusCode && res.statusCode >= 400) {
+            reject(new Error(parsed.errMsg || parsed.message || `NewsBreak API HTTP ${res.statusCode}`));
           } else {
-            resolve(parsed.data);
+            resolve(parsed.data ?? parsed);
           }
         } catch (e) {
-          reject(new Error(`Failed to parse NewsBreak response: ${data.slice(0, 200)}`));
+          if (res.statusCode && res.statusCode >= 400) {
+            reject(new Error(`NewsBreak API HTTP ${res.statusCode}: ${data.slice(0, 200)}`));
+          } else {
+            reject(new Error(`Failed to parse NewsBreak response: ${data.slice(0, 200)}`));
+          }
         }
       });
       res.on('error', reject);
@@ -123,7 +131,7 @@ export async function createNewsBreakCampaign(
   params: { campaign_name: string; objective: string; daily_budget?: number },
   accessToken: string
 ): Promise<{ campaign_id: string }> {
-  const data = await newsbreakRequest('POST', '/business-api/v1/campaigns/create', accessToken, {
+  const data = await newsbreakRequest('POST', '/business-api/v1/campaign/createCampaign', accessToken, {
     advertiser_id: accountId,
     campaign_name: params.campaign_name,
     objective: params.objective,
@@ -133,11 +141,11 @@ export async function createNewsBreakCampaign(
   return { campaign_id: String(data.campaign_id) };
 }
 
-export async function createNewsBreakAdGroup(
+export async function createNewsBreakAdSet(
   accountId: string,
   params: {
     campaign_id: string;
-    adgroup_name: string;
+    adset_name: string;
     budget: number;
     budget_mode: string;
     schedule_start_time?: string;
@@ -145,7 +153,7 @@ export async function createNewsBreakAdGroup(
     targeting?: Record<string, any>;
   },
   accessToken: string
-): Promise<{ adgroup_id: string }> {
+): Promise<{ adset_id: string }> {
   // Extract special fields from targeting so they go as top-level API params
   const targeting = { ...(params.targeting || {}) };
   const placements = targeting.placements;
@@ -161,7 +169,7 @@ export async function createNewsBreakAdGroup(
   const body: Record<string, any> = {
     advertiser_id: accountId,
     campaign_id: params.campaign_id,
-    adgroup_name: params.adgroup_name,
+    adset_name: params.adset_name,
     budget: params.budget,
     budget_mode: params.budget_mode,
     schedule_type: params.schedule_end_time ? 'SCHEDULE_START_END' : 'SCHEDULE_FROM_NOW',
@@ -180,14 +188,14 @@ export async function createNewsBreakAdGroup(
   if (eventType) body.conversion_event = eventType;
   if (bidAmount) body.bid_amount = bidAmount;
 
-  const data = await newsbreakRequest('POST', '/business-api/v1/adgroups/create', accessToken, body);
-  return { adgroup_id: String(data.adgroup_id) };
+  const data = await newsbreakRequest('POST', '/business-api/v1/adSet/createAdSet', accessToken, body);
+  return { adset_id: String(data.adset_id) };
 }
 
 export async function createNewsBreakAd(
   accountId: string,
   params: {
-    adgroup_id: string;
+    adset_id: string;
     ad_name: string;
     ad_text: string;
     headline?: string;
@@ -203,7 +211,7 @@ export async function createNewsBreakAd(
 ): Promise<{ ad_id: string }> {
   const body: Record<string, any> = {
     advertiser_id: accountId,
-    adgroup_id: params.adgroup_id,
+    adset_id: params.adset_id,
     ad_name: params.ad_name,
     ad_text: params.ad_text,
     headline: params.headline,
@@ -217,9 +225,11 @@ export async function createNewsBreakAd(
     body.image_url = params.image_url;
   }
   if (params.brand_name) body.brand_name = params.brand_name;
-  const data = await newsbreakRequest('POST', '/business-api/v1/ads/create', accessToken, body);
+  const data = await newsbreakRequest('POST', '/business-api/v1/ad/createAd', accessToken, body);
   return { ad_id: String(data.ad_id) };
 }
+
+// ── Status management ──────────────────────────────────────────
 
 export async function updateNewsBreakCampaignStatus(
   campaignId: string,
@@ -228,23 +238,23 @@ export async function updateNewsBreakCampaignStatus(
 ): Promise<void> {
   const auth = await getNewsBreakAuth(userId);
   if (!auth) throw new Error('No NewsBreak credentials');
-  await newsbreakRequest('POST', '/business-api/v1/campaigns/update/status', auth.accessToken, {
+  await newsbreakRequest('POST', '/business-api/v1/campaign/updateCampaignStatus', auth.accessToken, {
     advertiser_id: auth.accountId,
     campaign_id: campaignId,
     status,
   });
 }
 
-export async function updateNewsBreakAdGroupStatus(
-  adGroupId: string,
+export async function updateNewsBreakAdSetStatus(
+  adSetId: string,
   status: 'ENABLE' | 'DISABLE',
   userId: number
 ): Promise<void> {
   const auth = await getNewsBreakAuth(userId);
   if (!auth) throw new Error('No NewsBreak credentials');
-  await newsbreakRequest('POST', '/business-api/v1/adgroups/update/status', auth.accessToken, {
+  await newsbreakRequest('POST', '/business-api/v1/adSet/updateAdSetStatus', auth.accessToken, {
     advertiser_id: auth.accountId,
-    adgroup_id: adGroupId,
+    adset_id: adSetId,
     status,
   });
 }
@@ -256,45 +266,91 @@ export async function updateNewsBreakAdStatus(
 ): Promise<void> {
   const auth = await getNewsBreakAuth(userId);
   if (!auth) throw new Error('No NewsBreak credentials');
-  await newsbreakRequest('POST', '/business-api/v1/ads/update/status', auth.accessToken, {
+  await newsbreakRequest('POST', '/business-api/v1/ad/updateAdStatus', auth.accessToken, {
     advertiser_id: auth.accountId,
     ad_id: adId,
     status,
   });
 }
 
+// ── Budget management ──────────────────────────────────────────
+
 export async function adjustNewsBreakBudget(
-  adGroupId: string,
+  adSetId: string,
   budgetDollars: number,
   userId: number
 ): Promise<void> {
   const auth = await getNewsBreakAuth(userId);
   if (!auth) throw new Error('No NewsBreak credentials');
   if (budgetDollars < 5) throw new Error('NewsBreak minimum daily budget is $5.00');
-  await newsbreakRequest('POST', '/business-api/v1/adgroups/update', auth.accessToken, {
+  await newsbreakRequest('POST', '/business-api/v1/adSet/updateAdSet', auth.accessToken, {
     advertiser_id: auth.accountId,
-    adgroup_id: adGroupId,
+    adset_id: adSetId,
     budget: budgetDollars,
   });
 }
 
-export async function getNewsBreakAdGroupBudgets(
+export async function getNewsBreakAdSetBudgets(
   campaignId: string,
   userId: number
-): Promise<{ adgroup_id: string; budget: number; budget_mode: string; status: string }[]> {
+): Promise<{ adset_id: string; budget: number; budget_mode: string; status: string }[]> {
   const auth = await getNewsBreakAuth(userId);
   if (!auth) return [];
   try {
-    const data = await newsbreakRequest('GET', `/business-api/v1/adgroups/get?advertiser_id=${auth.accountId}&campaign_id=${campaignId}`, auth.accessToken);
-    const list = data?.list || data?.adgroups || (Array.isArray(data) ? data : []);
-    return list.map((ag: any) => ({
-      adgroup_id: String(ag.adgroup_id || ag.id),
-      budget: (ag.budget || 0),
-      budget_mode: ag.budget_mode || 'BUDGET_MODE_DAY',
-      status: ag.status || ag.opt_status || 'UNKNOWN',
+    const data = await newsbreakRequest('POST', '/business-api/v1/adSet/getAdSetList', auth.accessToken, {
+      advertiser_id: auth.accountId,
+      campaign_id: campaignId,
+    });
+    const list = data?.list || data?.adsets || (Array.isArray(data) ? data : []);
+    return list.map((as: any) => ({
+      adset_id: String(as.adset_id || as.id),
+      budget: (as.budget || 0),
+      budget_mode: as.budget_mode || 'BUDGET_MODE_DAY',
+      status: as.status || as.opt_status || 'UNKNOWN',
     }));
   } catch (err) {
-    // API may not support this endpoint for all account types
     return [];
   }
 }
+
+// ── List / Get helpers (for duplication) ───────────────────────
+
+export async function getNewsBreakCampaignList(
+  accountId: string,
+  accessToken: string
+): Promise<any[]> {
+  const data = await newsbreakRequest('POST', '/business-api/v1/campaign/getCampaignList', accessToken, {
+    advertiser_id: accountId,
+  });
+  return data?.list || data?.campaigns || (Array.isArray(data) ? data : []);
+}
+
+export async function getNewsBreakAdSetList(
+  accountId: string,
+  campaignId: string,
+  accessToken: string
+): Promise<any[]> {
+  const data = await newsbreakRequest('POST', '/business-api/v1/adSet/getAdSetList', accessToken, {
+    advertiser_id: accountId,
+    campaign_id: campaignId,
+  });
+  return data?.list || data?.adsets || (Array.isArray(data) ? data : []);
+}
+
+export async function getNewsBreakAdList(
+  accountId: string,
+  adSetId: string,
+  accessToken: string
+): Promise<any[]> {
+  const data = await newsbreakRequest('POST', '/business-api/v1/ad/getAdList', accessToken, {
+    advertiser_id: accountId,
+    adset_id: adSetId,
+  });
+  return data?.list || data?.ads || (Array.isArray(data) ? data : []);
+}
+
+// ── Backward-compat aliases ────────────────────────────────────
+// These are used by other files that still reference the old names
+export const createNewsBreakAdGroup = createNewsBreakAdSet;
+export const updateNewsBreakAdGroupStatus = updateNewsBreakAdSetStatus;
+export const getNewsBreakAdGroupBudgets = getNewsBreakAdSetBudgets;

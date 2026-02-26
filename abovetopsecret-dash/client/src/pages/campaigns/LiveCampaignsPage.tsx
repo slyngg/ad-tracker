@@ -1661,11 +1661,11 @@ export default function LiveCampaignsPage() {
     }
   }
 
-  async function handleDuplicate(entityType: string, entityId: number) {
+  async function handleDuplicate(platformName: string, entityType: string, entityId: number | string, targetParentId?: string) {
     const key = `dup:${entityType}:${entityId}`;
     setActionLoading(p => ({ ...p, [key]: true }));
     try {
-      await duplicateLiveEntity(entityType, entityId);
+      await duplicateLiveEntity(entityType, entityId, targetParentId, platformName);
       await load();
     } catch (err: any) {
       alert(err.message || 'Failed to duplicate');
@@ -1922,7 +1922,7 @@ export default function LiveCampaignsPage() {
                             </button>
                           )}
                           <button
-                            onClick={() => handleDuplicate('campaign', parseInt(c.campaign_id))}
+                            onClick={() => handleDuplicate(c.platform, 'campaign', c.campaign_id)}
                             disabled={actionLoading[`dup:campaign:${c.campaign_id}`]}
                             className="p-1.5 rounded-md hover:bg-blue-500/20 text-ats-text-muted hover:text-blue-400 transition-colors"
                             title="Duplicate"
@@ -1975,7 +1975,7 @@ export default function LiveCampaignsPage() {
                                       {currentBudget !== undefined ? fmt$(currentBudget) : 'Budget'}
                                     </button>
                                     <button
-                                      onClick={() => handleDuplicate('adset', parseInt(as.adset_id))}
+                                      onClick={() => handleDuplicate(c.platform, 'adset', as.adset_id)}
                                       disabled={actionLoading[`dup:adset:${as.adset_id}`]}
                                       className="p-1.5 rounded-md hover:bg-blue-500/20 text-ats-text-muted hover:text-blue-400"
                                       title="Duplicate"
@@ -2009,7 +2009,7 @@ export default function LiveCampaignsPage() {
                                         </button>
                                       )}
                                       <button
-                                        onClick={() => handleDuplicate('ad', parseInt(ad.ad_id!))}
+                                        onClick={() => handleDuplicate(c.platform, 'ad', ad.ad_id!, as.adset_id)}
                                         disabled={actionLoading[`dup:ad:${ad.ad_id}`]}
                                         className="p-1 rounded-md hover:bg-blue-500/20 text-ats-text-muted hover:text-blue-400"
                                         title="Duplicate"

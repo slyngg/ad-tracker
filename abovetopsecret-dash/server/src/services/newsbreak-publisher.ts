@@ -2,7 +2,7 @@ import pool from '../db';
 import {
   getNewsBreakAuth,
   createNewsBreakCampaign,
-  createNewsBreakAdGroup,
+  createNewsBreakAdSet,
   createNewsBreakAd,
   updateNewsBreakCampaignStatus,
 } from './newsbreak-api';
@@ -111,11 +111,11 @@ export async function publishNewsBreakCampaignDraft(draftId: number, userId: num
         const budgetMode = adset.budget_type === 'daily' ? 'BUDGET_MODE_DAY' : 'BUDGET_MODE_TOTAL';
         const budget = adset.budget_cents / 100;
 
-        const nbAdGroup = await createNewsBreakAdGroup(
+        const nbAdSet = await createNewsBreakAdSet(
           auth.accountId,
           {
             campaign_id: nbCampaignId,
-            adgroup_name: adset.name,
+            adset_name: adset.name,
             budget,
             budget_mode: budgetMode,
             schedule_start_time: adset.schedule_start || undefined,
@@ -125,7 +125,7 @@ export async function publishNewsBreakCampaignDraft(draftId: number, userId: num
           auth.accessToken
         );
 
-        const nbAdGroupId = nbAdGroup.adgroup_id;
+        const nbAdGroupId = nbAdSet.adset_id;
         await pool.query(
           "UPDATE campaign_adsets SET newsbreak_adgroup_id = $1, status = 'published', updated_at = NOW() WHERE id = $2",
           [nbAdGroupId, adset.id]
@@ -153,7 +153,7 @@ export async function publishNewsBreakCampaignDraft(draftId: number, userId: num
             const nbAd = await createNewsBreakAd(
               auth.accountId,
               {
-                adgroup_id: nbAdGroupId,
+                adset_id: nbAdGroupId,
                 ad_name: ad.name,
                 ad_text: cc.primary_text || '',
                 headline: cc.headline || '',
