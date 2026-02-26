@@ -764,7 +764,7 @@ router.get('/live', async (req: Request, res: Response) => {
             SUM((ad_data->>'spend')::numeric) AS spend,
             SUM((ad_data->>'clicks')::numeric) AS clicks,
             SUM((ad_data->>'impressions')::numeric) AS impressions,
-            0::numeric AS conversions, 0::numeric AS conversion_value,
+            COALESCE(SUM((ad_data->>'conversions')::numeric), 0) AS conversions, COALESCE(SUM((ad_data->>'conversion_value')::numeric), 0) AS conversion_value,
             COUNT(DISTINCT ad_data->>'ad_set_id') AS adset_count,
             COUNT(DISTINCT ad_data->>'ad_name') AS ad_count
           FROM fb_ads_archive WHERE user_id = $1 AND archived_date BETWEEN $2 AND $3${metaAccountFilter}
@@ -801,7 +801,7 @@ router.get('/live', async (req: Request, res: Response) => {
         WITH all_campaigns AS (
           SELECT 'meta' AS platform, campaign_id, campaign_name, account_name,
             SUM(spend) AS spend, SUM(clicks) AS clicks, SUM(impressions) AS impressions,
-            0::numeric AS conversions, 0::numeric AS conversion_value,
+            COALESCE(SUM(conversions), 0) AS conversions, COALESCE(SUM(conversion_value), 0) AS conversion_value,
             COUNT(DISTINCT ad_set_id) AS adset_count, COUNT(DISTINCT ad_name) AS ad_count
           FROM fb_ads_today WHERE user_id = $1${metaAccountFilter}
           GROUP BY campaign_id, campaign_name, account_name
@@ -866,7 +866,8 @@ router.get('/live/:platform/:campaignId/adsets', async (req: Request, res: Respo
         query = `SELECT ad_data->>'ad_set_id' AS adset_id, ad_data->>'ad_set_name' AS adset_name,
           SUM((ad_data->>'spend')::numeric) AS spend, SUM((ad_data->>'clicks')::numeric) AS clicks,
           SUM((ad_data->>'impressions')::numeric) AS impressions,
-          0::numeric AS conversions, 0::numeric AS conversion_value,
+          COALESCE(SUM((ad_data->>'conversions')::numeric), 0) AS conversions,
+          COALESCE(SUM((ad_data->>'conversion_value')::numeric), 0) AS conversion_value,
           COUNT(DISTINCT ad_data->>'ad_name') AS ad_count
           FROM fb_ads_archive WHERE user_id = $1 AND ad_data->>'campaign_id' = $2 AND archived_date BETWEEN $3 AND $4
           GROUP BY ad_data->>'ad_set_id', ad_data->>'ad_set_name' ORDER BY spend DESC`;
@@ -893,7 +894,8 @@ router.get('/live/:platform/:campaignId/adsets', async (req: Request, res: Respo
       if (platform === 'meta') {
         query = `SELECT ad_set_id AS adset_id, ad_set_name AS adset_name,
           SUM(spend) AS spend, SUM(clicks) AS clicks, SUM(impressions) AS impressions,
-          0::numeric AS conversions, 0::numeric AS conversion_value, COUNT(DISTINCT ad_name) AS ad_count
+          COALESCE(SUM(conversions), 0) AS conversions, COALESCE(SUM(conversion_value), 0) AS conversion_value,
+          COUNT(DISTINCT ad_name) AS ad_count
           FROM fb_ads_today WHERE user_id = $1 AND campaign_id = $2
           GROUP BY ad_set_id, ad_set_name ORDER BY spend DESC`;
       } else if (platform === 'tiktok') {
@@ -948,7 +950,8 @@ router.get('/live/:platform/:adsetId/ads', async (req: Request, res: Response) =
         query = `SELECT ad_data->>'ad_name' AS ad_name,
           SUM((ad_data->>'spend')::numeric) AS spend, SUM((ad_data->>'clicks')::numeric) AS clicks,
           SUM((ad_data->>'impressions')::numeric) AS impressions,
-          0::numeric AS conversions, 0::numeric AS conversion_value
+          COALESCE(SUM((ad_data->>'conversions')::numeric), 0) AS conversions,
+          COALESCE(SUM((ad_data->>'conversion_value')::numeric), 0) AS conversion_value
           FROM fb_ads_archive WHERE user_id = $1 AND ad_data->>'ad_set_id' = $2 AND archived_date BETWEEN $3 AND $4
           GROUP BY ad_data->>'ad_name' ORDER BY spend DESC`;
       } else if (platform === 'tiktok') {
@@ -971,7 +974,7 @@ router.get('/live/:platform/:adsetId/ads', async (req: Request, res: Response) =
     } else {
       if (platform === 'meta') {
         query = `SELECT ad_name, spend, clicks, impressions, landing_page_views,
-          0::numeric AS conversions, 0::numeric AS conversion_value
+          COALESCE(conversions, 0) AS conversions, COALESCE(conversion_value, 0) AS conversion_value
           FROM fb_ads_today WHERE user_id = $1 AND ad_set_id = $2 ORDER BY spend DESC`;
       } else if (platform === 'tiktok') {
         query = `SELECT ad_name, spend, clicks, impressions, 0 AS landing_page_views,

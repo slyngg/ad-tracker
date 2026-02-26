@@ -20,6 +20,7 @@ interface FBInsightRow {
   clicks: string;
   impressions: string;
   actions?: FBAction[];
+  action_values?: FBAction[];
 }
 
 interface FBAdCreative {
@@ -176,7 +177,7 @@ export async function syncFacebook(userId?: number): Promise<{ synced: number; a
 
   for (const accountId of accounts) {
     try {
-      const url = `https://graph.facebook.com/v21.0/${accountId}/insights?fields=account_name,campaign_name,campaign_id,adset_name,adset_id,ad_name,spend,clicks,impressions,actions&date_preset=today&level=ad&access_token=${accessToken}`;
+      const url = `https://graph.facebook.com/v21.0/${accountId}/insights?fields=account_name,campaign_name,campaign_id,adset_name,adset_id,ad_name,spend,clicks,impressions,actions,action_values&date_preset=today&level=ad&access_token=${accessToken}`;
 
       const rows = await fetchAllPages(url);
 
@@ -187,18 +188,26 @@ export async function syncFacebook(userId?: number): Promise<{ synced: number; a
         for (const row of rows) {
           try {
             const lpViews = row.actions?.find(
-              (a) => a.action_type === 'landing_page_view'
+              (a: any) => a.action_type === 'landing_page_view'
             )?.value || '0';
+            const purchases = parseInt(row.actions?.find(
+              (a: any) => a.action_type === 'purchase' || a.action_type === 'omni_purchase'
+            )?.value || '0') || 0;
+            const purchaseValue = parseFloat(row.action_values?.find(
+              (a: any) => a.action_type === 'purchase' || a.action_type === 'omni_purchase'
+            )?.value || '0') || 0;
 
             await dbClient.query('SAVEPOINT row_insert');
             await dbClient.query(
-              `INSERT INTO fb_ads_today (account_name, campaign_name, campaign_id, ad_set_name, ad_set_id, ad_name, spend, clicks, impressions, landing_page_views, synced_at, user_id)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), $11)
+              `INSERT INTO fb_ads_today (account_name, campaign_name, campaign_id, ad_set_name, ad_set_id, ad_name, spend, clicks, impressions, landing_page_views, conversions, conversion_value, synced_at, user_id)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), $13)
                ON CONFLICT (user_id, ad_set_id, ad_name) DO UPDATE SET
                  spend = EXCLUDED.spend,
                  clicks = EXCLUDED.clicks,
                  impressions = EXCLUDED.impressions,
                  landing_page_views = EXCLUDED.landing_page_views,
+                 conversions = EXCLUDED.conversions,
+                 conversion_value = EXCLUDED.conversion_value,
                  campaign_id = COALESCE(EXCLUDED.campaign_id, fb_ads_today.campaign_id),
                  synced_at = NOW()`,
               [
@@ -212,6 +221,8 @@ export async function syncFacebook(userId?: number): Promise<{ synced: number; a
                 parseInt(row.clicks) || 0,
                 parseInt(row.impressions) || 0,
                 parseInt(lpViews) || 0,
+                purchases,
+                purchaseValue,
                 userId || null,
               ]
             );
@@ -252,7 +263,7 @@ export async function syncFacebook(userId?: number): Promise<{ synced: number; a
         try {
           const acctToken = decrypt(acct.access_token_encrypted);
           const acctId = acct.platform_account_id;
-          const url = `https://graph.facebook.com/v21.0/${acctId}/insights?fields=account_name,campaign_name,campaign_id,adset_name,adset_id,ad_name,spend,clicks,impressions,actions&date_preset=today&level=ad&access_token=${acctToken}`;
+          const url = `https://graph.facebook.com/v21.0/${acctId}/insights?fields=account_name,campaign_name,campaign_id,adset_name,adset_id,ad_name,spend,clicks,impressions,actions,action_values&date_preset=today&level=ad&access_token=${acctToken}`;
 
           const rows = await fetchAllPages(url);
 
@@ -263,25 +274,33 @@ export async function syncFacebook(userId?: number): Promise<{ synced: number; a
             for (const row of rows) {
               try {
                 const lpViews = row.actions?.find(
-                  (a) => a.action_type === 'landing_page_view'
+                  (a: any) => a.action_type === 'landing_page_view'
                 )?.value || '0';
+                const purchases = parseInt(row.actions?.find(
+                  (a: any) => a.action_type === 'purchase' || a.action_type === 'omni_purchase'
+                )?.value || '0') || 0;
+                const purchaseValue = parseFloat(row.action_values?.find(
+                  (a: any) => a.action_type === 'purchase' || a.action_type === 'omni_purchase'
+                )?.value || '0') || 0;
 
                 await dbClient.query('SAVEPOINT row_insert');
                 await dbClient.query(
-                  `INSERT INTO fb_ads_today (account_name, campaign_name, campaign_id, ad_set_name, ad_set_id, ad_name, spend, clicks, impressions, landing_page_views, synced_at, user_id, account_id)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), $11, $12)
+                  `INSERT INTO fb_ads_today (account_name, campaign_name, campaign_id, ad_set_name, ad_set_id, ad_name, spend, clicks, impressions, landing_page_views, conversions, conversion_value, synced_at, user_id, account_id)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), $13, $14)
                    ON CONFLICT (user_id, ad_set_id, ad_name) DO UPDATE SET
                      spend = EXCLUDED.spend,
                      clicks = EXCLUDED.clicks,
                      impressions = EXCLUDED.impressions,
                      landing_page_views = EXCLUDED.landing_page_views,
+                     conversions = EXCLUDED.conversions,
+                     conversion_value = EXCLUDED.conversion_value,
                      campaign_id = COALESCE(EXCLUDED.campaign_id, fb_ads_today.campaign_id),
                      synced_at = NOW(),
                      account_id = EXCLUDED.account_id`,
                   [
                     row.account_name, row.campaign_name, row.campaign_id || null, row.adset_name, row.adset_id, row.ad_name,
                     parseFloat(row.spend) || 0, parseInt(row.clicks) || 0, parseInt(row.impressions) || 0,
-                    parseInt(lpViews) || 0, userId, acct.id,
+                    parseInt(lpViews) || 0, purchases, purchaseValue, userId, acct.id,
                   ]
                 );
                 await dbClient.query('RELEASE SAVEPOINT row_insert');

@@ -79,7 +79,7 @@ router.get('/data', async (req: Request, res: Response) => {
               (ad_data->>'spend')::NUMERIC AS spend,
               (ad_data->>'clicks')::NUMERIC AS clicks,
               (ad_data->>'impressions')::NUMERIC AS impressions,
-              0::NUMERIC AS platform_conversions, 0::NUMERIC AS platform_revenue
+              COALESCE((ad_data->>'conversions')::NUMERIC, 0) AS platform_conversions, COALESCE((ad_data->>'conversion_value')::NUMERIC, 0) AS platform_revenue
             FROM fb_ads_archive WHERE user_id = $1 AND archived_date BETWEEN $2 AND $3
             UNION ALL
             SELECT COALESCE(a.name, 'TikTok') AS source,
@@ -157,7 +157,7 @@ router.get('/data', async (req: Request, res: Response) => {
             CASE WHEN SUM(clicks) > 0 THEN SUM(spend) / SUM(clicks) ELSE 0 END AS cpc,
             CASE WHEN SUM(impressions) > 0 THEN SUM(spend) / SUM(impressions) * 1000 ELSE 0 END AS cpm
           FROM (
-            SELECT account_name AS source, spend, clicks, impressions, 0::NUMERIC AS platform_conversions, 0::NUMERIC AS platform_revenue FROM fb_ads_today ${uf}
+            SELECT account_name AS source, spend, clicks, impressions, COALESCE(conversions, 0)::NUMERIC AS platform_conversions, COALESCE(conversion_value, 0)::NUMERIC AS platform_revenue FROM fb_ads_today ${uf}
             UNION ALL
             SELECT COALESCE(a.name, 'TikTok') AS source, t.spend, t.clicks, t.impressions, COALESCE(t.conversions, 0)::NUMERIC, COALESCE(t.conversion_value, 0)::NUMERIC
             FROM tiktok_ads_today t LEFT JOIN accounts a ON a.id = t.account_id ${uf.replace('WHERE', 'WHERE t.')}

@@ -306,11 +306,25 @@ function CampaignCreator({ onClose, onSuccess, accounts }: {
     setStep(0);
   }
 
-  const platformAccounts = accounts.filter(a => a.platform === form.platform && a.status === 'active');
+  const platformAccounts = accounts
+    .filter(a => a.platform === form.platform && a.status === 'active')
+    .sort((a, b) => {
+      // Real accounts (with platform_account_id + token) first
+      const aReal = a.platform_account_id && a.has_access_token ? 1 : 0;
+      const bReal = b.platform_account_id && b.has_access_token ? 1 : 0;
+      return bReal - aReal;
+    });
+  const connectedAccounts = platformAccounts.filter(a => a.platform_account_id && a.has_access_token);
   const objectives = OBJECTIVES[form.platform] || OBJECTIVES.newsbreak;
 
   useEffect(() => {
-    const accts = accounts.filter(a => a.platform === form.platform && a.status === 'active');
+    const accts = accounts
+      .filter(a => a.platform === form.platform && a.status === 'active')
+      .sort((a, b) => {
+        const aReal = a.platform_account_id && a.has_access_token ? 1 : 0;
+        const bReal = b.platform_account_id && b.has_access_token ? 1 : 0;
+        return bReal - aReal;
+      });
     setForm(f => ({
       ...f,
       accountId: accts[0]?.id,
@@ -621,20 +635,38 @@ function CampaignCreator({ onClose, onSuccess, accounts }: {
                 </div>
               </div>
 
-              {platformAccounts.length > 0 && (
-                <div>
-                  <Label>Ad Account</Label>
-                  <select
-                    value={form.accountId}
-                    onChange={(e) => set('accountId', parseInt(e.target.value))}
-                    className={inputCls}
-                  >
-                    {platformAccounts.map(a => (
-                      <option key={a.id} value={a.id}>{a.name} ({a.platform_account_id})</option>
-                    ))}
-                  </select>
-                </div>
-              )}
+              <div>
+                <Label required>Ad Account</Label>
+                {platformAccounts.length > 0 ? (
+                  <>
+                    <select
+                      value={form.accountId}
+                      onChange={(e) => set('accountId', parseInt(e.target.value))}
+                      className={inputCls}
+                    >
+                      {platformAccounts.map(a => (
+                        <option key={a.id} value={a.id}>
+                          {a.name}{a.platform_account_id ? ` (${a.platform_account_id})` : ''}{!a.has_access_token ? ' — no token' : ''}
+                        </option>
+                      ))}
+                    </select>
+                    {connectedAccounts.length === 0 && platformAccounts.length > 0 && (
+                      <p className="text-[10px] text-amber-400 mt-1.5 flex items-center gap-1">
+                        <AlertTriangle className="w-3 h-3 shrink-0" />
+                        No connected {PLATFORM_BADGE[form.platform]?.label} accounts. Go to Settings → Accounts to connect one with an access token.
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <div className="px-3 py-3 rounded-lg border border-dashed border-amber-500/30 bg-amber-500/5 text-[11px] text-amber-400">
+                    <div className="flex items-center gap-1.5 font-semibold mb-1">
+                      <AlertTriangle className="w-3.5 h-3.5" />
+                      No {PLATFORM_BADGE[form.platform]?.label} accounts found
+                    </div>
+                    <p className="text-ats-text-muted">Add an ad account in Settings → Accounts with your platform account ID and access token.</p>
+                  </div>
+                )}
+              </div>
 
               <div>
                 <Label required>Campaign Name</Label>
@@ -1199,11 +1231,23 @@ function FormatLauncher({ onClose, onSuccess, accounts }: {
   const [result, setResult] = useState<{ success: boolean; error?: string } | null>(null);
   const [batchStep, setBatchStep] = useState(0); // 0 = format+campaign, 1 = ad set, 2 = creative
 
-  const platformAccounts = accounts.filter(a => a.platform === platform && a.status === 'active');
+  const platformAccounts = accounts
+    .filter(a => a.platform === platform && a.status === 'active')
+    .sort((a, b) => {
+      const aReal = a.platform_account_id && a.has_access_token ? 1 : 0;
+      const bReal = b.platform_account_id && b.has_access_token ? 1 : 0;
+      return bReal - aReal;
+    });
   const objectives = OBJECTIVES[platform] || OBJECTIVES.newsbreak;
 
   useEffect(() => {
-    const accts = accounts.filter(a => a.platform === platform && a.status === 'active');
+    const accts = accounts
+      .filter(a => a.platform === platform && a.status === 'active')
+      .sort((a, b) => {
+        const aReal = a.platform_account_id && a.has_access_token ? 1 : 0;
+        const bReal = b.platform_account_id && b.has_access_token ? 1 : 0;
+        return bReal - aReal;
+      });
     setAccountId(accts[0]?.id);
   }, [platform, accounts]);
 
@@ -1367,7 +1411,11 @@ function FormatLauncher({ onClose, onSuccess, accounts }: {
               <div>
                 <Label>Account</Label>
                 <select value={accountId} onChange={(e) => setAccountId(parseInt(e.target.value))} className={inputCls}>
-                  {platformAccounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                  {platformAccounts.map(a => (
+                    <option key={a.id} value={a.id}>
+                      {a.name}{a.platform_account_id ? ` (${a.platform_account_id})` : ''}{!a.has_access_token ? ' — no token' : ''}
+                    </option>
+                  ))}
                 </select>
               </div>
             </div>
@@ -2438,8 +2486,8 @@ export default function LiveCampaignsPage() {
             <button onClick={() => setSelectedCampaigns(new Set())} className="text-xs text-ats-text-muted hover:text-ats-text">Clear</button>
           </div>
         )}
-        <div className="bg-ats-card border border-ats-border rounded-xl overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="bg-ats-card border border-ats-border rounded-xl overflow-x-auto">
+          <table className="w-full min-w-[900px] text-sm">
             <thead>
               <tr className="border-b border-ats-border">
                 <TH className="w-8">
@@ -2450,13 +2498,13 @@ export default function LiveCampaignsPage() {
                   )}
                 </TH>
                 <SortTH label="Campaign" sortKey="campaign_name" currentKey={sortKey} dir={sortDir} onSort={handleSort} align="left" />
-                <TH align="left" hide="md">Platform</TH>
+                <TH align="left">Platform</TH>
                 <SortTH label="Spend" sortKey="spend" currentKey={sortKey} dir={sortDir} onSort={handleSort} />
-                <SortTH label="Clicks" sortKey="clicks" currentKey={sortKey} dir={sortDir} onSort={handleSort} hide="sm" />
-                <SortTH label="Impr." sortKey="impressions" currentKey={sortKey} dir={sortDir} onSort={handleSort} hide="lg" />
-                <SortTH label="Conv." sortKey="conversions" currentKey={sortKey} dir={sortDir} onSort={handleSort} hide="md" />
+                <SortTH label="Clicks" sortKey="clicks" currentKey={sortKey} dir={sortDir} onSort={handleSort} />
+                <SortTH label="Impr." sortKey="impressions" currentKey={sortKey} dir={sortDir} onSort={handleSort} />
+                <SortTH label="Conv." sortKey="conversions" currentKey={sortKey} dir={sortDir} onSort={handleSort} />
                 <SortTH label="Revenue" sortKey="conversion_value" currentKey={sortKey} dir={sortDir} onSort={handleSort} />
-                <SortTH label="ROAS" sortKey="roas" currentKey={sortKey} dir={sortDir} onSort={handleSort} hide="sm" />
+                <SortTH label="ROAS" sortKey="roas" currentKey={sortKey} dir={sortDir} onSort={handleSort} />
                 <TH className="w-24">Actions</TH>
               </tr>
             </thead>
@@ -2503,17 +2551,17 @@ export default function LiveCampaignsPage() {
                           <span>&middot; {c.adset_count} adsets &middot; {c.ad_count} ads</span>
                         </div>
                       </td>
-                      <td className="px-4 py-3 hidden md:table-cell">
+                      <td className="px-4 py-3">
                         <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold ${PLATFORM_BADGE[c.platform]?.bg} ${PLATFORM_BADGE[c.platform]?.text}`}>
                           {PLATFORM_BADGE[c.platform]?.label}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-right font-mono text-ats-text">{fmt$(c.spend)}</td>
-                      <td className="px-4 py-3 text-right text-ats-text-muted hidden sm:table-cell">{fmtNum(c.clicks)}</td>
-                      <td className="px-4 py-3 text-right text-ats-text-muted hidden lg:table-cell">{fmtNum(c.impressions)}</td>
-                      <td className="px-4 py-3 text-right text-ats-text-muted hidden md:table-cell">{fmtNum(c.conversions)}</td>
+                      <td className="px-4 py-3 text-right text-ats-text-muted">{fmtNum(c.clicks)}</td>
+                      <td className="px-4 py-3 text-right text-ats-text-muted">{fmtNum(c.impressions)}</td>
+                      <td className="px-4 py-3 text-right text-ats-text-muted">{fmtNum(c.conversions)}</td>
                       <td className="px-4 py-3 text-right font-mono text-emerald-400">{fmt$(c.conversion_value)}</td>
-                      <td className="px-4 py-3 text-right text-ats-text-muted hidden sm:table-cell">{fmtRoas(c.roas)}</td>
+                      <td className="px-4 py-3 text-right text-ats-text-muted">{fmtRoas(c.roas)}</td>
                       <td className="px-4 py-3 text-right" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-0.5">
                           {actionLoading[`status:campaign:${c.campaign_id}`] ? (
@@ -2556,13 +2604,13 @@ export default function LiveCampaignsPage() {
                                 <span className="text-[10px] text-emerald-400/70 ml-2 font-mono">{fmt$(currentBudget)}/day</span>
                               )}
                             </td>
-                            <td className="hidden md:table-cell" />
+                            <td />
                             <td className="px-4 py-2.5 text-right font-mono text-ats-text text-xs">{fmt$(as.spend)}</td>
-                            <td className="px-4 py-2.5 text-right text-ats-text-muted text-xs hidden sm:table-cell">{fmtNum(as.clicks)}</td>
-                            <td className="px-4 py-2.5 text-right text-ats-text-muted text-xs hidden lg:table-cell">{fmtNum(as.impressions)}</td>
-                            <td className="px-4 py-2.5 text-right text-ats-text-muted text-xs hidden md:table-cell">{fmtNum(as.conversions)}</td>
+                            <td className="px-4 py-2.5 text-right text-ats-text-muted text-xs">{fmtNum(as.clicks)}</td>
+                            <td className="px-4 py-2.5 text-right text-ats-text-muted text-xs">{fmtNum(as.impressions)}</td>
+                            <td className="px-4 py-2.5 text-right text-ats-text-muted text-xs">{fmtNum(as.conversions)}</td>
                             <td className="px-4 py-2.5 text-right font-mono text-emerald-400 text-xs">{fmt$(as.conversion_value)}</td>
-                            <td className="hidden sm:table-cell" />
+                            <td />
                             <td className="px-4 py-2.5 text-right" onClick={e => e.stopPropagation()}>
                               <div className="flex items-center justify-end gap-1">
                                 {actionLoading[`status:adset:${as.adset_id}`] ? <Loader2 className="w-3 h-3 animate-spin text-ats-text-muted" /> : (
@@ -2594,13 +2642,13 @@ export default function LiveCampaignsPage() {
                             <tr key={`ad-${i}`} className="border-b border-ats-border/20 bg-ats-bg/30">
                               <td className="px-4 py-2 pl-16" />
                               <td className="px-4 py-2"><span className="text-xs text-ats-text-muted">{ad.ad_name || ad.ad_id || 'Unnamed'}</span></td>
-                              <td className="hidden md:table-cell" />
+                              <td />
                               <td className="px-4 py-2 text-right font-mono text-ats-text text-[11px]">{fmt$(ad.spend)}</td>
-                              <td className="px-4 py-2 text-right text-ats-text-muted text-[11px] hidden sm:table-cell">{fmtNum(ad.clicks)}</td>
-                              <td className="px-4 py-2 text-right text-ats-text-muted text-[11px] hidden lg:table-cell">{fmtNum(ad.impressions)}</td>
-                              <td className="px-4 py-2 text-right text-ats-text-muted text-[11px] hidden md:table-cell">{fmtNum(ad.conversions)}</td>
+                              <td className="px-4 py-2 text-right text-ats-text-muted text-[11px]">{fmtNum(ad.clicks)}</td>
+                              <td className="px-4 py-2 text-right text-ats-text-muted text-[11px]">{fmtNum(ad.impressions)}</td>
+                              <td className="px-4 py-2 text-right text-ats-text-muted text-[11px]">{fmtNum(ad.conversions)}</td>
                               <td className="px-4 py-2 text-right font-mono text-emerald-400 text-[11px]">{fmt$(ad.conversion_value)}</td>
-                              <td className="hidden sm:table-cell" />
+                              <td />
                               <td className="px-4 py-2 text-right" onClick={e => e.stopPropagation()}>
                                 <div className="flex items-center justify-end gap-0.5">
                                   {ad.ad_id && (

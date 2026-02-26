@@ -70,8 +70,8 @@ router.get('/', async (req: Request, res: Response) => {
           SUM(clicks) AS clicks,
           SUM(impressions) AS impressions,
           SUM(landing_page_views) AS landing_page_views,
-          0::NUMERIC AS platform_conversion_value,
-          0 AS platform_conversions
+          COALESCE(SUM(conversion_value), 0) AS platform_conversion_value,
+          COALESCE(SUM(conversions), 0) AS platform_conversions
         FROM fb_ads_today
         WHERE 1=1 ${userFilter} ${af.clause}
         GROUP BY ad_set_name, account_name
@@ -268,11 +268,17 @@ router.get('/summary', async (req: Request, res: Response) => {
         (SELECT COALESCE(SUM(spend), 0) FROM fb_ads_today WHERE 1=1 ${userFilter} ${saf.clause}) +
         (SELECT COALESCE(SUM(spend), 0) FROM tiktok_ads_today WHERE 1=1 ${userFilter} ${saf.clause}) +
         (SELECT COALESCE(SUM(spend), 0) FROM newsbreak_ads_today WHERE 1=1 ${userFilter} ${saf.clause}) AS total_spend,
-        (SELECT COALESCE(SUM(COALESCE(subtotal, revenue)), 0) FROM cc_orders_today WHERE order_status = 'completed' AND (is_test = false OR is_test IS NULL) ${userFilter} ${saf.clause})
-        + (SELECT COALESCE(SUM(conversion_value), 0) FROM newsbreak_ads_today WHERE 1=1 ${userFilter} ${saf.clause}) AS total_revenue,
+        GREATEST(
+          (SELECT COALESCE(SUM(COALESCE(subtotal, revenue)), 0) FROM cc_orders_today WHERE order_status = 'completed' AND (is_test = false OR is_test IS NULL) ${userFilter} ${saf.clause}),
+          (SELECT COALESCE(SUM(conversion_value), 0) FROM fb_ads_today WHERE 1=1 ${userFilter} ${saf.clause})
+          + (SELECT COALESCE(SUM(conversion_value), 0) FROM tiktok_ads_today WHERE 1=1 ${userFilter} ${saf.clause})
+          + (SELECT COALESCE(SUM(conversion_value), 0) FROM newsbreak_ads_today WHERE 1=1 ${userFilter} ${saf.clause})
+        ) AS total_revenue,
         GREATEST(
           (SELECT COUNT(DISTINCT order_id) FROM cc_orders_today WHERE order_status = 'completed' AND (is_test = false OR is_test IS NULL) ${userFilter} ${saf.clause}),
-          (SELECT COALESCE(SUM(conversions), 0) FROM newsbreak_ads_today WHERE 1=1 ${userFilter} ${saf.clause})
+          (SELECT COALESCE(SUM(conversions), 0) FROM fb_ads_today WHERE 1=1 ${userFilter} ${saf.clause})
+          + (SELECT COALESCE(SUM(conversions), 0) FROM tiktok_ads_today WHERE 1=1 ${userFilter} ${saf.clause})
+          + (SELECT COALESCE(SUM(conversions), 0) FROM newsbreak_ads_today WHERE 1=1 ${userFilter} ${saf.clause})
         ) AS total_conversions
     `, sAllParams);
 
@@ -311,13 +317,17 @@ router.get('/summary', async (req: Request, res: Response) => {
           AND ((order_data->>'conversion_time')::TIMESTAMPTZ AT TIME ZONE $${tzIdx})::TIME <= (NOW() AT TIME ZONE $${tzIdx})::TIME
           ${prevUserFilter}
       `, prevTzParams),
-      // Previous platform revenue (NewsBreak + TikTok conversion_value from archive)
+      // Previous platform revenue (Meta + NewsBreak + TikTok conversion_value from archive)
       pool.query(`
         SELECT
+          COALESCE((SELECT SUM((ad_data->>'conversion_value')::NUMERIC) FROM fb_ads_archive
+            WHERE archived_date = (NOW() AT TIME ZONE $${tzIdx})::DATE - 1 ${prevUserFilter}), 0) +
           COALESCE((SELECT SUM((ad_data->>'conversion_value')::NUMERIC) FROM newsbreak_ads_archive
             WHERE archived_date = (NOW() AT TIME ZONE $${tzIdx})::DATE - 1 ${prevUserFilter}), 0) +
           COALESCE((SELECT SUM((ad_data->>'conversion_value')::NUMERIC) FROM tiktok_ads_archive
             WHERE archived_date = (NOW() AT TIME ZONE $${tzIdx})::DATE - 1 ${prevUserFilter}), 0) AS prev_platform_revenue,
+          COALESCE((SELECT SUM((ad_data->>'conversions')::NUMERIC) FROM fb_ads_archive
+            WHERE archived_date = (NOW() AT TIME ZONE $${tzIdx})::DATE - 1 ${prevUserFilter}), 0) +
           COALESCE((SELECT SUM((ad_data->>'conversions')::NUMERIC) FROM newsbreak_ads_archive
             WHERE archived_date = (NOW() AT TIME ZONE $${tzIdx})::DATE - 1 ${prevUserFilter}), 0) +
           COALESCE((SELECT SUM((ad_data->>'conversions')::NUMERIC) FROM tiktok_ads_archive

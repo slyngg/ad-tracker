@@ -31,8 +31,8 @@ router.get('/csv', async (req: Request, res: Response) => {
           SUM(clicks) AS clicks,
           SUM(impressions) AS impressions,
           SUM(landing_page_views) AS landing_page_views,
-          0::NUMERIC AS platform_conversion_value,
-          0 AS platform_conversions
+          COALESCE(SUM(conversion_value), 0) AS platform_conversion_value,
+          COALESCE(SUM(conversions), 0) AS platform_conversions
         FROM fb_ads_today
         WHERE 1=1 ${userFilter} ${af.clause}
         GROUP BY ad_set_name, account_name
