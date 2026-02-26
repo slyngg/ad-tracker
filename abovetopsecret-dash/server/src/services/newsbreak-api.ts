@@ -249,6 +249,20 @@ export async function updateNewsBreakAdGroupStatus(
   });
 }
 
+export async function updateNewsBreakAdStatus(
+  adId: string,
+  status: 'ENABLE' | 'DISABLE',
+  userId: number
+): Promise<void> {
+  const auth = await getNewsBreakAuth(userId);
+  if (!auth) throw new Error('No NewsBreak credentials');
+  await newsbreakRequest('POST', '/business-api/v1/ads/update/status', auth.accessToken, {
+    advertiser_id: auth.accountId,
+    ad_id: adId,
+    status,
+  });
+}
+
 export async function adjustNewsBreakBudget(
   adGroupId: string,
   budgetDollars: number,

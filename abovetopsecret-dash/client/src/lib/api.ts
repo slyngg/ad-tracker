@@ -1343,6 +1343,10 @@ export function assignCampaignAccount(campaignId: string, accountId: number): Pr
   return request<{ success: boolean }>('/campaigns/assign-account', { method: 'POST', body: JSON.stringify({ campaign_id: campaignId, account_id: accountId }) });
 }
 
+export function bulkAssignCampaignAccount(campaignIds: string[], accountId: number): Promise<{ success: boolean; assigned: number }> {
+  return request<{ success: boolean; assigned: number }>('/campaigns/assign-account/bulk', { method: 'POST', body: JSON.stringify({ campaign_ids: campaignIds, account_id: accountId }) });
+}
+
 export interface QuickCreateParams {
   account_id?: number;
   platform: string;

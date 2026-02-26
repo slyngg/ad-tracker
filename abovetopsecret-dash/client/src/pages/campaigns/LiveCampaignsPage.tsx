@@ -13,6 +13,7 @@ import {
   fetchAdGroupBudgets,
   fetchCampaignAccountMap,
   assignCampaignAccount,
+  bulkAssignCampaignAccount,
   LiveCampaign,
   LiveAdset,
   LiveAd,
@@ -1476,6 +1477,8 @@ export default function LiveCampaignsPage() {
   const [adsetBudgets, setAdsetBudgets] = useState<Record<string, number>>({});
   const [campaignAccountMap, setCampaignAccountMap] = useState<Record<string, number>>({});
   const [assigningCampaign, setAssigningCampaign] = useState<string | null>(null);
+  const [selectedCampaigns, setSelectedCampaigns] = useState<Set<string>>(new Set());
+  const [bulkAssignOpen, setBulkAssignOpen] = useState(false);
 
   // Date range
   const dateRange = useDateRangeStore((s) => s.dateRange);
@@ -1586,10 +1589,43 @@ export default function LiveCampaignsPage() {
       await assignCampaignAccount(campaignId, accountId);
       setCampaignAccountMap(prev => ({ ...prev, [campaignId]: accountId }));
       setAssigningCampaign(null);
-      // Reload to reflect new account assignment
       load();
     } catch (err: any) {
       console.error('Failed to assign account:', err);
+    }
+  }
+
+  async function handleBulkAssign(accountId: number) {
+    setBulkAssignOpen(false);
+    const ids = [...selectedCampaigns];
+    try {
+      await bulkAssignCampaignAccount(ids, accountId);
+      setCampaignAccountMap(prev => {
+        const next = { ...prev };
+        for (const cid of ids) next[cid] = accountId;
+        return next;
+      });
+      setSelectedCampaigns(new Set());
+      load();
+    } catch (err: any) {
+      console.error('Bulk assign failed:', err);
+    }
+  }
+
+  function toggleSelect(campaignId: string) {
+    setSelectedCampaigns(prev => {
+      const next = new Set(prev);
+      if (next.has(campaignId)) next.delete(campaignId); else next.add(campaignId);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    const nbCampaigns = sortedCampaigns.filter(c => c.platform === 'newsbreak');
+    if (selectedCampaigns.size === nbCampaigns.length) {
+      setSelectedCampaigns(new Set());
+    } else {
+      setSelectedCampaigns(new Set(nbCampaigns.map(c => c.campaign_id)));
     }
   }
 
@@ -1777,11 +1813,40 @@ export default function LiveCampaignsPage() {
         </div>
       ) : (
         /* Campaign table */
+        <>
+        {/* Bulk assign bar */}
+        {selectedCampaigns.size > 0 && (
+          <div className="bg-ats-accent/10 border border-ats-accent/30 rounded-xl px-4 py-3 mb-3 flex items-center gap-3 flex-wrap">
+            <span className="text-sm text-ats-text font-medium">{selectedCampaigns.size} selected</span>
+            <div className="relative">
+              <button onClick={() => setBulkAssignOpen(p => !p)} className="px-3 py-1.5 bg-ats-accent text-white rounded-lg text-xs font-semibold hover:opacity-90">
+                Move to Account
+              </button>
+              {bulkAssignOpen && (
+                <div className="absolute left-0 top-9 z-50 bg-ats-card border border-ats-border rounded-lg shadow-xl py-1 min-w-[200px]">
+                  {accounts.filter(a => a.platform === 'newsbreak' && a.status === 'active').map(a => (
+                    <button key={a.id} onClick={() => handleBulkAssign(a.id)}
+                      className="block w-full text-left px-3 py-2 text-sm hover:bg-ats-hover text-ats-text">
+                      {a.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <button onClick={() => setSelectedCampaigns(new Set())} className="text-xs text-ats-text-muted hover:text-ats-text">Clear</button>
+          </div>
+        )}
         <div className="bg-ats-card border border-ats-border rounded-xl overflow-hidden">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-ats-border">
-                <TH className="w-8" />
+                <TH className="w-8">
+                  {sortedCampaigns.some(c => c.platform === 'newsbreak') && (
+                    <input type="checkbox"
+                      checked={selectedCampaigns.size > 0 && selectedCampaigns.size === sortedCampaigns.filter(c => c.platform === 'newsbreak').length}
+                      onChange={toggleSelectAll} className="w-3.5 h-3.5 rounded border-ats-border accent-ats-accent cursor-pointer" />
+                  )}
+                </TH>
                 <SortTH label="Campaign" sortKey="campaign_name" currentKey={sortKey} dir={sortDir} onSort={handleSort} align="left" />
                 <TH align="left" hide="md">Platform</TH>
                 <SortTH label="Spend" sortKey="spend" currentKey={sortKey} dir={sortDir} onSort={handleSort} />
@@ -1804,8 +1869,14 @@ export default function LiveCampaignsPage() {
                   <Fragment key={key}>
                     <tr className="border-b border-ats-border/50 hover:bg-ats-hover/50 transition-colors cursor-pointer" onClick={() => toggleCampaign(c)}>
                       <td className="px-4 py-3">
-                        {isLoading ? <Loader2 className="w-4 h-4 text-ats-text-muted animate-spin" /> :
-                          isExpanded ? <ChevronDown className="w-4 h-4 text-ats-text-muted" /> : <ChevronRight className="w-4 h-4 text-ats-text-muted" />}
+                        <div className="flex items-center gap-1.5">
+                          {c.platform === 'newsbreak' && (
+                            <input type="checkbox" checked={selectedCampaigns.has(c.campaign_id)} onChange={() => toggleSelect(c.campaign_id)} onClick={e => e.stopPropagation()}
+                              className="w-3.5 h-3.5 rounded border-ats-border accent-ats-accent cursor-pointer" />
+                          )}
+                          {isLoading ? <Loader2 className="w-4 h-4 text-ats-text-muted animate-spin" /> :
+                            isExpanded ? <ChevronDown className="w-4 h-4 text-ats-text-muted" /> : <ChevronRight className="w-4 h-4 text-ats-text-muted" />}
+                        </div>
                       </td>
                       <td className="px-4 py-3">
                         <div className="font-medium text-ats-text">{c.campaign_name || c.campaign_id}</div>
@@ -1929,16 +2000,25 @@ export default function LiveCampaignsPage() {
                               <td className="px-4 py-2 text-right font-mono text-emerald-400 text-[11px]">{fmt$(ad.conversion_value)}</td>
                               <td className="hidden sm:table-cell" />
                               <td className="px-4 py-2 text-right" onClick={e => e.stopPropagation()}>
-                                {ad.ad_id && (
-                                  <button
-                                    onClick={() => handleDuplicate('ad', parseInt(ad.ad_id!))}
-                                    disabled={actionLoading[`dup:ad:${ad.ad_id}`]}
-                                    className="p-1 rounded-md hover:bg-blue-500/20 text-ats-text-muted hover:text-blue-400"
-                                    title="Duplicate"
-                                  >
-                                    {actionLoading[`dup:ad:${ad.ad_id}`] ? <Loader2 className="w-3 h-3 animate-spin" /> : <Copy className="w-3 h-3" />}
-                                  </button>
-                                )}
+                                <div className="flex items-center justify-end gap-0.5">
+                                  {ad.ad_id && (
+                                    <>
+                                      {actionLoading[`status:ad:${ad.ad_id}`] ? <Loader2 className="w-3 h-3 animate-spin text-ats-text-muted" /> : (
+                                        <button onClick={() => handleStatus(c.platform, 'ad', ad.ad_id!, false)} className="p-1 rounded-md hover:bg-yellow-500/20 text-ats-text-muted hover:text-yellow-400" title="Pause Ad">
+                                          <Pause className="w-3 h-3" />
+                                        </button>
+                                      )}
+                                      <button
+                                        onClick={() => handleDuplicate('ad', parseInt(ad.ad_id!))}
+                                        disabled={actionLoading[`dup:ad:${ad.ad_id}`]}
+                                        className="p-1 rounded-md hover:bg-blue-500/20 text-ats-text-muted hover:text-blue-400"
+                                        title="Duplicate"
+                                      >
+                                        {actionLoading[`dup:ad:${ad.ad_id}`] ? <Loader2 className="w-3 h-3 animate-spin" /> : <Copy className="w-3 h-3" />}
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
                               </td>
                             </tr>
                           ))}
@@ -1951,6 +2031,7 @@ export default function LiveCampaignsPage() {
             </tbody>
           </table>
         </div>
+        </>
       )}
 
       {/* Budget modal */}

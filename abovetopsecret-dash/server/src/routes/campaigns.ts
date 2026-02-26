@@ -1003,6 +1003,7 @@ router.get('/live/:platform/:adsetId/ads', async (req: Request, res: Response) =
 import {
   updateNewsBreakCampaignStatus,
   updateNewsBreakAdGroupStatus,
+  updateNewsBreakAdStatus,
   adjustNewsBreakBudget,
   getNewsBreakAdGroupBudgets,
 } from '../services/newsbreak-api';
@@ -1026,6 +1027,8 @@ router.post('/live/status', publishLimiter, async (req: Request, res: Response) 
         await updateNewsBreakCampaignStatus(entity_id, nbStatus, userId);
       } else if (entity_type === 'adset') {
         await updateNewsBreakAdGroupStatus(entity_id, nbStatus, userId);
+      } else if (entity_type === 'ad') {
+        await updateNewsBreakAdStatus(entity_id, nbStatus, userId);
       }
     }
     // Meta and TikTok status updates can be added here
@@ -1113,6 +1116,42 @@ router.post('/assign-account', async (req: Request, res: Response) => {
   } catch (err: any) {
     console.error('Error assigning campaign account:', err);
     res.status(500).json({ error: err.message || 'Failed to assign account' });
+  }
+});
+
+// ── Bulk assign campaigns to account ──
+
+router.post('/assign-account/bulk', async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+    const { campaign_ids, account_id } = req.body;
+    if (!Array.isArray(campaign_ids) || !account_id) { res.status(400).json({ error: 'Missing campaign_ids or account_id' }); return; }
+
+    const acctCheck = await pool.query(
+      'SELECT id, platform_account_id FROM accounts WHERE id = $1 AND user_id = $2',
+      [account_id, userId]
+    );
+    if (acctCheck.rows.length === 0) { res.status(403).json({ error: 'Account not found' }); return; }
+    const platformAcctId = acctCheck.rows[0].platform_account_id;
+
+    for (const cid of campaign_ids) {
+      await pool.query(
+        `INSERT INTO nb_campaign_account_map (user_id, campaign_id, account_id)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (user_id, campaign_id) DO UPDATE SET account_id = EXCLUDED.account_id`,
+        [userId, cid, account_id]
+      );
+      await pool.query(
+        `UPDATE newsbreak_ads_today SET account_id = $1 WHERE user_id = $2 AND campaign_id = $3`,
+        [platformAcctId, userId, cid]
+      );
+    }
+
+    res.json({ success: true, assigned: campaign_ids.length });
+  } catch (err: any) {
+    console.error('Error bulk assigning accounts:', err);
+    res.status(500).json({ error: err.message || 'Failed to bulk assign' });
   }
 });
 
