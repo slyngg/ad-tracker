@@ -272,9 +272,9 @@ export default function AttributionDashboard() {
 
         {/* ==================== DESKTOP LAYOUT (>= md) ==================== */}
         <div className="hidden md:block">
-          {/* Model Selector */}
+          {/* Model Selector + Account Filter */}
           <div className={`${cardCls} mb-4`}>
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-4 flex-wrap">
               <span className="text-xs text-ats-text-muted uppercase font-mono">Attribution Model:</span>
               <div className="flex gap-1">
                 {MODELS.map(m => (
@@ -283,6 +283,12 @@ export default function AttributionDashboard() {
                   </button>
                 ))}
               </div>
+              {accounts.length > 2 && (
+                <select value={filterAccount} onChange={e => setFilterAccount(e.target.value)}
+                  className="bg-ats-bg border border-ats-border rounded-lg px-3 py-1.5 text-xs text-ats-text">
+                  {accounts.map(a => <option key={a} value={a}>{a === 'All' ? 'All Accounts' : a}</option>)}
+                </select>
+              )}
               <button onClick={() => setShowOverlap(!showOverlap)} className="ml-auto text-xs text-ats-accent hover:underline">
                 {showOverlap ? 'Hide' : 'Show'} Channel Overlap
               </button>
