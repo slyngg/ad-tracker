@@ -35,6 +35,7 @@ import {
   ArrowUpDown,
   Film,
   Zap,
+  Search,
 } from 'lucide-react';
 import PageShell from '../../components/shared/PageShell';
 import { useDateRangeStore } from '../../stores/dateRangeStore';
@@ -1458,6 +1459,7 @@ export default function LiveCampaignsPage() {
   const [error, setError] = useState<string | null>(null);
   const [platformFilter, setPlatformFilter] = useState('all');
   const [accountFilter, setAccountFilter] = useState<string>('all');
+  const [searchQuery, setSearchQuery] = useState('');
   const [showCreator, setShowCreator] = useState(false);
   const [showFormatLauncher, setShowFormatLauncher] = useState(false);
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -1511,7 +1513,11 @@ export default function LiveCampaignsPage() {
     }
   }
 
-  const sortedCampaigns = [...campaigns].sort((a, b) => {
+  const filteredCampaigns = searchQuery.trim()
+    ? campaigns.filter(c => c.campaign_name?.toLowerCase().includes(searchQuery.toLowerCase()))
+    : campaigns;
+
+  const sortedCampaigns = [...filteredCampaigns].sort((a, b) => {
     const av = (a as any)[sortKey];
     const bv = (b as any)[sortKey];
     if (typeof av === 'string') return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
@@ -1614,7 +1620,7 @@ export default function LiveCampaignsPage() {
     );
   }
 
-  const totals = campaigns.reduce(
+  const totals = filteredCampaigns.reduce(
     (a, c) => ({ spend: a.spend + c.spend, conv: a.conv + c.conversions, rev: a.rev + c.conversion_value }),
     { spend: 0, conv: 0, rev: 0 }
   );
@@ -1642,14 +1648,15 @@ export default function LiveCampaignsPage() {
             className="flex items-center gap-1.5 px-4 py-2 bg-ats-accent text-white rounded-lg text-sm font-semibold hover:opacity-90 transition-opacity"
           >
             <Plus className="w-4 h-4" />
-            New Campaign
+            <span className="hidden sm:inline">New Campaign</span>
+            <span className="sm:hidden">New</span>
           </button>
         </div>
       }
     >
       {/* Summary */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
-        <Stat label="Campaigns" value={String(campaigns.length)} />
+        <Stat label="Campaigns" value={String(filteredCampaigns.length)} />
         <Stat label={dateRange.isToday ? "Today's Spend" : 'Total Spend'} value={fmt$(totals.spend)} />
         <Stat label="Conversions" value={fmtNum(totals.conv)} />
         <Stat label="Revenue" value={fmt$(totals.rev)} cls="text-emerald-400" />
@@ -1673,10 +1680,10 @@ export default function LiveCampaignsPage() {
 
         {/* Account selector — always show when accounts exist */}
         {(() => {
-          const filteredAccounts = platformFilter === 'all'
+          const accts = platformFilter === 'all'
             ? accounts.filter(a => a.status === 'active')
             : accounts.filter(a => a.platform === platformFilter && a.status === 'active');
-          if (filteredAccounts.length === 0) return null;
+          if (accts.length === 0) return null;
           return (
             <select
               value={accountFilter}
@@ -1684,7 +1691,7 @@ export default function LiveCampaignsPage() {
               className="px-3 py-1.5 rounded-lg text-xs font-semibold border bg-ats-card border-ats-border text-ats-text hover:bg-ats-hover transition-colors focus:outline-none focus:border-ats-accent ml-1"
             >
               <option value="all">All Accounts</option>
-              {filteredAccounts.map(a => (
+              {accts.map(a => (
                 <option key={a.id} value={a.id}>
                   {a.name || a.platform_account_id}{platformFilter === 'all' ? ` (${PLATFORM_BADGE[a.platform]?.label || a.platform})` : ''}
                 </option>
@@ -1692,6 +1699,18 @@ export default function LiveCampaignsPage() {
             </select>
           );
         })()}
+
+        {/* Campaign search */}
+        <div className="relative ml-auto">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ats-text-muted" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search campaigns..."
+            className="pl-8 pr-3 py-1.5 w-48 rounded-lg text-xs border bg-ats-card border-ats-border text-ats-text placeholder-ats-text-muted/50 focus:outline-none focus:border-ats-accent transition-colors"
+          />
+        </div>
 
         {loading && <Loader2 className="w-4 h-4 text-ats-text-muted animate-spin ml-1" />}
       </div>
