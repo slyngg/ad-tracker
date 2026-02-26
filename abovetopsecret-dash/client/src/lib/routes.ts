@@ -8,7 +8,7 @@ import {
   Palette, Clock, Shield, BookOpen, Compass, Layers,
   MessageSquare, FileText, Sparkles, PenTool, PieChart,
   Library, LayoutList, Radar, Building2, Megaphone, Send,
-  Wand2, Binoculars, Scan, Radio,
+  Wand2, Binoculars, Scan, Radio, Crosshair, ScatterChart, Calculator,
 } from 'lucide-react';
 import { NavSectionConfig } from '../types/navigation';
 
@@ -92,6 +92,15 @@ export const ROUTES = {
 
   // Pixel Tracking
   PIXEL: '/pixel',
+
+  // Intelligence
+  BENCHMARKS: '/benchmarks',
+
+  // Metrics Explorer
+  METRICS_EXPLORER: '/metrics/explorer',
+
+  // Budget Forecast (MMM)
+  BUDGET_FORECAST: '/budget-forecast',
 } as const;
 
 export const NAV_SECTIONS: NavSectionConfig[] = [
@@ -168,6 +177,15 @@ export const NAV_SECTIONS: NavSectionConfig[] = [
     label: 'Pixel',
     icon: Scan,
     path: ROUTES.PIXEL,
+  },
+  {
+    label: 'Intelligence',
+    icon: Crosshair,
+    children: [
+      { label: 'Benchmarks', path: ROUTES.BENCHMARKS, icon: Target },
+      { label: 'Metrics Explorer', path: ROUTES.METRICS_EXPLORER, icon: ScatterChart },
+      { label: 'Budget Forecast', path: ROUTES.BUDGET_FORECAST, icon: Calculator },
+    ],
   },
   {
     label: 'Data',

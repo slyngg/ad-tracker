@@ -109,7 +109,9 @@ export default function DateRangeBottomBar({
       </div>
 
       {/* Timezone note */}
-      <div className="text-[10px] text-ats-text-muted/60">Dates are shown in Eastern Time</div>
+      <div className="text-[10px] text-ats-text-muted/60">
+        Dates are shown in {Intl.DateTimeFormat().resolvedOptions().timeZone.replace(/_/g, ' ')}
+      </div>
     </div>
   );
 }

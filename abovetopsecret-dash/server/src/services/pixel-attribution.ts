@@ -10,6 +10,7 @@
 
 import pool from '../db';
 import { createLogger } from '../lib/logger';
+import { classifyCustomer, updateFirstOrderDate } from './new-vs-returning';
 
 const log = createLogger('PixelAttribution');
 
@@ -46,6 +47,7 @@ interface ConvertedOrder {
   visitor_id: number;
   revenue: number;
   converted_at: Date;
+  visitor_email: string | null;
 }
 
 export interface ComputeOptions {
@@ -53,6 +55,7 @@ export interface ComputeOptions {
   endDate?: string;
   models?: AttributionModel[];
   batchSize?: number;
+  lookbackDays?: number; // 7, 14, 30, 60, 90, 180, 365, or 0 for infinite
 }
 
 export interface ReportOptions {
@@ -94,6 +97,61 @@ export interface ConversionPath {
 // ── Time Decay constants ────────────────────────────────────────
 // 7-day half-life in milliseconds
 const HALF_LIFE_MS = 7 * 24 * 60 * 60 * 1000;
+
+// ── Credit normalization ────────────────────────────────────────
+
+const CREDIT_EPSILON = 0.0001;
+const REVENUE_EPSILON = 0.01;
+
+/**
+ * Normalize a credit map so all values sum to exactly 1.0.
+ * Handles floating-point drift by adjusting the largest credit.
+ */
+function normalizeCredits(credits: Map<number, number>): Map<number, number> {
+  if (credits.size === 0) return credits;
+
+  // Sum only positive credits
+  let sum = 0;
+  for (const c of credits.values()) {
+    if (c > 0) sum += c;
+  }
+
+  // If already within epsilon, no adjustment needed
+  if (Math.abs(sum - 1.0) < CREDIT_EPSILON && sum > 0) {
+    return credits;
+  }
+
+  // Avoid division by zero
+  if (sum === 0) return credits;
+
+  // Normalize all credits proportionally
+  const normalized = new Map<number, number>();
+  let newSum = 0;
+  let largestKey: number | null = null;
+  let largestVal = -1;
+
+  for (const [key, val] of credits) {
+    if (val <= 0) {
+      normalized.set(key, 0);
+      continue;
+    }
+    const newVal = val / sum;
+    normalized.set(key, newVal);
+    newSum += newVal;
+    if (newVal > largestVal) {
+      largestVal = newVal;
+      largestKey = key;
+    }
+  }
+
+  // Correct any remaining floating-point drift on the largest credit
+  if (largestKey !== null && Math.abs(newSum - 1.0) > Number.EPSILON) {
+    const currentLargest = normalized.get(largestKey) || 0;
+    normalized.set(largestKey, currentLargest + (1.0 - newSum));
+  }
+
+  return normalized;
+}
 
 // ── Credit calculation functions ────────────────────────────────
 
@@ -179,7 +237,8 @@ function computeCredits(
     }
   }
 
-  return credits;
+  // Guarantee: credits always sum to exactly 1.0
+  return normalizeCredits(credits);
 }
 
 // ── Core computation ────────────────────────────────────────────
@@ -201,22 +260,25 @@ export async function computeAttribution(
     endDate,
     models = ALL_MODELS,
     batchSize = 500,
+    lookbackDays = 30,
   } = options;
 
   const now = new Date();
   const start = startDate || new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const end = endDate || now.toISOString().slice(0, 10);
 
-  log.info({ userId, start, end, models }, 'Starting attribution computation');
+  log.info({ userId, start, end, models, lookbackDays }, 'Starting attribution computation');
 
-  // Step 1: Get all Purchase events in the date range
+  // Step 1: Get all Purchase events in the date range, with visitor email for classification
   const ordersResult = await pool.query<ConvertedOrder>(
     `SELECT DISTINCT ON (e.order_id)
        e.order_id,
        e.visitor_id,
        COALESCE(e.revenue, 0) AS revenue,
-       e.created_at AS converted_at
+       e.created_at AS converted_at,
+       v.email AS visitor_email
      FROM pixel_events_v2 e
+     LEFT JOIN pixel_visitors v ON v.id = e.visitor_id
      WHERE e.user_id = $1
        AND e.event_name = 'Purchase'
        AND e.order_id IS NOT NULL
@@ -245,6 +307,8 @@ export async function computeAttribution(
     const visitorIds = [...new Set(batch.map((o) => o.visitor_id))];
 
     // Batch-fetch all touchpoints for these visitors
+    // When lookbackDays > 0, limit touchpoints to within the lookback window of the
+    // earliest possible conversion date. The per-order filter is applied below.
     const touchpointsResult = await pool.query<Touchpoint>(
       `SELECT id, visitor_id, platform,
               utm_source, utm_medium, utm_campaign, utm_content,
@@ -264,20 +328,42 @@ export async function computeAttribution(
       touchpointsByVisitor.set(tp.visitor_id, list);
     }
 
+    // Classify each order as new vs returning customer
+    const orderNewMap = new Map<string, boolean>();
+    for (const order of batch) {
+      try {
+        const isNew = await classifyCustomer(userId, order.visitor_email, order.visitor_id, order.order_id);
+        orderNewMap.set(order.order_id, isNew);
+        if (isNew) {
+          await updateFirstOrderDate(order.visitor_id, order.converted_at);
+        }
+      } catch (err) {
+        log.warn({ userId, orderId: order.order_id, err }, 'Failed to classify customer, defaulting to null');
+      }
+    }
+
     // For each order, compute attribution across all models
     const values: unknown[] = [];
     const placeholders: string[] = [];
     let paramIdx = 1;
+    const paramsPerRow = 10;
 
     for (const order of batch) {
       const allTouchpoints = touchpointsByVisitor.get(order.visitor_id) || [];
 
-      // Only consider touchpoints BEFORE the conversion
+      // Only consider touchpoints BEFORE the conversion and within the lookback window
+      const lookbackCutoff = lookbackDays > 0
+        ? new Date(order.converted_at.getTime() - lookbackDays * 24 * 60 * 60 * 1000)
+        : null;
       const relevantTouchpoints = allTouchpoints.filter(
-        (tp) => tp.touched_at <= order.converted_at,
+        (tp) =>
+          tp.touched_at <= order.converted_at &&
+          (lookbackCutoff === null || tp.touched_at >= lookbackCutoff),
       );
 
       if (relevantTouchpoints.length === 0) continue;
+
+      const isNewCustomer = orderNewMap.has(order.order_id) ? orderNewMap.get(order.order_id)! : null;
 
       for (const model of models) {
         const credits = computeCredits(relevantTouchpoints, order.converted_at, model);
@@ -287,7 +373,7 @@ export async function computeAttribution(
 
           const attributedRevenue = parseFloat((order.revenue * credit).toFixed(2));
           placeholders.push(
-            `($${paramIdx}, $${paramIdx + 1}, $${paramIdx + 2}, $${paramIdx + 3}, $${paramIdx + 4}, $${paramIdx + 5}, $${paramIdx + 6}, $${paramIdx + 7}, NOW())`,
+            `($${paramIdx}, $${paramIdx + 1}, $${paramIdx + 2}, $${paramIdx + 3}, $${paramIdx + 4}, $${paramIdx + 5}, $${paramIdx + 6}, $${paramIdx + 7}, NOW(), $${paramIdx + 8}, $${paramIdx + 9}, true)`,
           );
           values.push(
             userId,
@@ -298,8 +384,10 @@ export async function computeAttribution(
             model,
             credit,
             attributedRevenue,
+            lookbackDays,
+            isNewCustomer,
           );
-          paramIdx += 8;
+          paramIdx += paramsPerRow;
           totalResults++;
         }
       }
@@ -309,20 +397,16 @@ export async function computeAttribution(
     if (placeholders.length > 0) {
       // Split into sub-batches if too many params (PostgreSQL limit ~65535 params)
       const maxParamsPerBatch = 60000;
-      const paramsPerRow = 8;
       const maxRowsPerBatch = Math.floor(maxParamsPerBatch / paramsPerRow);
 
       for (let i = 0; i < placeholders.length; i += maxRowsPerBatch) {
-        const subPlaceholders = placeholders.slice(i, i + maxRowsPerBatch);
-        const subValues = values.slice(i * paramsPerRow, (i + maxRowsPerBatch) * paramsPerRow);
-
         // Rewrite parameter indices for the sub-batch
         const reindexedPlaceholders: string[] = [];
         const reindexedValues: unknown[] = [];
         let subParamIdx = 1;
         for (let j = i; j < Math.min(i + maxRowsPerBatch, placeholders.length); j++) {
           reindexedPlaceholders.push(
-            `($${subParamIdx}, $${subParamIdx + 1}, $${subParamIdx + 2}, $${subParamIdx + 3}, $${subParamIdx + 4}, $${subParamIdx + 5}, $${subParamIdx + 6}, $${subParamIdx + 7}, NOW())`,
+            `($${subParamIdx}, $${subParamIdx + 1}, $${subParamIdx + 2}, $${subParamIdx + 3}, $${subParamIdx + 4}, $${subParamIdx + 5}, $${subParamIdx + 6}, $${subParamIdx + 7}, NOW(), $${subParamIdx + 8}, $${subParamIdx + 9}, true)`,
           );
           const startVal = j * paramsPerRow;
           for (let k = 0; k < paramsPerRow; k++) {
@@ -333,14 +417,17 @@ export async function computeAttribution(
 
         await pool.query(
           `INSERT INTO pixel_attribution_results
-             (user_id, visitor_id, touchpoint_id, order_id, revenue, model, credit, attributed_revenue, computed_at)
+             (user_id, visitor_id, touchpoint_id, order_id, revenue, model, credit, attributed_revenue, computed_at, lookback_days, is_new_customer, credit_verified)
            VALUES ${reindexedPlaceholders.join(', ')}
            ON CONFLICT (touchpoint_id, order_id, model)
            DO UPDATE SET
              credit = EXCLUDED.credit,
              attributed_revenue = EXCLUDED.attributed_revenue,
              revenue = EXCLUDED.revenue,
-             computed_at = NOW()`,
+             lookback_days = EXCLUDED.lookback_days,
+             computed_at = NOW(),
+             is_new_customer = EXCLUDED.is_new_customer,
+             credit_verified = true`,
           reindexedValues,
         );
       }
@@ -349,6 +436,14 @@ export async function computeAttribution(
 
   // Step 5: Rebuild summary for the date range
   await rebuildSummary(userId, start, end, models);
+
+  // Step 6: Run verification on the orders just processed
+  const processedOrderIds = orders.map((o) => o.order_id);
+  try {
+    await verifyAttribution(userId, processedOrderIds);
+  } catch (err) {
+    log.error({ userId, err }, 'Post-computation verification failed (non-fatal)');
+  }
 
   log.info({ userId, orders: orders.length, totalResults }, 'Attribution computation complete');
   return { orders: orders.length, results: totalResults };
@@ -378,7 +473,8 @@ async function rebuildSummary(
   await pool.query(
     `INSERT INTO pixel_attribution_summary
        (user_id, date, model, platform, utm_source, utm_medium, utm_campaign, utm_content,
-        attributed_conversions, attributed_revenue, touchpoints, unique_visitors, computed_at)
+        attributed_conversions, attributed_revenue, touchpoints, unique_visitors, computed_at,
+        lookback_days, is_new_customer)
      SELECT
        r.user_id,
        r.computed_at::date AS date,
@@ -392,7 +488,9 @@ async function rebuildSummary(
        SUM(r.attributed_revenue) AS attributed_revenue,
        COUNT(DISTINCT r.touchpoint_id) AS touchpoints,
        COUNT(DISTINCT r.visitor_id) AS unique_visitors,
-       NOW()
+       NOW(),
+       r.lookback_days,
+       r.is_new_customer
      FROM pixel_attribution_results r
      JOIN pixel_touchpoints tp ON tp.id = r.touchpoint_id
      WHERE r.user_id = $1
@@ -400,7 +498,8 @@ async function rebuildSummary(
        AND r.computed_at::date <= $3::date
        AND r.model = ANY($4)
      GROUP BY r.user_id, r.computed_at::date, r.model,
-              tp.platform, tp.utm_source, tp.utm_medium, tp.utm_campaign, tp.utm_content`,
+              tp.platform, tp.utm_source, tp.utm_medium, tp.utm_campaign, tp.utm_content,
+              r.lookback_days, r.is_new_customer`,
     [userId, startDate, endDate, models],
   );
 }
@@ -720,11 +819,304 @@ export async function getConversionPaths(
   }));
 }
 
+// ── Verification / No-Double-Counting Guarantee ─────────────────
+
+export interface VerificationReport {
+  ordersChecked: number;
+  ordersFixed: number;
+  allValid: boolean;
+}
+
+/**
+ * Verify that for every order+model, credits sum to 1.0 and attributed revenue
+ * sums to actual order revenue. Fix any discrepancies by normalizing credits
+ * and recomputing attributed_revenue. Logs all checks to attribution_verification_log.
+ *
+ * When orderIds is provided, only those orders are verified. Otherwise all
+ * orders for the user are checked.
+ */
+export async function verifyAttribution(
+  userId: number,
+  orderIds?: string[],
+): Promise<VerificationReport> {
+  const filterClause =
+    orderIds && orderIds.length > 0 ? 'AND r.order_id = ANY($2)' : '';
+  const params: unknown[] =
+    orderIds && orderIds.length > 0 ? [userId, orderIds] : [userId];
+
+  const aggResult = await pool.query(
+    `SELECT
+       r.order_id,
+       r.model,
+       r.revenue AS actual_revenue,
+       SUM(r.credit) AS credit_sum,
+       SUM(r.attributed_revenue) AS total_credited
+     FROM pixel_attribution_results r
+     WHERE r.user_id = $1
+       ${filterClause}
+     GROUP BY r.order_id, r.model, r.revenue`,
+    params,
+  );
+
+  let ordersChecked = 0;
+  let ordersFixed = 0;
+
+  for (const row of aggResult.rows) {
+    ordersChecked++;
+    const creditSum = parseFloat(row.credit_sum) || 0;
+    const totalCredited = parseFloat(row.total_credited) || 0;
+    const actualRevenue = parseFloat(row.actual_revenue) || 0;
+
+    const creditOk = Math.abs(creditSum - 1.0) < CREDIT_EPSILON;
+    const revenueOk = Math.abs(totalCredited - actualRevenue) < REVENUE_EPSILON;
+    const wasNormalized = !creditOk || !revenueOk;
+
+    if (wasNormalized) {
+      ordersFixed++;
+
+      // Fetch individual rows for this order+model to normalize
+      const rowsResult = await pool.query(
+        `SELECT id, credit FROM pixel_attribution_results
+         WHERE user_id = $1 AND order_id = $2 AND model = $3 AND credit > 0`,
+        [userId, row.order_id, row.model],
+      );
+
+      if (rowsResult.rows.length > 0 && creditSum > 0) {
+        const factor = 1.0 / creditSum;
+        let runningCreditSum = 0;
+        const updates: Array<{ id: number; credit: number; attrRev: number }> =
+          [];
+
+        for (let i = 0; i < rowsResult.rows.length; i++) {
+          const r = rowsResult.rows[i];
+          let newCredit: number;
+          if (i === rowsResult.rows.length - 1) {
+            // Last row absorbs rounding remainder
+            newCredit = 1.0 - runningCreditSum;
+          } else {
+            newCredit = parseFloat(r.credit) * factor;
+            runningCreditSum += newCredit;
+          }
+          const attrRev = parseFloat((actualRevenue * newCredit).toFixed(2));
+          updates.push({ id: parseInt(r.id, 10), credit: newCredit, attrRev });
+        }
+
+        for (const u of updates) {
+          await pool.query(
+            `UPDATE pixel_attribution_results
+             SET credit = $1, attributed_revenue = $2, credit_verified = true
+             WHERE id = $3`,
+            [u.credit, u.attrRev, u.id],
+          );
+        }
+      }
+    }
+
+    // Log to verification audit trail
+    await pool.query(
+      `INSERT INTO attribution_verification_log
+         (user_id, order_id, model, actual_revenue, total_credited, credit_sum, was_normalized, verified_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`,
+      [
+        userId,
+        row.order_id,
+        row.model,
+        actualRevenue,
+        totalCredited,
+        creditSum,
+        wasNormalized,
+      ],
+    );
+  }
+
+  log.info(
+    { userId, ordersChecked, ordersFixed },
+    'Attribution verification complete',
+  );
+
+  return { ordersChecked, ordersFixed, allValid: ordersFixed === 0 };
+}
+
+/**
+ * Get the latest verification status for a user.
+ */
+export async function getVerificationStatus(userId: number): Promise<{
+  status: string;
+  lastVerified: string | null;
+  ordersVerified: number;
+  ordersFixed: number;
+  creditIntegrity: string;
+  revenueIntegrity: string;
+  badge: string;
+}> {
+  const lastRunResult = await pool.query(
+    `SELECT MAX(verified_at) AS last_verified
+     FROM attribution_verification_log WHERE user_id = $1`,
+    [userId],
+  );
+  const lastVerified: string | null = lastRunResult.rows[0]?.last_verified
+    ? new Date(lastRunResult.rows[0].last_verified).toISOString()
+    : null;
+
+  const statsResult = await pool.query(
+    `SELECT
+       COUNT(*) AS total,
+       COUNT(*) FILTER (WHERE was_normalized) AS fixed,
+       COUNT(*) FILTER (WHERE ABS(credit_sum - 1.0) < $2) AS credit_ok,
+       COUNT(*) FILTER (WHERE ABS(total_credited - actual_revenue) < $3) AS revenue_ok
+     FROM attribution_verification_log
+     WHERE user_id = $1
+       AND verified_at >= COALESCE(
+         (SELECT MAX(verified_at) - INTERVAL '1 minute'
+          FROM attribution_verification_log WHERE user_id = $1),
+         '1970-01-01'::timestamptz
+       )`,
+    [userId, CREDIT_EPSILON, REVENUE_EPSILON],
+  );
+
+  const total = parseInt(statsResult.rows[0]?.total || '0', 10);
+  const fixed = parseInt(statsResult.rows[0]?.fixed || '0', 10);
+  const creditOk = parseInt(statsResult.rows[0]?.credit_ok || '0', 10);
+  const revenueOk = parseInt(statsResult.rows[0]?.revenue_ok || '0', 10);
+
+  const creditIntegrity =
+    total > 0 ? `${Math.round((creditOk / total) * 100)}%` : '100%';
+  const revenueIntegrity =
+    total > 0 ? `${Math.round((revenueOk / total) * 100)}%` : '100%';
+  const allValid = fixed === 0;
+
+  return {
+    status: allValid ? 'verified' : 'normalized',
+    lastVerified,
+    ordersVerified: total,
+    ordersFixed: fixed,
+    creditIntegrity,
+    revenueIntegrity,
+    badge: allValid
+      ? '\u2713 No Double Counting \u2014 All attributed revenue matches actual revenue'
+      : `\u2713 No Double Counting \u2014 ${fixed} order(s) were auto-normalized`,
+  };
+}
+
+/**
+ * Run verification for all users.
+ * Called from the scheduler after attribution computation.
+ */
+export async function verifyAttributionForAllUsers(): Promise<{
+  usersVerified: number;
+  totalOrdersChecked: number;
+  totalOrdersFixed: number;
+}> {
+  const usersResult = await pool.query('SELECT DISTINCT id FROM users');
+  const userIds: number[] = usersResult.rows.map((r) => r.id);
+
+  let usersVerified = 0;
+  let totalOrdersChecked = 0;
+  let totalOrdersFixed = 0;
+
+  for (const userId of userIds) {
+    try {
+      const report = await verifyAttribution(userId);
+      if (report.ordersChecked > 0) usersVerified++;
+      totalOrdersChecked += report.ordersChecked;
+      totalOrdersFixed += report.ordersFixed;
+    } catch (err) {
+      log.error({ userId, err }, 'Attribution verification failed for user');
+    }
+  }
+
+  log.info(
+    { usersVerified, totalOrdersChecked, totalOrdersFixed },
+    'Attribution verification complete for all users',
+  );
+
+  return { usersVerified, totalOrdersChecked, totalOrdersFixed };
+}
+
 // ── Scheduled computation for all users ─────────────────────────
+
+// ── Attribution settings helpers ─────────────────────────────
+
+export const VALID_LOOKBACK_DAYS = [7, 14, 30, 60, 90, 180, 365, 0];
+export const VALID_ACCOUNTING_MODES = ['accrual', 'cash'] as const;
+export type AccountingMode = (typeof VALID_ACCOUNTING_MODES)[number];
+
+export interface AttributionSettings {
+  id: number;
+  user_id: number;
+  default_lookback_days: number;
+  default_model: AttributionModel;
+  accounting_mode: AccountingMode;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Get a user's attribution settings. Returns defaults if no row exists.
+ */
+export async function getUserAttributionSettings(
+  userId: number,
+): Promise<AttributionSettings> {
+  const result = await pool.query<AttributionSettings>(
+    `SELECT * FROM attribution_settings WHERE user_id = $1`,
+    [userId],
+  );
+  if (result.rows.length > 0) {
+    return result.rows[0];
+  }
+  // Return defaults
+  return {
+    id: 0,
+    user_id: userId,
+    default_lookback_days: 30,
+    default_model: 'time_decay',
+    accounting_mode: 'accrual',
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+}
+
+/**
+ * Upsert a user's attribution settings.
+ */
+export async function upsertUserAttributionSettings(
+  userId: number,
+  settings: {
+    default_lookback_days?: number;
+    default_model?: AttributionModel;
+    accounting_mode?: AccountingMode;
+  },
+): Promise<AttributionSettings> {
+  const result = await pool.query<AttributionSettings>(
+    `INSERT INTO attribution_settings (user_id, default_lookback_days, default_model, accounting_mode)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (user_id)
+     DO UPDATE SET
+       default_lookback_days = COALESCE($2, attribution_settings.default_lookback_days),
+       default_model = COALESCE($3, attribution_settings.default_model),
+       accounting_mode = COALESCE($4, attribution_settings.accounting_mode),
+       updated_at = NOW()
+     RETURNING *`,
+    [
+      userId,
+      settings.default_lookback_days ?? 30,
+      settings.default_model ?? 'time_decay',
+      settings.accounting_mode ?? 'accrual',
+    ],
+  );
+  return result.rows[0];
+}
+
+// ── Scheduled computation for all users ─────────────────────────
+
+// Standard lookback windows that are always computed
+const STANDARD_WINDOWS = [7, 14, 30];
 
 /**
  * Run attribution computation for all users.
  * Called from the scheduler daily at 3:00 AM.
+ * Reads each user's attribution_settings for their preferred lookback window
+ * and computes for standard windows (7, 14, 30) plus the user's custom window.
  */
 export async function computeAttributionForAllUsers(): Promise<{
   usersProcessed: number;
@@ -740,14 +1132,31 @@ export async function computeAttributionForAllUsers(): Promise<{
 
   for (const userId of userIds) {
     try {
-      // Compute for the last 90 days by default (captures recent journeys)
-      const result = await computeAttribution(userId, {
-        startDate: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
-        endDate: new Date().toISOString().slice(0, 10),
-      });
-      totalOrders += result.orders;
-      totalResults += result.results;
-      if (result.orders > 0) usersProcessed++;
+      // Read user's preferred lookback window
+      const settings = await getUserAttributionSettings(userId);
+      const userWindow = settings.default_lookback_days;
+
+      // Build the set of windows to compute: standard + user's custom
+      const windows = [...new Set([...STANDARD_WINDOWS, userWindow])];
+
+      let userHadOrders = false;
+
+      for (const lookbackDays of windows) {
+        try {
+          const result = await computeAttribution(userId, {
+            startDate: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+            endDate: new Date().toISOString().slice(0, 10),
+            lookbackDays,
+          });
+          totalOrders += result.orders;
+          totalResults += result.results;
+          if (result.orders > 0) userHadOrders = true;
+        } catch (err) {
+          log.error({ userId, lookbackDays, err }, 'Attribution computation failed for window');
+        }
+      }
+
+      if (userHadOrders) usersProcessed++;
     } catch (err) {
       log.error({ userId, err }, 'Attribution computation failed for user');
     }

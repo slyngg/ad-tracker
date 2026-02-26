@@ -52,6 +52,11 @@ import healthRouter from './routes/health';
 import trackingRouter from './routes/tracking';
 import pixelSitesRouter from './routes/pixel-sites';
 import pixelAttributionRouter from './routes/pixel-attribution';
+import newVsReturningRouter from './routes/new-vs-returning';
+import benchmarksRouter from './routes/benchmarks';
+import metricsCorrelationRouter from './routes/metrics-correlation';
+import mmmRouter from './routes/mmm';
+import viewThroughRouter from './routes/view-through';
 import { authMiddleware } from './middleware/auth';
 import { startScheduler } from './services/scheduler';
 import { initJobQueue, shutdownJobQueue, registerRepeatableJobs, startSyncWorker } from './services/job-queue';
@@ -228,6 +233,11 @@ app.use('/api/capi-relay', capiRelayRouter);
 app.use('/api/tiktok-relay', tiktokRelayRouter);
 app.use('/api/google-relay', googleRelayRouter);
 app.use('/api/pixel-attribution', pixelAttributionRouter);
+app.use('/api/attribution/new-vs-returning', newVsReturningRouter);
+app.use('/api/benchmarks', benchmarksRouter);
+app.use('/api/metrics', metricsCorrelationRouter);
+app.use('/api/mmm', mmmRouter);
+app.use('/api/attribution', viewThroughRouter);
 
 const httpServer = createServer(app);
 

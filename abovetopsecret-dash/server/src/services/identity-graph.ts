@@ -7,6 +7,10 @@
  */
 
 import pool from '../db';
+import { classifyCustomer, updateFirstOrderDate } from './new-vs-returning';
+import { createLogger } from '../lib/logger';
+
+const log = createLogger('IdentityGraph');
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -432,6 +436,31 @@ export async function recordEvent(userId: number, visitorId: number | null, data
        )`,
       [data.orderId, data.revenue, visitorId],
     );
+
+    // Classify as new vs returning customer and stamp the event
+    if (data.orderId) {
+      try {
+        const emailResult = await pool.query(
+          `SELECT email FROM pixel_visitors WHERE id = $1`,
+          [visitorId],
+        );
+        const email = emailResult.rows[0]?.email || null;
+        const isNew = await classifyCustomer(userId, email, visitorId, data.orderId);
+
+        await pool.query(
+          `UPDATE pixel_events_v2
+           SET is_new_customer = $1
+           WHERE user_id = $2 AND order_id = $3 AND event_name = 'Purchase'`,
+          [isNew, userId, data.orderId],
+        );
+
+        if (isNew) {
+          await updateFirstOrderDate(visitorId, new Date());
+        }
+      } catch (err) {
+        log.warn({ userId, visitorId, orderId: data.orderId, err }, 'Failed to classify new vs returning on event');
+      }
+    }
   }
 }
 

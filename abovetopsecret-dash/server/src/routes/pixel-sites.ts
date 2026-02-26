@@ -12,6 +12,7 @@ import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
 import pool from '../db';
 import { getVisitorJourney } from '../services/identity-graph';
+import { generateDnsChallenge, verifyDns, getDnsStatus } from '../services/dns-pixel';
 
 const router = Router();
 
@@ -124,6 +125,58 @@ router.delete('/:id', async (req: Request, res: Response) => {
   }
 });
 
+// ── POST /api/pixel-sites/:id/dns/setup — Initialize DNS setup ──
+
+router.post('/:id/dns/setup', async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    const { id } = req.params;
+    const { customDomain } = req.body;
+
+    if (!customDomain) {
+      res.status(400).json({ error: 'customDomain is required' });
+      return;
+    }
+
+    const challenge = await generateDnsChallenge(parseInt(id), userId!, customDomain);
+    res.json(challenge);
+  } catch (err: any) {
+    console.error('Error setting up DNS:', err);
+    res.status(err.message === 'Site not found' ? 404 : 400).json({ error: err.message || 'Failed to setup DNS' });
+  }
+});
+
+// ── POST /api/pixel-sites/:id/dns/verify — Verify DNS records ──
+
+router.post('/:id/dns/verify', async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    const { id } = req.params;
+
+    const result = await verifyDns(parseInt(id), userId!);
+    res.json(result);
+  } catch (err: any) {
+    console.error('Error verifying DNS:', err);
+    const status = err.message === 'Site not found' ? 404 : 400;
+    res.status(status).json({ error: err.message || 'Failed to verify DNS' });
+  }
+});
+
+// ── GET /api/pixel-sites/:id/dns/status — Get DNS status ──
+
+router.get('/:id/dns/status', async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    const { id } = req.params;
+
+    const status = await getDnsStatus(parseInt(id), userId!);
+    res.json(status);
+  } catch (err: any) {
+    console.error('Error fetching DNS status:', err);
+    res.status(err.message === 'Site not found' ? 404 : 500).json({ error: err.message || 'Failed to fetch DNS status' });
+  }
+});
+
 // ── GET /api/pixel-sites/:id/snippet — installation snippet ──
 
 router.get('/:id/snippet', async (req: Request, res: Response) => {
@@ -132,7 +185,7 @@ router.get('/:id/snippet', async (req: Request, res: Response) => {
     const { id } = req.params;
 
     const result = await pool.query(
-      'SELECT site_token, domain FROM pixel_sites WHERE id = $1 AND user_id = $2',
+      'SELECT site_token, domain, custom_domain, dns_verified FROM pixel_sites WHERE id = $1 AND user_id = $2',
       [id, userId],
     );
 
@@ -141,10 +194,13 @@ router.get('/:id/snippet', async (req: Request, res: Response) => {
       return;
     }
 
-    const { site_token } = result.rows[0];
+    const { site_token, custom_domain, dns_verified } = result.rows[0];
     const proto = req.headers['x-forwarded-proto'] || req.protocol || 'https';
     const host = req.headers['x-forwarded-host'] || req.headers.host || '';
-    const baseUrl = `${proto}://${host}`;
+    // Use verified custom domain for the snippet if available
+    const baseUrl = (dns_verified && custom_domain)
+      ? `https://${custom_domain}`
+      : `${proto}://${host}`;
 
     const snippet = `<!-- OpticData Pixel -->
 <script>

@@ -11,7 +11,11 @@ import { syncFollowedBrands } from './ad-library';
 import { processUnsentEvents } from './meta-capi';
 import { processUnsentEvents as processTikTokUnsentEvents } from './tiktok-events-api';
 import { processUnsentEvents as processGoogleUnsentEvents } from './google-enhanced-conversions';
-import { computeAttributionForAllUsers } from './pixel-attribution';
+import { computeAttributionForAllUsers, verifyAttributionForAllUsers } from './pixel-attribution';
+import { syncImpressionsForAllUsers } from './impression-sync';
+import { computeViewThroughForAllUsers } from './view-through-attribution';
+import { snapshotDailyProfitForAllUsers, computeBenchmarksForAllUsers } from './benchmarks';
+import { fitAllUserCurves } from './mmm-engine';
 import { getSetting } from './settings';
 import { evaluateRules } from './rules-engine';
 import { checkThresholds } from './notifications';
@@ -46,6 +50,11 @@ const LOCK_TIKTOK_SYNC = 100009;
 const LOCK_KLAVIYO_SYNC = 100010;
 const LOCK_NEWSBREAK_SYNC = 100012;
 const LOCK_PIXEL_ATTRIBUTION = 100015;
+const LOCK_DAILY_PROFIT_SNAPSHOT = 100017;
+const LOCK_BENCHMARKS_COMPUTE = 100018;
+const LOCK_MMM_CURVE_FIT = 100019;
+const LOCK_IMPRESSION_SYNC = 100020;
+const LOCK_VIEW_THROUGH = 100021;
 
 async function withAdvisoryLock(
   lockId: number,
@@ -543,8 +552,92 @@ export function startScheduler(): void {
       } catch (err) {
         console.error('[Scheduler] Pixel attribution computation failed:', err);
       }
-    }, 10 * 60 * 1000); // 10-minute timeout for attribution (can be heavy)
+
+      // Run no-double-counting verification after attribution
+      console.log('[Scheduler] Running attribution verification...');
+      try {
+        const verifyResult = await verifyAttributionForAllUsers();
+        console.log(`[Scheduler] Attribution verification: ${verifyResult.usersVerified} users, ${verifyResult.totalOrdersChecked} orders checked, ${verifyResult.totalOrdersFixed} fixed`);
+      } catch (err) {
+        console.error('[Scheduler] Attribution verification failed:', err);
+      }
+    }, 20 * 60 * 1000); // 20-minute timeout for attribution (computes multiple lookback windows)
   });
 
-  console.log('[Scheduler] Cron jobs registered: Meta Ads (*/2), CC poll (* * *), GA4 (3,18,33,48), CC full sync (0 */4), Creative (5,35), Daily reset (0 *), OAuth refresh (0 *), Shopify (30 */6), TikTok (*/2), NewsBreak (1/2), Klaviyo (15 */2), Ad Library (45 */2), Meta CAPI relay (*/1), TikTok relay (*/1), Google relay (*/1), Pixel attribution (0 3)');
+  // Daily profit snapshot at 4:00 AM UTC (after archives are settled)
+  cron.schedule('0 4 * * *', async () => {
+    await withAdvisoryLock(LOCK_DAILY_PROFIT_SNAPSHOT, 'Daily profit snapshot', async () => {
+      console.log('[Scheduler] Running daily profit snapshot...');
+      try {
+        const result = await snapshotDailyProfitForAllUsers();
+        if (result.usersProcessed > 0) {
+          console.log(`[Scheduler] Daily profit snapshot: ${result.usersProcessed} users processed`);
+        }
+      } catch (err) {
+        console.error('[Scheduler] Daily profit snapshot failed:', err);
+      }
+    }, 10 * 60 * 1000);
+  });
+
+  // Benchmarks + campaign stoplights at 4:30 AM UTC (after daily snapshots)
+  cron.schedule('30 4 * * *', async () => {
+    await withAdvisoryLock(LOCK_BENCHMARKS_COMPUTE, 'Benchmarks compute', async () => {
+      console.log('[Scheduler] Running benchmarks + stoplights computation...');
+      try {
+        const result = await computeBenchmarksForAllUsers();
+        if (result.usersProcessed > 0) {
+          console.log(`[Scheduler] Benchmarks/stoplights: ${result.usersProcessed} users processed`);
+        }
+      } catch (err) {
+        console.error('[Scheduler] Benchmarks computation failed:', err);
+      }
+    }, 10 * 60 * 1000);
+  });
+
+  // MMM curve fitting weekly on Sundays at 5 AM UTC
+  cron.schedule('0 5 * * 0', async () => {
+    await withAdvisoryLock(LOCK_MMM_CURVE_FIT, 'MMM curve fitting', async () => {
+      console.log('[Scheduler] Running MMM curve fitting...');
+      try {
+        const result = await fitAllUserCurves();
+        if (result.totalChannels > 0) {
+          console.log(`[Scheduler] MMM curve fitting: ${result.usersProcessed} users, ${result.totalChannels} channels fitted`);
+        }
+      } catch (err) {
+        console.error('[Scheduler] MMM curve fitting failed:', err);
+      }
+    }, 10 * 60 * 1000);
+  });
+
+  // Impression sync daily at 2:00 AM UTC (before attribution)
+  cron.schedule('0 2 * * *', async () => {
+    await withAdvisoryLock(LOCK_IMPRESSION_SYNC, 'Impression sync', async () => {
+      console.log('[Scheduler] Running impression sync...');
+      try {
+        const result = await syncImpressionsForAllUsers();
+        if (result.totalUpserted > 0) {
+          console.log(`[Scheduler] Impression sync: ${result.usersProcessed} users, ${result.totalUpserted} rows upserted`);
+        }
+      } catch (err) {
+        console.error('[Scheduler] Impression sync failed:', err);
+      }
+    }, 10 * 60 * 1000);
+  });
+
+  // View-through attribution daily at 3:30 AM UTC (after click attribution at 3:00 AM)
+  cron.schedule('30 3 * * *', async () => {
+    await withAdvisoryLock(LOCK_VIEW_THROUGH, 'View-through attribution', async () => {
+      console.log('[Scheduler] Running view-through attribution computation...');
+      try {
+        const result = await computeViewThroughForAllUsers();
+        if (result.totalOrders > 0) {
+          console.log(`[Scheduler] View-through attribution: ${result.usersProcessed} users, ${result.totalOrders} orders, ${result.totalResults} results`);
+        }
+      } catch (err) {
+        console.error('[Scheduler] View-through attribution computation failed:', err);
+      }
+    }, 10 * 60 * 1000);
+  });
+
+  console.log('[Scheduler] Cron jobs registered: Meta Ads (*/2), CC poll (* * *), GA4 (3,18,33,48), CC full sync (0 */4), Creative (5,35), Daily reset (0 *), OAuth refresh (0 *), Shopify (30 */6), TikTok (*/2), NewsBreak (1/2), Klaviyo (15 */2), Ad Library (45 */2), Meta CAPI relay (*/1), TikTok relay (*/1), Google relay (*/1), Impression sync (0 2), Pixel attribution (0 3), View-through (30 3), Profit snapshot (0 4), Benchmarks (30 4), MMM fit (0 5 Sun)');
 }

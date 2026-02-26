@@ -21,6 +21,7 @@ import {
   recordTouchpoint,
   identifyVisitor,
 } from '../services/identity-graph';
+import { resolveSiteByCustomDomain } from '../services/dns-pixel';
 
 const router = Router();
 
@@ -32,14 +33,39 @@ const TRANSPARENT_GIF = Buffer.from(
 
 // ── Resolve site token to user ───────────────────────────────
 
-async function resolveSiteToken(token: string): Promise<{ userId: number; siteId: number } | null> {
-  if (!token) return null;
-  const result = await pool.query(
-    `SELECT id, user_id FROM pixel_sites WHERE site_token = $1 AND enabled = true`,
-    [token],
-  );
-  if (result.rows.length === 0) return null;
-  return { userId: result.rows[0].user_id, siteId: result.rows[0].id };
+async function resolveSiteToken(
+  token: string,
+  hostname?: string,
+): Promise<{ userId: number; siteId: number; customDomain?: string } | null> {
+  // Try resolving by token first
+  if (token) {
+    const result = await pool.query(
+      `SELECT id, user_id, custom_domain, dns_verified FROM pixel_sites WHERE site_token = $1 AND enabled = true`,
+      [token],
+    );
+    if (result.rows.length > 0) {
+      const row = result.rows[0];
+      return {
+        userId: row.user_id,
+        siteId: row.id,
+        customDomain: row.dns_verified ? row.custom_domain : undefined,
+      };
+    }
+  }
+
+  // Fallback: try matching by verified custom domain from the Host header
+  if (hostname) {
+    const site = await resolveSiteByCustomDomain(hostname);
+    if (site) {
+      return {
+        userId: site.userId,
+        siteId: site.siteId,
+        customDomain: hostname.toLowerCase().replace(/:\d+$/, ''),
+      };
+    }
+  }
+
+  return null;
 }
 
 // ── GET /t/pixel.js — Serve the tracking pixel script ────────
@@ -52,7 +78,8 @@ router.get('/pixel.js', async (req: Request, res: Response) => {
       return;
     }
 
-    const site = await resolveSiteToken(token);
+    const hostname = String(req.headers['x-forwarded-host'] || req.headers.host || '').replace(/[^a-zA-Z0-9.\-:]/g, '');
+    const site = await resolveSiteToken(token, hostname);
     if (!site) {
       res.status(404).type('text/javascript').send('// Invalid token');
       return;
@@ -61,11 +88,11 @@ router.get('/pixel.js', async (req: Request, res: Response) => {
     // Determine the tracking endpoint base URL — sanitize header values
     const rawProto = String(req.headers['x-forwarded-proto'] || req.protocol || 'https');
     const proto = /^https?$/.test(rawProto) ? rawProto : 'https';
-    const rawHost = String(req.headers['x-forwarded-host'] || req.headers.host || '');
-    const host = rawHost.replace(/[^a-zA-Z0-9.\-:]/g, '');
-    const baseUrl = `${proto}://${host}`;
+    const baseUrl = `${proto}://${hostname}`;
 
-    const script = generatePixelScript(token, baseUrl);
+    // If DNS is verified and the site has a custom domain, use it for event POSTs
+    const customDomain = site.customDomain || undefined;
+    const script = generatePixelScript(token, baseUrl, customDomain);
 
     res.set({
       'Content-Type': 'application/javascript',
@@ -90,7 +117,8 @@ router.post('/event', async (req: Request, res: Response) => {
       return;
     }
 
-    const site = await resolveSiteToken(token);
+    const hostname = String(req.headers['x-forwarded-host'] || req.headers.host || '').replace(/[^a-zA-Z0-9.\-:]/g, '');
+    const site = await resolveSiteToken(token, hostname);
     if (!site) {
       res.status(404).json({ error: 'Invalid token' });
       return;
@@ -192,7 +220,8 @@ router.post('/identify', async (req: Request, res: Response) => {
       return;
     }
 
-    const site = await resolveSiteToken(token);
+    const hostname = String(req.headers['x-forwarded-host'] || req.headers.host || '').replace(/[^a-zA-Z0-9.\-:]/g, '');
+    const site = await resolveSiteToken(token, hostname);
     if (!site) {
       res.status(404).json({ error: 'Invalid token' });
       return;
@@ -225,7 +254,8 @@ router.get('/ping.gif', async (req: Request, res: Response) => {
     const page = req.query.page as string;
 
     if (token) {
-      const site = await resolveSiteToken(token);
+      const hostname = String(req.headers['x-forwarded-host'] || req.headers.host || '').replace(/[^a-zA-Z0-9.\-:]/g, '');
+      const site = await resolveSiteToken(token, hostname);
       if (site) {
         const ipAddress = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket.remoteAddress || null;
         // Record a basic pageview event with minimal data
@@ -266,13 +296,17 @@ router.options('*', (_req: Request, res: Response) => {
 
 // ── Generate the pixel JavaScript ────────────────────────────
 
-function generatePixelScript(siteToken: string, baseUrl: string): string {
+function generatePixelScript(siteToken: string, baseUrl: string, customDomain?: string): string {
+  // If a verified custom domain is configured, use it for event POSTs
+  // This makes all tracking requests truly first-party (bypasses ITP, ad blockers)
+  const apiBase = customDomain ? `https://${customDomain}/t` : `${baseUrl}/t`;
+
   return `// OpticData Pixel v2 — Enhanced First-Party Tracking
 // https://opticdata.io
 (function(w,d){
   "use strict";
   if(w.__odt)return;
-  var Q=[],API="${baseUrl}/t",TOKEN="${siteToken}";
+  var Q=[],API="${apiBase}",TOKEN="${siteToken}";
 
   // ── Utility ──────────────────────────────────────────────
   function uuid(){

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { ChevronRight } from 'lucide-react';
 import { NavSectionConfig } from '../../types/navigation';
 import { useTourStore, TOUR_STEPS } from '../../stores/tourStore';
@@ -12,6 +12,7 @@ interface NavSectionProps {
 
 export default function NavSection({ section, collapsed }: NavSectionProps) {
   const location = useLocation();
+  const navigate = useNavigate();
   const Icon = section.icon;
   const tourActive = useTourStore(s => s.active);
   const tourStep = useTourStore(s => s.currentStep);
@@ -45,7 +46,13 @@ export default function NavSection({ section, collapsed }: NavSectionProps) {
     <div>
       <button
         data-tour={section.tourId}
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => {
+          if (collapsed && section.children?.[0]) {
+            navigate(section.children[0].path);
+          } else {
+            setOpen((o) => !o);
+          }
+        }}
         className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-colors text-sm ${
           isChildActive
             ? 'text-ats-accent'

@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { DayPicker, type DateRange } from 'react-day-picker';
 import { startOfDay } from './presets';
 
@@ -9,6 +10,26 @@ interface DateRangeCalendarProps {
 
 export default function DateRangeCalendar({ range, onSelect, isMobile }: DateRangeCalendarProps) {
   const today = startOfDay(new Date());
+  const numMonths = isMobile ? 1 : 2;
+
+  // Controlled month: show the range's "to" month on the right panel
+  const [month, setMonth] = useState<Date>(() => {
+    const anchor = range?.to ?? range?.from ?? today;
+    if (numMonths === 2) {
+      return new Date(anchor.getFullYear(), anchor.getMonth() - 1, 1);
+    }
+    return new Date(anchor.getFullYear(), anchor.getMonth(), 1);
+  });
+
+  // When range changes (preset click), navigate calendar to show the range
+  useEffect(() => {
+    const anchor = range?.to ?? range?.from ?? today;
+    if (numMonths === 2) {
+      setMonth(new Date(anchor.getFullYear(), anchor.getMonth() - 1, 1));
+    } else {
+      setMonth(new Date(anchor.getFullYear(), anchor.getMonth(), 1));
+    }
+  }, [range?.from?.getTime(), range?.to?.getTime(), numMonths]);
 
   return (
     <div className="p-3 rdp-dark">
@@ -16,8 +37,10 @@ export default function DateRangeCalendar({ range, onSelect, isMobile }: DateRan
         mode="range"
         selected={range}
         onSelect={onSelect}
-        numberOfMonths={isMobile ? 1 : 2}
+        numberOfMonths={numMonths}
         pagedNavigation
+        month={month}
+        onMonthChange={setMonth}
         captionLayout="dropdown"
         disabled={{ after: today }}
         today={today}
@@ -27,9 +50,9 @@ export default function DateRangeCalendar({ range, onSelect, isMobile }: DateRan
           root: 'text-ats-text text-sm',
           months: 'flex gap-4',
           month_caption: 'flex justify-center items-center mb-2',
-          caption_label: 'text-sm font-semibold text-ats-text',
-          dropdowns: 'flex items-center gap-1',
-          dropdown: 'bg-transparent text-ats-text text-sm font-semibold border-none outline-none cursor-pointer appearance-none',
+          caption_label: 'hidden',
+          dropdowns: 'flex items-center gap-2',
+          dropdown: 'bg-transparent text-ats-text text-sm font-semibold border-none outline-none cursor-pointer',
           dropdown_root: 'relative',
           nav: 'flex items-center justify-between absolute top-3 left-3 right-3',
           button_previous:

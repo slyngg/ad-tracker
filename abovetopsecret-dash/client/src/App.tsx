@@ -84,6 +84,11 @@ const AdLibraryPage = lazy(() => import('./pages/creative/AdLibraryPage'));
 // Pixel Tracking
 const PixelPage = lazy(() => import('./pages/PixelPage'));
 
+// Intelligence
+const BenchmarksPage = lazy(() => import('./pages/BenchmarksPage'));
+const MetricsExplorerPage = lazy(() => import('./pages/MetricsExplorerPage'));
+const BudgetForecastPage = lazy(() => import('./pages/BudgetForecastPage'));
+
 // Error boundary
 interface ErrorBoundaryState {
   hasError: boolean;
@@ -251,6 +256,11 @@ export default function App() {
 
               {/* Pixel Tracking */}
               <Route path="/pixel" element={<PixelPage />} />
+
+              {/* Intelligence */}
+              <Route path="/benchmarks" element={<BenchmarksPage />} />
+              <Route path="/metrics/explorer" element={<MetricsExplorerPage />} />
+              <Route path="/budget-forecast" element={<BudgetForecastPage />} />
 
               {/* 404 */}
               <Route path="*" element={<NotFoundPage />} />
