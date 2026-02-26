@@ -1004,6 +1004,7 @@ import {
   updateNewsBreakCampaignStatus,
   updateNewsBreakAdGroupStatus,
   adjustNewsBreakBudget,
+  getNewsBreakAdGroupBudgets,
 } from '../services/newsbreak-api';
 
 router.post('/live/status', publishLimiter, async (req: Request, res: Response) => {
@@ -1056,6 +1057,24 @@ router.post('/live/budget', publishLimiter, async (req: Request, res: Response) 
   } catch (err: any) {
     console.error('Error adjusting budget:', err);
     res.status(500).json({ error: err.message || 'Failed to adjust budget' });
+  }
+});
+
+// ── Fetch adgroup budgets from NewsBreak API ──────────────────
+
+router.get('/live/budgets/:platform/:campaignId', async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+    const { platform, campaignId } = req.params;
+    if (platform === 'newsbreak') {
+      const budgets = await getNewsBreakAdGroupBudgets(campaignId, userId);
+      res.json(budgets);
+    } else {
+      res.json([]);
+    }
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to fetch budgets' });
   }
 });
 

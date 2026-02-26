@@ -46,19 +46,37 @@ function fetchNewsBreakJSON(accessToken: string, body: any): Promise<any> {
 
 /**
  * Sync all NewsBreak accounts for a user (multi-account aware).
- * Called by the scheduler instead of syncNewsBreakAds directly.
+ * Iterates over every NB account in the accounts table and syncs each
+ * with its own advertiser_id so data is properly separated.
  */
 export async function syncAllNewsBreakForUser(userId: number): Promise<{ synced: number; skipped: boolean; accounts: number }> {
-  const allAuth = await getAllNewsBreakAuth(userId);
-  if (allAuth.length === 0) return { synced: 0, skipped: true, accounts: 0 };
+  // Get API credentials (may be one key that works for all advertiser accounts)
+  const auth = await getNewsBreakAuth(userId);
+  if (!auth) return { synced: 0, skipped: true, accounts: 0 };
+
+  // Get all NB accounts from the accounts table — each has a distinct platform_account_id (advertiser_id)
+  const acctRes = await pool.query(
+    `SELECT id, platform_account_id FROM accounts WHERE user_id = $1 AND platform = 'newsbreak' AND status = 'active' ORDER BY id`,
+    [userId]
+  );
+
+  // If no accounts in the table, fall back to single sync with the auth's accountId
+  if (acctRes.rows.length === 0) {
+    const result = await syncNewsBreakAds(userId, auth);
+    return { synced: result.synced, skipped: false, accounts: 1 };
+  }
 
   let totalSynced = 0;
-  for (const auth of allAuth) {
-    const result = await syncNewsBreakAds(userId, auth);
+  for (const acct of acctRes.rows) {
+    const advertiserId = acct.platform_account_id;
+    if (!advertiserId) continue;
+    // Override the auth's accountId with this specific advertiser's ID
+    const acctAuth: NewsBreakAuth = { ...auth, accountId: advertiserId };
+    const result = await syncNewsBreakAds(userId, acctAuth);
     totalSynced += result.synced;
   }
 
-  return { synced: totalSynced, skipped: false, accounts: allAuth.length };
+  return { synced: totalSynced, skipped: false, accounts: acctRes.rows.length };
 }
 
 export async function syncNewsBreakAds(userId?: number, authOverride?: NewsBreakAuth): Promise<{ synced: number; skipped: boolean }> {
@@ -91,7 +109,7 @@ export async function syncNewsBreakAds(userId?: number, authOverride?: NewsBreak
 
   // NewsBreak API often has a reporting lag — today's data may not be ready.
   // Pull yesterday + today to ensure we always have the most recent data.
-  const requestBody = {
+  const requestBody: Record<string, any> = {
     name: `sync_${today}`,
     dateRange: 'FIXED',
     startDate: yesterday,
@@ -99,6 +117,10 @@ export async function syncNewsBreakAds(userId?: number, authOverride?: NewsBreak
     dimensions: ['CAMPAIGN', 'AD_SET', 'AD'],
     metrics: ['COST'],
   };
+  // Pass advertiser_id so the API returns data for this specific account
+  if (accountId && accountId !== 'default') {
+    requestBody.advertiser_id = accountId;
+  }
 
   let synced = 0;
   const dbClient = await pool.connect();

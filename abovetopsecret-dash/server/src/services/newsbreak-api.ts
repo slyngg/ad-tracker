@@ -263,3 +263,24 @@ export async function adjustNewsBreakBudget(
     budget: budgetDollars,
   });
 }
+
+export async function getNewsBreakAdGroupBudgets(
+  campaignId: string,
+  userId: number
+): Promise<{ adgroup_id: string; budget: number; budget_mode: string; status: string }[]> {
+  const auth = await getNewsBreakAuth(userId);
+  if (!auth) return [];
+  try {
+    const data = await newsbreakRequest('GET', `/business-api/v1/adgroups/get?advertiser_id=${auth.accountId}&campaign_id=${campaignId}`, auth.accessToken);
+    const list = data?.list || data?.adgroups || (Array.isArray(data) ? data : []);
+    return list.map((ag: any) => ({
+      adgroup_id: String(ag.adgroup_id || ag.id),
+      budget: (ag.budget || 0),
+      budget_mode: ag.budget_mode || 'BUDGET_MODE_DAY',
+      status: ag.status || ag.opt_status || 'UNKNOWN',
+    }));
+  } catch (err) {
+    // API may not support this endpoint for all account types
+    return [];
+  }
+}

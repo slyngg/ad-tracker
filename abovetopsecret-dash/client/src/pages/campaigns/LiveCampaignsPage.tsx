@@ -10,10 +10,12 @@ import {
   duplicateLiveEntity,
   fetchAccounts,
   uploadCampaignMedia,
+  fetchAdGroupBudgets,
   LiveCampaign,
   LiveAdset,
   LiveAd,
   Account,
+  AdGroupBudget,
 } from '../../lib/api';
 import {
   ChevronDown,
@@ -1467,8 +1469,9 @@ export default function LiveCampaignsPage() {
   const [expanded, setExpanded] = useState<Record<string, LiveAdset[] | 'loading'>>({});
   const [expandedAds, setExpandedAds] = useState<Record<string, LiveAd[] | 'loading'>>({});
   const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({});
-  const [budgetModal, setBudgetModal] = useState<{ platform: string; entityId: string } | null>(null);
+  const [budgetModal, setBudgetModal] = useState<{ platform: string; entityId: string; currentBudget?: number } | null>(null);
   const [budgetValue, setBudgetValue] = useState('');
+  const [adsetBudgets, setAdsetBudgets] = useState<Record<string, number>>({});
 
   // Date range
   const dateRange = useDateRangeStore((s) => s.dateRange);
@@ -1534,8 +1537,19 @@ export default function LiveCampaignsPage() {
     try {
       const startDate = dateRange.isToday ? undefined : toIso(dateRange.from);
       const endDate = dateRange.isToday ? undefined : toIso(dateRange.to);
-      const data = await fetchLiveAdsets(c.platform, c.campaign_id, startDate, endDate);
+      const [data, budgets] = await Promise.all([
+        fetchLiveAdsets(c.platform, c.campaign_id, startDate, endDate),
+        fetchAdGroupBudgets(c.platform, c.campaign_id).catch(() => [] as AdGroupBudget[]),
+      ]);
       setExpanded(p => ({ ...p, [key]: data }));
+      // Map budgets by adgroup_id
+      if (budgets.length > 0) {
+        setAdsetBudgets(prev => {
+          const next = { ...prev };
+          for (const b of budgets) next[b.adgroup_id] = b.budget;
+          return next;
+        });
+      }
     } catch {
       setExpanded(p => { const n = { ...p }; delete n[key]; return n; });
     }
@@ -1579,6 +1593,8 @@ export default function LiveCampaignsPage() {
     setActionLoading(p => ({ ...p, [key]: true }));
     try {
       await updateLiveEntityBudget(budgetModal.platform, budgetModal.entityId, val);
+      // Update local budget state immediately
+      setAdsetBudgets(prev => ({ ...prev, [budgetModal.entityId]: val }));
       setBudgetModal(null); setBudgetValue('');
       await load();
     } catch (err: any) {
@@ -1811,6 +1827,7 @@ export default function LiveCampaignsPage() {
                       const asKey = `${c.platform}:${as.adset_id}`;
                       const ads = expandedAds[asKey];
                       const adsOpen = ads && ads !== 'loading';
+                      const currentBudget = adsetBudgets[as.adset_id];
 
                       return (
                         <Fragment key={`as-${asKey}`}>
@@ -1819,7 +1836,13 @@ export default function LiveCampaignsPage() {
                               {ads === 'loading' ? <Loader2 className="w-3.5 h-3.5 animate-spin text-ats-text-muted" /> :
                                 adsOpen ? <ChevronDown className="w-3.5 h-3.5 text-ats-text-muted" /> : <ChevronRight className="w-3.5 h-3.5 text-ats-text-muted" />}
                             </td>
-                            <td className="px-4 py-2.5"><span className="text-sm text-ats-text">{as.adset_name || as.adset_id}</span><span className="text-[10px] text-ats-text-muted ml-2">{as.ad_count} ads</span></td>
+                            <td className="px-4 py-2.5">
+                              <span className="text-sm text-ats-text">{as.adset_name || as.adset_id}</span>
+                              <span className="text-[10px] text-ats-text-muted ml-2">{as.ad_count} ads</span>
+                              {currentBudget !== undefined && (
+                                <span className="text-[10px] text-emerald-400/70 ml-2 font-mono">{fmt$(currentBudget)}/day</span>
+                              )}
+                            </td>
                             <td className="hidden md:table-cell" />
                             <td className="px-4 py-2.5 text-right font-mono text-ats-text text-xs">{fmt$(as.spend)}</td>
                             <td className="px-4 py-2.5 text-right text-ats-text-muted text-xs hidden sm:table-cell">{fmtNum(as.clicks)}</td>
@@ -1833,12 +1856,12 @@ export default function LiveCampaignsPage() {
                                   <>
                                     <button onClick={() => handleStatus(c.platform, 'adset', as.adset_id, false)} className="p-1.5 rounded-md hover:bg-yellow-500/20 text-ats-text-muted hover:text-yellow-400" title="Pause"><Pause className="w-3 h-3" /></button>
                                     <button
-                                      onClick={() => { setBudgetModal({ platform: c.platform, entityId: as.adset_id }); setBudgetValue(''); }}
+                                      onClick={() => { setBudgetModal({ platform: c.platform, entityId: as.adset_id, currentBudget }); setBudgetValue(currentBudget ? String(currentBudget) : ''); }}
                                       className="flex items-center gap-1 px-2 py-1 rounded-md bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 text-[10px] font-semibold transition-colors"
                                       title="Adjust Budget"
                                     >
                                       <DollarSign className="w-3 h-3" />
-                                      <span className="hidden sm:inline">Budget</span>
+                                      {currentBudget !== undefined ? fmt$(currentBudget) : 'Budget'}
                                     </button>
                                     <button
                                       onClick={() => handleDuplicate('adset', parseInt(as.adset_id))}
@@ -1895,12 +1918,37 @@ export default function LiveCampaignsPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setBudgetModal(null)}>
           <div className="bg-ats-card border border-ats-border rounded-2xl p-6 w-full max-w-sm mx-4" onClick={e => e.stopPropagation()}>
             <h3 className="text-base font-bold text-ats-text mb-4">Adjust Daily Budget</h3>
-            <div className="relative mb-4">
+            <div className="relative mb-3">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-ats-text-muted">$</span>
               <input type="number" min="5" step="1" value={budgetValue} onChange={e => setBudgetValue(e.target.value)} placeholder="50" autoFocus
                 className="w-full pl-7 pr-3 py-2.5 bg-ats-bg border border-ats-border rounded-lg text-sm text-ats-text focus:outline-none focus:border-ats-accent" />
-              <Hint>Minimum $5.00</Hint>
             </div>
+            {/* Quick adjust buttons */}
+            <div className="grid grid-cols-4 gap-2 mb-3">
+              {[-10, -5, 5, 10].map(amt => (
+                <button key={amt} onClick={() => {
+                  const cur = parseFloat(budgetValue) || 0;
+                  const next = Math.max(5, cur + amt);
+                  setBudgetValue(String(Math.round(next * 100) / 100));
+                }}
+                  className={`py-1.5 rounded-lg text-xs font-semibold border ${amt < 0 ? 'border-red-500/30 text-red-400 hover:bg-red-500/10' : 'border-green-500/30 text-green-400 hover:bg-green-500/10'}`}>
+                  {amt > 0 ? '+' : ''}{amt}
+                </button>
+              ))}
+            </div>
+            <div className="grid grid-cols-4 gap-2 mb-4">
+              {[-50, -25, 25, 50].map(amt => (
+                <button key={amt} onClick={() => {
+                  const cur = parseFloat(budgetValue) || 0;
+                  const next = Math.max(5, cur + amt);
+                  setBudgetValue(String(Math.round(next * 100) / 100));
+                }}
+                  className={`py-1.5 rounded-lg text-xs font-semibold border ${amt < 0 ? 'border-red-500/30 text-red-400 hover:bg-red-500/10' : 'border-green-500/30 text-green-400 hover:bg-green-500/10'}`}>
+                  {amt > 0 ? '+' : ''}{amt}
+                </button>
+              ))}
+            </div>
+            <p className="text-[11px] text-ats-text-muted mb-3">Minimum $5.00</p>
             <div className="flex gap-2 justify-end">
               <button onClick={() => setBudgetModal(null)} className="px-4 py-2 text-sm text-ats-text-muted hover:text-ats-text">Cancel</button>
               <button onClick={handleBudgetSubmit} disabled={actionLoading[`budget:${budgetModal.entityId}`]}

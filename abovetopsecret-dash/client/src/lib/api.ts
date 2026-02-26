@@ -1316,6 +1316,17 @@ export function updateLiveEntityBudget(platform: string, entityId: string, budge
   return request<{ success: boolean }>('/campaigns/live/budget', { method: 'POST', body: JSON.stringify({ platform, entity_id: entityId, budget_dollars: budgetDollars }) });
 }
 
+export interface AdGroupBudget {
+  adgroup_id: string;
+  budget: number;
+  budget_mode: string;
+  status: string;
+}
+
+export function fetchAdGroupBudgets(platform: string, campaignId: string): Promise<AdGroupBudget[]> {
+  return request<AdGroupBudget[]>(`/campaigns/live/budgets/${platform}/${encodeURIComponent(campaignId)}`);
+}
+
 export interface QuickCreateParams {
   account_id?: number;
   platform: string;
