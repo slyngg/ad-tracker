@@ -31,14 +31,14 @@ interface PlatformDef {
   iconBg: string;
   description: string;
   oauthPlatform?: string;
-  manualFields?: 'meta' | 'google' | 'shopify' | 'checkoutchamp' | 'newsbreak';
+  manualFields?: 'meta' | 'google' | 'shopify' | 'tiktok' | 'checkoutchamp' | 'newsbreak';
 }
 
 const PLATFORMS: PlatformDef[] = [
   { key: 'meta', label: 'Meta / Facebook Ads', icon: 'f', iconBg: 'bg-blue-600', description: 'Pull ad spend, ROAS, creative performance, and attribution data.', oauthPlatform: 'meta', manualFields: 'meta' },
   { key: 'google', label: 'Google Analytics 4', icon: 'G', iconBg: 'bg-red-600', description: 'Connect for traffic analytics, funnel analysis, and conversion data.', oauthPlatform: 'google', manualFields: 'google' },
   { key: 'shopify', label: 'Shopify', icon: 'S', iconBg: 'bg-green-600', description: 'Connect for order data, product insights, and webhook-based real-time updates.', oauthPlatform: 'shopify', manualFields: 'shopify' },
-  { key: 'tiktok', label: 'TikTok Ads', icon: 'T', iconBg: 'bg-pink-600', description: 'Connect for campaign performance and spend data.', oauthPlatform: 'tiktok' },
+  { key: 'tiktok', label: 'TikTok Ads', icon: 'T', iconBg: 'bg-pink-600', description: 'Connect for campaign performance and spend data.', oauthPlatform: 'tiktok', manualFields: 'tiktok' },
   { key: 'klaviyo', label: 'Klaviyo', icon: 'K', iconBg: 'bg-purple-600', description: 'Connect for email list metrics, campaign performance, and customer profiles.', oauthPlatform: 'klaviyo' },
   { key: 'checkoutchamp', label: 'CheckoutChamp', icon: 'C', iconBg: 'bg-indigo-600', description: 'Add the webhook URL as a postback in your CC campaign settings, or enter API credentials for polling.', manualFields: 'checkoutchamp' },
   { key: 'newsbreak', label: 'NewsBreak Ads', icon: 'N', iconBg: 'bg-orange-600', description: 'Connect for campaign performance, ad spend, and conversion data.', manualFields: 'newsbreak' },
@@ -57,10 +57,12 @@ export default function ConnectionsPage() {
   const [ccLoginId, setCcLoginId] = useState('');
   const [ccPassword, setCcPassword] = useState('');
   const [ccApiUrl, setCcApiUrl] = useState('');
-  const [ccWebhookSecret, setCcWebhookSecret] = useState('');
   const [ccPollEnabled, setCcPollEnabled] = useState(true);
   const [shopifySecret, setShopifySecret] = useState('');
   const [shopifyStoreUrl, setShopifyStoreUrl] = useState('');
+
+  // TikTok Research API (Ad Spy)
+  const [tiktokResearchToken, setTiktokResearchToken] = useState('');
 
   // NewsBreak multi-account
   const [nbAccounts, setNbAccounts] = useState<Account[]>([]);
@@ -180,7 +182,6 @@ export default function ConnectionsPage() {
       if (ccLoginId) data.cc_login_id = ccLoginId;
       if (ccPassword) data.cc_password = ccPassword;
       if (ccApiUrl) data.cc_api_url = ccApiUrl;
-      if (ccWebhookSecret) data.cc_webhook_secret = ccWebhookSecret;
       data.cc_poll_enabled = ccPollEnabled ? 'true' : 'false';
       if (shopifySecret) data.shopify_webhook_secret = shopifySecret;
       if (shopifyStoreUrl) data.shopify_store_url = shopifyStoreUrl;
@@ -451,9 +452,9 @@ export default function ConnectionsPage() {
                 <div className="mt-3 flex items-center gap-2 flex-wrap">
                   {connected && !expired ? (
                     <>
-                      {hasManual && !oauthConnected && (
+                      {hasManual && (!oauthConnected || platform.key === 'tiktok') && (
                         <button onClick={() => toggle(platform.key)} className={btnSecondary}>
-                          {isExpanded ? 'Hide' : 'Settings'}
+                          {isExpanded ? 'Hide' : platform.key === 'tiktok' ? 'Ad Spy Setup' : 'Settings'}
                         </button>
                       )}
                       <button
@@ -578,6 +579,48 @@ export default function ConnectionsPage() {
                     </>
                   )}
 
+                  {/* TikTok Ad Spy (Research API) */}
+                  {platform.manualFields === 'tiktok' && (
+                    <>
+                      <div className="p-2.5 rounded-lg bg-pink-500/5 border border-pink-500/20 mb-1 space-y-1.5">
+                        <p className="text-[11px] font-semibold text-ats-text">Ad Spy requires a TikTok Research API token</p>
+                        <p className="text-[11px] text-ats-text-muted leading-relaxed">
+                          The TikTok Ad Library uses a separate Research API that requires its own access token. This is different from the standard TikTok Ads connection above.
+                        </p>
+                        <p className="text-[11px] text-ats-text-muted leading-relaxed">
+                          <strong className="text-ats-text">Step 1:</strong> Apply for TikTok Research API access at the TikTok Developer Portal.{' '}
+                          <a href="https://developers.tiktok.com/products/research-api/" target="_blank" rel="noopener noreferrer"
+                            className="text-ats-accent hover:underline transition-colors font-medium">
+                            Apply here &rarr;
+                          </a>
+                        </p>
+                        <p className="text-[11px] text-ats-text-muted leading-relaxed">
+                          <strong className="text-ats-text">Step 2:</strong> Once approved, generate a Research API access token from your TikTok developer dashboard.
+                        </p>
+                        <p className="text-[11px] text-ats-text-muted leading-relaxed">
+                          <strong className="text-ats-text">Step 3:</strong> Paste the token below to enable TikTok Ad Spy searches.
+                        </p>
+                      </div>
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-[10px] text-ats-text-muted uppercase tracking-widest font-mono">Research API Token</label>
+                          <a href="https://developers.tiktok.com/products/research-api/" target="_blank" rel="noopener noreferrer"
+                            className="text-[10px] text-ats-accent hover:underline transition-colors">
+                            Get token &rarr;
+                          </a>
+                        </div>
+                        <div className="relative">
+                          <input type={visibleFields['tiktok_research'] ? 'text' : 'password'} value={tiktokResearchToken}
+                            onChange={e => { setTiktokResearchToken(e.target.value); autoSave({ tiktok_research_api_token: e.target.value }); }}
+                            placeholder={settings.tiktok_research_api_token ? '••••••••' : 'Paste your Research API token'}
+                            className={`${inputCls} pr-8`} />
+                          {eyeBtn('tiktok_research')}
+                        </div>
+                        <div className="text-[10px] text-ats-text-muted mt-0.5">This token is only used for the Ad Spy feature and is stored encrypted.</div>
+                      </div>
+                    </>
+                  )}
+
                   {/* CheckoutChamp */}
                   {platform.manualFields === 'checkoutchamp' && (
                     <>
@@ -648,14 +691,6 @@ export default function ConnectionsPage() {
                         </div>
                         <input type="text" value={ccApiUrl} onChange={e => { setCcApiUrl(e.target.value); autoSave({ cc_api_url: e.target.value }); }}
                           placeholder={settings.cc_api_url || 'https://api.checkoutchamp.com'} className={inputCls} />
-                      </div>
-                      <div>
-                        <label className={labelCls}>Webhook Secret</label>
-                        <div className="relative">
-                          <input type={visibleFields['cc_webhook_secret'] ? 'text' : 'password'} value={ccWebhookSecret} onChange={e => { setCcWebhookSecret(e.target.value); autoSave({ cc_webhook_secret: e.target.value }); }}
-                            placeholder={settings.cc_webhook_secret ? '••••••••' : 'whsec_...'} className={`${inputCls} pr-8`} />
-                          {eyeBtn('cc_webhook_secret')}
-                        </div>
                       </div>
                       <div className="flex items-center gap-2">
                         <button onClick={handleTestCC} className={btnSecondary}>
