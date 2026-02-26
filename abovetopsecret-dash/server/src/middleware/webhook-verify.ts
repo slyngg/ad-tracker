@@ -27,36 +27,36 @@ async function resolveTokenUserId(token: string | undefined): Promise<number | n
 }
 
 export async function verifyCheckoutChamp(req: Request, res: Response, next: NextFunction): Promise<void> {
-  const userId = await resolveTokenUserId(req.params.webhookToken);
+  // CC postbacks don't support HMAC signing — auth is via the unique webhook token URL.
+  // If user has optionally configured a secret AND CC sends X-CC-Signature, verify it.
+  // Otherwise, just ensure the webhook token is valid (resolveWebhookToken in handler does this).
+  const token = req.params.webhookToken;
+  if (!token) {
+    res.status(401).json({ error: 'Missing webhook token' });
+    return;
+  }
+
+  const userId = await resolveTokenUserId(token);
+  if (userId === null) {
+    res.status(401).json({ error: 'Invalid webhook token' });
+    return;
+  }
+
+  // Optional HMAC verification if user has configured a secret
   const secret = await getSetting('cc_webhook_secret', userId);
-  if (!secret) {
-    if (process.env.NODE_ENV === 'production') {
-      console.warn('[Webhook] CC_WEBHOOK_SECRET not configured in production — rejecting request');
-      res.status(500).json({ error: 'Webhook secret not configured' });
+  const signature = req.headers['x-cc-signature'] as string;
+  if (secret && signature) {
+    const rawBody = (req as RawBodyRequest).rawBody;
+    if (!rawBody) {
+      res.status(400).json({ error: 'Could not read request body for verification' });
       return;
     }
-    next();
-    return;
-  }
-
-  const signature = req.headers['x-cc-signature'] as string;
-  if (!signature) {
-    res.status(401).json({ error: 'Missing X-CC-Signature header' });
-    return;
-  }
-
-  const rawBody = (req as RawBodyRequest).rawBody;
-  if (!rawBody) {
-    res.status(400).json({ error: 'Could not read request body for verification' });
-    return;
-  }
-
-  const expected = crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
-
-  if (signature.length !== expected.length ||
-      !crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
-    res.status(401).json({ error: 'Invalid signature' });
-    return;
+    const expected = crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
+    if (signature.length !== expected.length ||
+        !crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
+      res.status(401).json({ error: 'Invalid signature' });
+      return;
+    }
   }
 
   next();

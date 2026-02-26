@@ -5,6 +5,7 @@ import { verifyCheckoutChamp, verifyShopify } from '../middleware/webhook-verify
 import { getRealtime } from '../services/realtime';
 import { matchOffer } from '../services/offer-matcher';
 import { identifyVisitor, recordEvent, recordTouchpoint } from '../services/identity-graph';
+import { CheckoutChampClient } from '../services/checkout-champ-client';
 
 const router = Router();
 
@@ -465,13 +466,96 @@ async function handleSubscriptionEvent(body: any, userId: number | null, account
   }
 }
 
+// ── CC API Enrichment ───────────────────────────────────────────
+// When a webhook arrives with minimal fields (just orderId), use the
+// CC API to fetch the full order and merge data the postback didn't include.
+
+async function enrichFromCCApi(body: any, userId: number): Promise<any> {
+  const orderId = body.orderId || body.order_id;
+  if (!orderId) return body;
+
+  let client: CheckoutChampClient | null = null;
+  try {
+    client = await CheckoutChampClient.fromSettings(userId);
+  } catch {
+    // CC not configured — nothing to enrich with
+    return body;
+  }
+  if (!client) return body;
+
+  try {
+    const order = await client.getOrder(String(orderId));
+    if (!order) return body;
+
+    // Map CC API order fields to webhook-compatible field names.
+    // Only fill in fields that the webhook payload is missing.
+    const apiFields: Record<string, any> = {
+      orderId: order.orderId,
+      orderTotal: order.totalAmount,
+      salesTax: order.salesTax,
+      totalShipping: order.totalShipping,
+      orderStatus: order.orderStatus,
+      emailAddress: order.emailAddress,
+      firstName: order.firstName,
+      lastName: order.lastName,
+      customerId: order.customerId,
+      campaignId: order.campaignId,
+      campaignName: order.campaignName,
+      ipAddress: order.ipAddress,
+      dateCreated: order.dateCreated,
+      sourceValue1: order.sourceValue1,   // utm_campaign
+      sourceValue2: order.sourceValue2,   // utm_source
+      sourceValue3: order.sourceValue3,   // utm_medium
+      sourceValue4: order.sourceValue4,   // utm_content
+      sourceValue5: order.sourceValue5,   // utm_term
+      couponCode: order.couponCode,
+      paySource: order.paySource,
+      // Extract product and billing info from first line item
+      ...(order.items?.[0] ? {
+        product1_name: order.items[0].name,
+        product1_id: order.items[0].productId,
+        product1_billingCycleNumber: order.items[0].billingCycleNumber,
+        billingCycleNumber: order.items[0].billingCycleNumber,
+        quantity: order.items[0].qty,
+      } : {}),
+    };
+
+    // Merge: webhook body values take priority, API fills gaps
+    const merged = { ...body };
+    for (const [key, value] of Object.entries(apiFields)) {
+      if (value !== undefined && value !== null && value !== '' &&
+          (merged[key] === undefined || merged[key] === null || merged[key] === '')) {
+        merged[key] = value;
+      }
+    }
+
+    // Calculate subtotal if not provided
+    if (!merged.subtotal && merged.orderTotal) {
+      const total = parseFloat(merged.orderTotal || '0');
+      const tax = parseFloat(merged.salesTax || '0');
+      merged.subtotal = String(total - tax);
+    }
+
+    console.log(`[CC Webhook] Enriched order ${orderId} from API (user ${userId})`);
+    return merged;
+  } catch (err: any) {
+    console.warn(`[CC Webhook] API enrichment failed for order ${orderId}: ${err.message}`);
+    return body; // Proceed with original payload if API call fails
+  }
+}
+
 // ── Main CC Webhook Handler ─────────────────────────────────────
 
 async function handleCCWebhook(req: Request, res: Response) {
-  const body = req.body;
+  let body = req.body;
   const tokenResult = await resolveWebhookToken(req.params.webhookToken);
   const userId = tokenResult?.userId ?? null;
   const accountId = tokenResult?.accountId ?? null;
+
+  // Enrich minimal payloads with full order data from CC API
+  if (userId) {
+    body = await enrichFromCCApi(body, userId);
+  }
 
   const eventType = detectEventType(body);
   const fields = extractCommonFields(body);
