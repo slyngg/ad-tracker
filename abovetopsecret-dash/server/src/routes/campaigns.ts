@@ -1013,7 +1013,93 @@ import {
   createNewsBreakCampaign,
   createNewsBreakAdSet,
   createNewsBreakAd,
+  getNewsBreakAudiences,
+  createNewsBreakCustomAudience,
+  uploadNewsBreakAudienceData,
+  createNewsBreakLookalikeAudience,
+  deleteNewsBreakAudience,
 } from '../services/newsbreak-api';
+
+// ── NewsBreak Audience Management ─────────────────────────────
+
+router.get('/newsbreak/audiences', async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+    const accountId = req.query.account_id as string | undefined;
+    const audiences = await getNewsBreakAudiences(userId, accountId);
+    res.json(audiences);
+  } catch (err: any) {
+    console.error('Error fetching NB audiences:', err);
+    res.status(500).json({ error: err.message || 'Failed to fetch audiences' });
+  }
+});
+
+router.post('/newsbreak/audiences', publishLimiter, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+    const { audience_name, description, account_id } = req.body;
+    if (!audience_name?.trim()) { res.status(400).json({ error: 'audience_name is required' }); return; }
+    const result = await createNewsBreakCustomAudience(userId, { audience_name: audience_name.trim(), description }, account_id);
+    res.json(result);
+  } catch (err: any) {
+    console.error('Error creating NB audience:', err);
+    res.status(500).json({ error: err.message || 'Failed to create audience' });
+  }
+});
+
+router.post('/newsbreak/audiences/:id/upload', publishLimiter, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+    const audienceId = req.params.id;
+    const { id_type, id_list, account_id } = req.body;
+    if (!id_type || !id_list || !Array.isArray(id_list) || id_list.length === 0) {
+      res.status(400).json({ error: 'id_type and id_list (non-empty array) are required' });
+      return;
+    }
+    await uploadNewsBreakAudienceData(userId, audienceId, { type: id_type, values: id_list }, account_id);
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error('Error uploading NB audience data:', err);
+    res.status(500).json({ error: err.message || 'Failed to upload audience data' });
+  }
+});
+
+router.post('/newsbreak/audiences/lookalike', publishLimiter, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+    const { source_audience_id, audience_name, lookalike_ratio, account_id } = req.body;
+    if (!source_audience_id || !audience_name?.trim()) {
+      res.status(400).json({ error: 'source_audience_id and audience_name are required' });
+      return;
+    }
+    const result = await createNewsBreakLookalikeAudience(userId, {
+      source_audience_id,
+      audience_name: audience_name.trim(),
+      lookalike_ratio: lookalike_ratio || 5,
+    }, account_id);
+    res.json(result);
+  } catch (err: any) {
+    console.error('Error creating NB lookalike:', err);
+    res.status(500).json({ error: err.message || 'Failed to create lookalike audience' });
+  }
+});
+
+router.delete('/newsbreak/audiences/:id', publishLimiter, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+    const account_id = req.query.account_id as string | undefined;
+    await deleteNewsBreakAudience(userId, req.params.id, account_id);
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error('Error deleting NB audience:', err);
+    res.status(500).json({ error: err.message || 'Failed to delete audience' });
+  }
+});
 
 router.post('/live/status', publishLimiter, async (req: Request, res: Response) => {
   try {
@@ -1058,10 +1144,23 @@ router.post('/live/budget', publishLimiter, async (req: Request, res: Response) 
       return;
     }
 
+    const oldBudget = req.body.old_budget ?? null;
+
     if (platform === 'newsbreak') {
       await adjustNewsBreakBudget(entity_id, budget_dollars, userId);
     }
     // Meta and TikTok budget adjustments can be added here
+
+    // Log budget change to history
+    try {
+      await pool.query(
+        `INSERT INTO budget_change_history (user_id, platform, entity_id, old_budget, new_budget)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [userId, platform, entity_id, oldBudget, budget_dollars]
+      );
+    } catch (logErr) {
+      console.error('Failed to log budget change:', logErr);
+    }
 
     res.json({ success: true });
   } catch (err: any) {
@@ -1085,6 +1184,27 @@ router.get('/live/budgets/:platform/:campaignId', async (req: Request, res: Resp
     }
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Failed to fetch budgets' });
+  }
+});
+
+// ── Budget change history ──────────────────────────────────────
+
+router.get('/live/budget-history/:entityId', async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+    const { entityId } = req.params;
+    const { rows } = await pool.query(
+      `SELECT id, platform, entity_id, old_budget, new_budget, created_at
+       FROM budget_change_history
+       WHERE user_id = $1 AND entity_id = $2
+       ORDER BY created_at DESC
+       LIMIT 50`,
+      [userId, entityId]
+    );
+    res.json(rows);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to fetch budget history' });
   }
 });
 

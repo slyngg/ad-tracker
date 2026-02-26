@@ -6,6 +6,7 @@ import { syncTikTokAds, backfillTikTok } from '../services/tiktok-sync';
 import { syncAllKlaviyoData } from '../services/klaviyo-sync';
 import { syncGA4Data } from '../services/ga4-sync';
 import { syncAllNewsBreakForUser, backfillAllNewsBreakForUser } from '../services/newsbreak-sync';
+import { triggerAllConnectedSyncs } from '../services/immediate-sync';
 
 const router = Router();
 
@@ -132,6 +133,20 @@ router.post('/klaviyo', async (req: Request, res: Response) => {
   } catch (err) {
     console.error('Error triggering Klaviyo sync:', err);
     res.status(500).json({ error: 'Failed to sync Klaviyo data' });
+  }
+});
+
+// POST /api/sync/all – sync every connected platform
+router.post('/all', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user?.id as number | undefined;
+    if (!userId) { res.status(401).json({ error: 'Not authenticated' }); return; }
+    // Fire-and-forget: runs in background, emits WS events when done
+    triggerAllConnectedSyncs(userId);
+    res.json({ success: true, message: 'Full sync triggered' });
+  } catch (err) {
+    console.error('Error triggering full sync:', err);
+    res.status(500).json({ error: 'Failed to trigger full sync' });
   }
 });
 

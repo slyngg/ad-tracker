@@ -160,11 +160,13 @@ export async function createNewsBreakAdSet(
   const eventType = targeting.event_type;
   const optimizationGoal = targeting.optimization_goal;
   const bidAmount = targeting.bid_amount;
+  const audienceList = targeting.audience_list;
   // Remove them from targeting so they don't get double-sent
   delete targeting.placements;
   delete targeting.event_type;
   delete targeting.optimization_goal;
   delete targeting.bid_amount;
+  delete targeting.audience_list;
 
   const body: Record<string, any> = {
     advertiser_id: accountId,
@@ -187,6 +189,9 @@ export async function createNewsBreakAdSet(
   if (optimizationGoal) body.optimization_goal = optimizationGoal;
   if (eventType) body.conversion_event = eventType;
   if (bidAmount) body.bid_amount = bidAmount;
+
+  // Audience targeting
+  if (audienceList) body.audience_id = audienceList;
 
   const data = await newsbreakRequest('POST', '/business-api/v1/adSet/createAdSet', accessToken, body);
   return { adset_id: String(data.adset_id) };
@@ -347,6 +352,118 @@ export async function getNewsBreakAdList(
     adset_id: adSetId,
   });
   return data?.list || data?.ads || (Array.isArray(data) ? data : []);
+}
+
+// ── Audience management (DMP) ──────────────────────────────────
+
+export interface NewsBreakAudience {
+  audience_id: string;
+  audience_name: string;
+  audience_type: string; // CUSTOM, LOOKALIKE
+  status: string;
+  size?: number;
+  source_audience_id?: string;
+  created_at?: string;
+}
+
+export async function getNewsBreakAudiences(
+  userId: number,
+  accountId?: string
+): Promise<NewsBreakAudience[]> {
+  const auth = accountId
+    ? (await getAllNewsBreakAuth(userId)).find(a => a.accountId === accountId) || await getNewsBreakAuth(userId)
+    : await getNewsBreakAuth(userId);
+  if (!auth) return [];
+  try {
+    const data = await newsbreakRequest('POST', '/business-api/v1/dmp/customAudience/list', auth.accessToken, {
+      advertiser_id: auth.accountId,
+    });
+    const list = data?.list || data?.audiences || (Array.isArray(data) ? data : []);
+    return list.map((a: any) => ({
+      audience_id: String(a.audience_id || a.custom_audience_id || a.id),
+      audience_name: a.audience_name || a.name || 'Unnamed',
+      audience_type: a.audience_type || a.type || 'CUSTOM',
+      status: a.status || 'UNKNOWN',
+      size: a.size || a.audience_size || a.cover_num || undefined,
+      source_audience_id: a.source_audience_id || undefined,
+      created_at: a.created_at || a.create_time || undefined,
+    }));
+  } catch (err) {
+    console.error('Error fetching NewsBreak audiences:', err);
+    return [];
+  }
+}
+
+export async function createNewsBreakCustomAudience(
+  userId: number,
+  params: { audience_name: string; description?: string },
+  accountId?: string
+): Promise<{ audience_id: string }> {
+  const auth = accountId
+    ? (await getAllNewsBreakAuth(userId)).find(a => a.accountId === accountId) || await getNewsBreakAuth(userId)
+    : await getNewsBreakAuth(userId);
+  if (!auth) throw new Error('No NewsBreak credentials');
+  const data = await newsbreakRequest('POST', '/business-api/v1/dmp/customAudience/create', auth.accessToken, {
+    advertiser_id: auth.accountId,
+    audience_name: params.audience_name,
+    description: params.description || '',
+  });
+  return { audience_id: String(data.audience_id || data.custom_audience_id || data.id) };
+}
+
+export async function uploadNewsBreakAudienceData(
+  userId: number,
+  audienceId: string,
+  identifiers: { type: 'EMAIL' | 'PHONE' | 'DEVICE_ID'; values: string[] },
+  accountId?: string
+): Promise<void> {
+  const auth = accountId
+    ? (await getAllNewsBreakAuth(userId)).find(a => a.accountId === accountId) || await getNewsBreakAuth(userId)
+    : await getNewsBreakAuth(userId);
+  if (!auth) throw new Error('No NewsBreak credentials');
+  await newsbreakRequest('POST', '/business-api/v1/dmp/customAudience/upload', auth.accessToken, {
+    advertiser_id: auth.accountId,
+    audience_id: audienceId,
+    id_type: identifiers.type,
+    id_list: identifiers.values,
+  });
+}
+
+export async function createNewsBreakLookalikeAudience(
+  userId: number,
+  params: {
+    source_audience_id: string;
+    audience_name: string;
+    lookalike_ratio?: number; // e.g. 1-10 (percent)
+  },
+  accountId?: string
+): Promise<{ audience_id: string }> {
+  const auth = accountId
+    ? (await getAllNewsBreakAuth(userId)).find(a => a.accountId === accountId) || await getNewsBreakAuth(userId)
+    : await getNewsBreakAuth(userId);
+  if (!auth) throw new Error('No NewsBreak credentials');
+  const data = await newsbreakRequest('POST', '/business-api/v1/dmp/lookalikeAudience/create', auth.accessToken, {
+    advertiser_id: auth.accountId,
+    source_audience_id: params.source_audience_id,
+    audience_name: params.audience_name,
+    lookalike_ratio: params.lookalike_ratio || 5,
+  });
+  return { audience_id: String(data.audience_id || data.lookalike_audience_id || data.id) };
+}
+
+export async function deleteNewsBreakAudience(
+  userId: number,
+  audienceId: string,
+  accountId?: string
+): Promise<void> {
+  const auth = accountId
+    ? (await getAllNewsBreakAuth(userId)).find(a => a.accountId === accountId) || await getNewsBreakAuth(userId)
+    : await getNewsBreakAuth(userId);
+  if (!auth) throw new Error('No NewsBreak credentials');
+  await newsbreakRequest('POST', '/business-api/v1/dmp/customAudience/delete', auth.accessToken, {
+    advertiser_id: auth.accountId,
+    audience_id: audienceId,
+  });
 }
 
 // ── Backward-compat aliases ────────────────────────────────────

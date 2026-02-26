@@ -448,6 +448,21 @@ export function triggerFBSync(): Promise<{ synced: number; accounts: number; ski
   return request('/sync/facebook', { method: 'POST' });
 }
 
+export function triggerPlatformSync(platform: string): Promise<any> {
+  const platformMap: Record<string, string> = {
+    meta: '/sync/facebook',
+    tiktok: '/sync/tiktok',
+    newsbreak: '/sync/newsbreak',
+  };
+  const endpoint = platformMap[platform];
+  if (!endpoint) return Promise.resolve({ skipped: true });
+  return request(endpoint, { method: 'POST' });
+}
+
+export function triggerFullSync(): Promise<{ success: boolean; message: string }> {
+  return request('/sync/all', { method: 'POST' });
+}
+
 export function getExportUrl(): string {
   const token = getAuthToken();
   return `${BASE_URL}/export/csv${token ? `?token=${encodeURIComponent(token)}` : ''}`;
@@ -1227,6 +1242,48 @@ export function fetchAccountPages(accountId: number): Promise<any[]> {
   return request<any[]>(`/campaigns/account-pages?account_id=${accountId}`);
 }
 
+// NewsBreak Audiences
+export interface NewsBreakAudience {
+  audience_id: string;
+  audience_name: string;
+  audience_type: string;
+  status: string;
+  size?: number;
+  source_audience_id?: string;
+  created_at?: string;
+}
+
+export function fetchNewsBreakAudiences(accountId?: string): Promise<NewsBreakAudience[]> {
+  const qs = accountId ? `?account_id=${accountId}` : '';
+  return request<NewsBreakAudience[]>(`/campaigns/newsbreak/audiences${qs}`);
+}
+
+export function createNBCustomAudience(audienceName: string, description?: string, accountId?: string): Promise<{ audience_id: string }> {
+  return request<{ audience_id: string }>('/campaigns/newsbreak/audiences', {
+    method: 'POST',
+    body: JSON.stringify({ audience_name: audienceName, description, account_id: accountId }),
+  });
+}
+
+export function uploadNBAudienceData(audienceId: string, idType: 'EMAIL' | 'PHONE' | 'DEVICE_ID', idList: string[], accountId?: string): Promise<{ success: boolean }> {
+  return request<{ success: boolean }>(`/campaigns/newsbreak/audiences/${audienceId}/upload`, {
+    method: 'POST',
+    body: JSON.stringify({ id_type: idType, id_list: idList, account_id: accountId }),
+  });
+}
+
+export function createNBLookalikeAudience(sourceAudienceId: string, audienceName: string, lookalikeRatio?: number, accountId?: string): Promise<{ audience_id: string }> {
+  return request<{ audience_id: string }>('/campaigns/newsbreak/audiences/lookalike', {
+    method: 'POST',
+    body: JSON.stringify({ source_audience_id: sourceAudienceId, audience_name: audienceName, lookalike_ratio: lookalikeRatio, account_id: accountId }),
+  });
+}
+
+export function deleteNBAudience(audienceId: string, accountId?: string): Promise<{ success: boolean }> {
+  const qs = accountId ? `?account_id=${accountId}` : '';
+  return request<{ success: boolean }>(`/campaigns/newsbreak/audiences/${audienceId}${qs}`, { method: 'DELETE' });
+}
+
 // Campaign Templates
 export function fetchCampaignTemplates(): Promise<CampaignTemplate[]> {
   return request<CampaignTemplate[]>('/campaigns/templates');
@@ -1313,8 +1370,21 @@ export function updateLiveEntityStatus(platform: string, entityType: string, ent
   return request<{ success: boolean }>('/campaigns/live/status', { method: 'POST', body: JSON.stringify({ platform, entity_type: entityType, entity_id: entityId, status }) });
 }
 
-export function updateLiveEntityBudget(platform: string, entityId: string, budgetDollars: number): Promise<{ success: boolean }> {
-  return request<{ success: boolean }>('/campaigns/live/budget', { method: 'POST', body: JSON.stringify({ platform, entity_id: entityId, budget_dollars: budgetDollars }) });
+export function updateLiveEntityBudget(platform: string, entityId: string, budgetDollars: number, oldBudget?: number): Promise<{ success: boolean }> {
+  return request<{ success: boolean }>('/campaigns/live/budget', { method: 'POST', body: JSON.stringify({ platform, entity_id: entityId, budget_dollars: budgetDollars, old_budget: oldBudget ?? null }) });
+}
+
+export interface BudgetChangeRecord {
+  id: number;
+  platform: string;
+  entity_id: string;
+  old_budget: number | null;
+  new_budget: number;
+  created_at: string;
+}
+
+export function fetchBudgetHistory(entityId: string): Promise<BudgetChangeRecord[]> {
+  return request<BudgetChangeRecord[]>(`/campaigns/live/budget-history/${encodeURIComponent(entityId)}`);
 }
 
 export interface AdGroupBudget {

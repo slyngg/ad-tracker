@@ -14,11 +14,20 @@ import {
   fetchCampaignAccountMap,
   assignCampaignAccount,
   bulkAssignCampaignAccount,
+  triggerPlatformSync,
+  fetchBudgetHistory,
+  fetchNewsBreakAudiences,
+  createNBCustomAudience,
+  uploadNBAudienceData,
+  createNBLookalikeAudience,
+  deleteNBAudience,
   LiveCampaign,
   LiveAdset,
   LiveAd,
   Account,
   AdGroupBudget,
+  BudgetChangeRecord,
+  NewsBreakAudience,
 } from '../../lib/api';
 import {
   ChevronDown,
@@ -41,6 +50,15 @@ import {
   Film,
   Zap,
   Search,
+  AlertTriangle,
+  History,
+  ArrowDown,
+  ArrowUp,
+  TrendingDown,
+  TrendingUp,
+  Users,
+  Upload,
+  Trash2,
 } from 'lucide-react';
 import PageShell from '../../components/shared/PageShell';
 import { useDateRangeStore } from '../../stores/dateRangeStore';
@@ -234,6 +252,8 @@ function CampaignCreator({ onClose, onSuccess, accounts }: {
   const [thumbPreview, setThumbPreview] = useState<string | null>(null);
   const [step, setStep] = useState(0);
   const headlineRef = useRef<HTMLInputElement>(null);
+  const [nbAudiences, setNbAudiences] = useState<NewsBreakAudience[]>([]);
+  useEffect(() => { if (form.platform === 'newsbreak') fetchNewsBreakAudiences().then(setNbAudiences).catch(() => {}); }, [form.platform]);
   const adTextRef = useRef<HTMLTextAreaElement>(null);
 
   const platformAccounts = accounts.filter(a => a.platform === form.platform && a.status === 'active');
@@ -618,14 +638,29 @@ function CampaignCreator({ onClose, onSuccess, accounts }: {
               </div>
 
               <div>
-                <Label>Audience List</Label>
-                <input
-                  value={form.audienceList}
-                  onChange={(e) => set('audienceList', e.target.value)}
-                  placeholder="Audience ID or name"
-                  className={inputCls}
-                />
-                <Hint>Include a custom audience by ID</Hint>
+                <Label>Audience</Label>
+                {form.platform === 'newsbreak' && nbAudiences.length > 0 ? (
+                  <select
+                    value={form.audienceList}
+                    onChange={(e) => set('audienceList', e.target.value)}
+                    className={inputCls}
+                  >
+                    <option value="">No audience (broad targeting)</option>
+                    {nbAudiences.map(a => (
+                      <option key={a.audience_id} value={a.audience_id}>
+                        {a.audience_name} ({a.audience_type}{a.size ? ` - ${a.size.toLocaleString()}` : ''})
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    value={form.audienceList}
+                    onChange={(e) => set('audienceList', e.target.value)}
+                    placeholder="Audience ID or name"
+                    className={inputCls}
+                  />
+                )}
+                <Hint>Target a custom or lookalike audience</Hint>
               </div>
 
               {/* Optimization & Bidding */}
@@ -954,6 +989,8 @@ function FormatLauncher({ onClose, onSuccess, accounts }: {
   const [locations, setLocations] = useState('');
   const [languages, setLanguages] = useState('');
   const [audienceList, setAudienceList] = useState('');
+  const [nbAudiences2, setNbAudiences2] = useState<NewsBreakAudience[]>([]);
+  useEffect(() => { if (platform === 'newsbreak') fetchNewsBreakAudiences().then(setNbAudiences2).catch(() => {}); }, [platform]);
   const [optimizationGoal, setOptimizationGoal] = useState('CONVERSIONS');
   const [bidType, setBidType] = useState('LOWEST_COST_WITHOUT_CAP');
   const [bidAmount, setBidAmount] = useState('');
@@ -1274,8 +1311,19 @@ function FormatLauncher({ onClose, onSuccess, accounts }: {
             </div>
 
             <div>
-              <Label>Audience List</Label>
-              <input value={audienceList} onChange={(e) => setAudienceList(e.target.value)} placeholder="Audience ID or name" className={inputCls} />
+              <Label>Audience</Label>
+              {platform === 'newsbreak' && nbAudiences2.length > 0 ? (
+                <select value={audienceList} onChange={(e) => setAudienceList(e.target.value)} className={inputCls}>
+                  <option value="">No audience (broad targeting)</option>
+                  {nbAudiences2.map(a => (
+                    <option key={a.audience_id} value={a.audience_id}>
+                      {a.audience_name} ({a.audience_type}{a.size ? ` - ${a.size.toLocaleString()}` : ''})
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input value={audienceList} onChange={(e) => setAudienceList(e.target.value)} placeholder="Audience ID or name" className={inputCls} />
+              )}
             </div>
 
             {/* Optimization & Bidding */}
@@ -1456,6 +1504,323 @@ function SectionDivider({ label }: { label: string }) {
   );
 }
 
+// ── Audience Manager Modal ───────────────────────────────────
+
+function AudienceManager({ onClose, accounts }: { onClose: () => void; accounts: Account[] }) {
+  const [audiences, setAudiences] = useState<NewsBreakAudience[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState<'list' | 'create' | 'lookalike'>('list');
+  // Create custom audience
+  const [newName, setNewName] = useState('');
+  const [newDesc, setNewDesc] = useState('');
+  const [idType, setIdType] = useState<'EMAIL' | 'PHONE' | 'DEVICE_ID'>('EMAIL');
+  const [csvText, setCsvText] = useState('');
+  const [creating, setCreating] = useState(false);
+  // Lookalike
+  const [sourceId, setSourceId] = useState('');
+  const [lalName, setLalName] = useState('');
+  const [lalRatio, setLalRatio] = useState('5');
+  const [creatingLal, setCreatingLal] = useState(false);
+  // Shared
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+
+  const inputCls = "w-full px-3 py-2.5 bg-ats-card border border-ats-border rounded-lg text-sm text-ats-text placeholder-ats-text-muted/50 focus:outline-none focus:border-ats-accent";
+
+  async function loadAudiences() {
+    setLoading(true);
+    try {
+      const data = await fetchNewsBreakAudiences();
+      setAudiences(data);
+    } catch { /* empty */ } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { loadAudiences(); }, []);
+
+  function parseIds(text: string): string[] {
+    return text
+      .split(/[\n,;]+/)
+      .map(s => s.trim().toLowerCase())
+      .filter(Boolean);
+  }
+
+  async function handleCreateAndUpload() {
+    if (!newName.trim()) { setError('Audience name is required'); return; }
+    const ids = parseIds(csvText);
+    if (ids.length === 0) { setError('Paste at least one identifier (email, phone, or device ID)'); return; }
+
+    setCreating(true);
+    setError('');
+    setSuccess('');
+    try {
+      const { audience_id } = await createNBCustomAudience(newName.trim(), newDesc.trim() || undefined);
+      await uploadNBAudienceData(audience_id, idType, ids);
+      setSuccess(`Audience "${newName}" created with ${ids.length} identifiers. ID: ${audience_id}`);
+      setNewName('');
+      setNewDesc('');
+      setCsvText('');
+      loadAudiences();
+    } catch (err: any) {
+      setError(err.message || 'Failed to create audience');
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  async function handleCreateLookalike() {
+    if (!sourceId) { setError('Select a source audience'); return; }
+    if (!lalName.trim()) { setError('Lookalike audience name is required'); return; }
+
+    setCreatingLal(true);
+    setError('');
+    setSuccess('');
+    try {
+      const { audience_id } = await createNBLookalikeAudience(sourceId, lalName.trim(), parseInt(lalRatio) || 5);
+      setSuccess(`Lookalike "${lalName}" created. ID: ${audience_id}`);
+      setLalName('');
+      setSourceId('');
+      loadAudiences();
+    } catch (err: any) {
+      setError(err.message || 'Failed to create lookalike');
+    } finally {
+      setCreatingLal(false);
+    }
+  }
+
+  async function handleDelete(id: string, name: string) {
+    if (!confirm(`Delete audience "${name}"?`)) return;
+    try {
+      await deleteNBAudience(id);
+      setAudiences(prev => prev.filter(a => a.audience_id !== id));
+    } catch (err: any) {
+      alert(err.message || 'Failed to delete');
+    }
+  }
+
+  function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      setCsvText(ev.target?.result as string || '');
+    };
+    reader.readAsText(file);
+  }
+
+  const customAudiences = audiences.filter(a => a.audience_type === 'CUSTOM' || !a.source_audience_id);
+
+  const tabs = [
+    { key: 'list' as const, label: 'Audiences', icon: Users },
+    { key: 'create' as const, label: 'Custom', icon: Upload },
+    { key: 'lookalike' as const, label: 'Lookalike', icon: Users },
+  ];
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-ats-bg border border-ats-border rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-ats-border">
+          <div>
+            <h2 className="text-base font-bold text-ats-text">NewsBreak Audiences</h2>
+            <p className="text-xs text-ats-text-muted mt-0.5">Create custom & lookalike audiences for targeting</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-ats-hover text-ats-text-muted"><X className="w-4 h-4" /></button>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex border-b border-ats-border">
+          {tabs.map(t => (
+            <button
+              key={t.key}
+              onClick={() => { setTab(t.key); setError(''); setSuccess(''); }}
+              className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold border-b-2 transition-colors ${tab === t.key ? 'border-ats-accent text-ats-accent' : 'border-transparent text-ats-text-muted hover:text-ats-text'}`}
+            >
+              <t.icon className="w-3.5 h-3.5" />
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Status messages */}
+        {error && (
+          <div className="mx-5 mt-3 px-3 py-2 rounded-lg text-xs bg-red-900/40 text-red-300 flex items-center gap-2">
+            <AlertCircle className="w-3.5 h-3.5 shrink-0" /> {error}
+          </div>
+        )}
+        {success && (
+          <div className="mx-5 mt-3 px-3 py-2 rounded-lg text-xs bg-emerald-900/40 text-emerald-300 flex items-center gap-2">
+            <CheckCircle2 className="w-3.5 h-3.5 shrink-0" /> {success}
+          </div>
+        )}
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+          {/* List tab */}
+          {tab === 'list' && (
+            <>
+              {loading ? (
+                <div className="space-y-2">
+                  {[1, 2, 3].map(i => <div key={i} className="h-14 bg-ats-card rounded-lg animate-pulse" />)}
+                </div>
+              ) : audiences.length === 0 ? (
+                <div className="text-center py-10 text-sm text-ats-text-muted">
+                  <Users className="w-8 h-8 mx-auto mb-2 opacity-40" />
+                  <p>No audiences yet.</p>
+                  <p className="text-xs mt-1">Create a custom audience to get started.</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {audiences.map(a => (
+                    <div key={a.audience_id} className="bg-ats-card border border-ats-border rounded-lg px-4 py-3 flex items-center gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium text-ats-text truncate">{a.audience_name}</span>
+                          <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${a.audience_type === 'LOOKALIKE' ? 'bg-purple-500/15 text-purple-400' : 'bg-blue-500/15 text-blue-400'}`}>
+                            {a.audience_type}
+                          </span>
+                          <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${a.status === 'READY' || a.status === 'ACTIVE' ? 'bg-emerald-500/15 text-emerald-400' : 'bg-yellow-500/15 text-yellow-400'}`}>
+                            {a.status}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-3 mt-1 text-[10px] text-ats-text-muted">
+                          <span>ID: {a.audience_id}</span>
+                          {a.size != null && <span>Size: {a.size.toLocaleString()}</span>}
+                        </div>
+                      </div>
+                      <button onClick={() => handleDelete(a.audience_id, a.audience_name)} className="p-1.5 rounded-lg hover:bg-red-500/20 text-ats-text-muted hover:text-red-400 transition-colors" title="Delete">
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <button onClick={loadAudiences} disabled={loading} className="text-xs text-ats-accent hover:underline">
+                {loading ? 'Loading...' : 'Refresh'}
+              </button>
+            </>
+          )}
+
+          {/* Create Custom Audience tab */}
+          {tab === 'create' && (
+            <div className="space-y-4">
+              <div>
+                <Label required>Audience Name</Label>
+                <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="e.g. Purchasers Q1 2026" className={inputCls} />
+              </div>
+              <div>
+                <Label>Description</Label>
+                <input value={newDesc} onChange={e => setNewDesc(e.target.value)} placeholder="Optional description" className={inputCls} />
+              </div>
+              <div>
+                <Label required>Identifier Type</Label>
+                <div className="grid grid-cols-3 gap-2 mt-1.5">
+                  {(['EMAIL', 'PHONE', 'DEVICE_ID'] as const).map(t => (
+                    <button
+                      key={t}
+                      onClick={() => setIdType(t)}
+                      className={`px-3 py-2 rounded-lg text-xs font-semibold border transition-colors ${idType === t ? 'bg-ats-accent/15 border-ats-accent text-ats-accent' : 'bg-ats-card border-ats-border text-ats-text-muted hover:border-ats-text-muted'}`}
+                    >
+                      {t === 'EMAIL' ? 'Email' : t === 'PHONE' ? 'Phone' : 'Device ID'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <Label required>Identifiers</Label>
+                <textarea
+                  value={csvText}
+                  onChange={e => setCsvText(e.target.value)}
+                  rows={6}
+                  placeholder={idType === 'EMAIL' ? 'john@example.com\njane@example.com\n...' : idType === 'PHONE' ? '+15551234567\n+15559876543\n...' : 'device-id-1\ndevice-id-2\n...'}
+                  className={inputCls + ' resize-none font-mono text-xs'}
+                />
+                <div className="flex items-center justify-between mt-1.5">
+                  <Hint>{`${parseIds(csvText).length} identifiers detected (one per line, or comma-separated)`}</Hint>
+                  <label className="text-[10px] text-ats-accent cursor-pointer hover:underline">
+                    Upload CSV
+                    <input type="file" accept=".csv,.txt" className="hidden" onChange={handleFileUpload} />
+                  </label>
+                </div>
+              </div>
+              <button
+                onClick={handleCreateAndUpload}
+                disabled={creating || !newName.trim() || parseIds(csvText).length === 0}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-ats-accent text-white rounded-lg text-sm font-semibold hover:opacity-90 disabled:opacity-40 transition-opacity"
+              >
+                {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                {creating ? 'Creating...' : 'Create & Upload Audience'}
+              </button>
+            </div>
+          )}
+
+          {/* Lookalike tab */}
+          {tab === 'lookalike' && (
+            <div className="space-y-4">
+              <div className="bg-ats-card border border-ats-border rounded-lg p-3">
+                <p className="text-xs text-ats-text-muted">
+                  Create a lookalike audience from an existing custom audience. NewsBreak will find users similar to your source audience — e.g. people who look like your buyers.
+                </p>
+              </div>
+              <div>
+                <Label required>Source Audience</Label>
+                {customAudiences.length === 0 ? (
+                  <p className="text-xs text-ats-text-muted">No custom audiences available. Create one first.</p>
+                ) : (
+                  <select
+                    value={sourceId}
+                    onChange={e => setSourceId(e.target.value)}
+                    className={inputCls}
+                  >
+                    <option value="">Select a source audience...</option>
+                    {customAudiences.map(a => (
+                      <option key={a.audience_id} value={a.audience_id}>
+                        {a.audience_name} ({a.size?.toLocaleString() || '?'} users)
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+              <div>
+                <Label required>Lookalike Audience Name</Label>
+                <input
+                  value={lalName}
+                  onChange={e => setLalName(e.target.value)}
+                  placeholder="e.g. Purchasers - Lookalike 5%"
+                  className={inputCls}
+                />
+              </div>
+              <div>
+                <Label>Lookalike Ratio (%)</Label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="range"
+                    min="1" max="10" step="1"
+                    value={lalRatio}
+                    onChange={e => setLalRatio(e.target.value)}
+                    className="flex-1 accent-ats-accent"
+                  />
+                  <span className="text-sm font-mono text-ats-text w-8 text-right">{lalRatio}%</span>
+                </div>
+                <Hint>Lower % = more similar to source. Higher % = larger reach.</Hint>
+              </div>
+              <button
+                onClick={handleCreateLookalike}
+                disabled={creatingLal || !sourceId || !lalName.trim()}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-purple-600 text-white rounded-lg text-sm font-semibold hover:opacity-90 disabled:opacity-40 transition-opacity"
+              >
+                {creatingLal ? <Loader2 className="w-4 h-4 animate-spin" /> : <Users className="w-4 h-4" />}
+                {creatingLal ? 'Creating...' : 'Create Lookalike Audience'}
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main Page ───────────────────────────────────────────────
 
 export default function LiveCampaignsPage() {
@@ -1467,6 +1832,7 @@ export default function LiveCampaignsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [showCreator, setShowCreator] = useState(false);
   const [showFormatLauncher, setShowFormatLauncher] = useState(false);
+  const [showAudienceManager, setShowAudienceManager] = useState(false);
   const [accounts, setAccounts] = useState<Account[]>([]);
 
   const [expanded, setExpanded] = useState<Record<string, LiveAdset[] | 'loading'>>({});
@@ -1474,11 +1840,22 @@ export default function LiveCampaignsPage() {
   const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({});
   const [budgetModal, setBudgetModal] = useState<{ platform: string; entityId: string; currentBudget?: number } | null>(null);
   const [budgetValue, setBudgetValue] = useState('');
+  const [budgetTab, setBudgetTab] = useState<'adjust' | 'history'>('adjust');
+  const [budgetHistory, setBudgetHistory] = useState<BudgetChangeRecord[]>([]);
+  const [budgetHistoryLoading, setBudgetHistoryLoading] = useState(false);
   const [adsetBudgets, setAdsetBudgets] = useState<Record<string, number>>({});
   const [campaignAccountMap, setCampaignAccountMap] = useState<Record<string, number>>({});
   const [assigningCampaign, setAssigningCampaign] = useState<string | null>(null);
   const [selectedCampaigns, setSelectedCampaigns] = useState<Set<string>>(new Set());
   const [bulkAssignOpen, setBulkAssignOpen] = useState(false);
+
+  // Confirmation modal state
+  const [confirmModal, setConfirmModal] = useState<{
+    title: string;
+    description: string;
+    onConfirm: () => Promise<void>;
+  } | null>(null);
+  const [confirmLoading, setConfirmLoading] = useState(false);
 
   // Date range
   const dateRange = useDateRangeStore((s) => s.dateRange);
@@ -1629,11 +2006,23 @@ export default function LiveCampaignsPage() {
     }
   }
 
-  async function handleStatus(platform: string, entityType: string, entityId: string, enable: boolean) {
+  function requestStatusChange(platform: string, entityType: string, entityId: string, enable: boolean, entityName?: string) {
+    const action = enable ? 'Enable' : 'Pause';
+    const label = entityName ? `"${entityName}"` : `this ${entityType}`;
+    setConfirmModal({
+      title: `${action} ${entityType}?`,
+      description: `${action} ${label}. This will update the platform and sync fresh data.`,
+      onConfirm: () => executeStatus(platform, entityType, entityId, enable),
+    });
+  }
+
+  async function executeStatus(platform: string, entityType: string, entityId: string, enable: boolean) {
     const key = `status:${entityType}:${entityId}`;
     setActionLoading(p => ({ ...p, [key]: true }));
     try {
       await updateLiveEntityStatus(platform, entityType, entityId, enable ? 'ENABLE' : 'DISABLE');
+      // Sync platform data so UI reflects actual state
+      triggerPlatformSync(platform).catch(() => {});
       await load();
     } catch (err: any) {
       alert(err.message || 'Failed');
@@ -1649,15 +2038,29 @@ export default function LiveCampaignsPage() {
     const key = `budget:${budgetModal.entityId}`;
     setActionLoading(p => ({ ...p, [key]: true }));
     try {
-      await updateLiveEntityBudget(budgetModal.platform, budgetModal.entityId, val);
+      await updateLiveEntityBudget(budgetModal.platform, budgetModal.entityId, val, budgetModal.currentBudget);
       // Update local budget state immediately
       setAdsetBudgets(prev => ({ ...prev, [budgetModal.entityId]: val }));
-      setBudgetModal(null); setBudgetValue('');
+      // Sync platform data so UI reflects actual state
+      triggerPlatformSync(budgetModal.platform).catch(() => {});
+      setBudgetModal(null); setBudgetValue(''); setBudgetTab('adjust');
       await load();
     } catch (err: any) {
       alert(err.message || 'Failed');
     } finally {
       setActionLoading(p => ({ ...p, [key]: false }));
+    }
+  }
+
+  async function loadBudgetHistory(entityId: string) {
+    setBudgetHistoryLoading(true);
+    try {
+      const history = await fetchBudgetHistory(entityId);
+      setBudgetHistory(history);
+    } catch {
+      setBudgetHistory([]);
+    } finally {
+      setBudgetHistoryLoading(false);
     }
   }
 
@@ -1707,6 +2110,14 @@ export default function LiveCampaignsPage() {
         <div className="flex items-center gap-2">
           <button onClick={load} className="p-2 rounded-lg text-ats-text-muted hover:bg-ats-hover transition-colors" title="Refresh">
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+          </button>
+          <button
+            onClick={() => setShowAudienceManager(true)}
+            className="flex items-center gap-1.5 px-3 py-2 bg-ats-card border border-ats-border text-ats-text-muted rounded-lg text-sm font-semibold hover:bg-ats-hover transition-colors"
+            title="Audience Manager"
+          >
+            <Users className="w-4 h-4" />
+            <span className="hidden sm:inline">Audiences</span>
           </button>
           <button
             onClick={() => setShowFormatLauncher(true)}
@@ -1917,7 +2328,7 @@ export default function LiveCampaignsPage() {
                           {actionLoading[`status:campaign:${c.campaign_id}`] ? (
                             <Loader2 className="w-3.5 h-3.5 animate-spin text-ats-text-muted" />
                           ) : (
-                            <button onClick={() => handleStatus(c.platform, 'campaign', c.campaign_id, false)} className="p-1.5 rounded-md hover:bg-yellow-500/20 text-ats-text-muted hover:text-yellow-400 transition-colors" title="Pause">
+                            <button onClick={() => requestStatusChange(c.platform, 'campaign', c.campaign_id, false, c.campaign_name)} className="p-1.5 rounded-md hover:bg-yellow-500/20 text-ats-text-muted hover:text-yellow-400 transition-colors" title="Pause">
                               <Pause className="w-3.5 h-3.5" />
                             </button>
                           )}
@@ -1965,7 +2376,7 @@ export default function LiveCampaignsPage() {
                               <div className="flex items-center justify-end gap-1">
                                 {actionLoading[`status:adset:${as.adset_id}`] ? <Loader2 className="w-3 h-3 animate-spin text-ats-text-muted" /> : (
                                   <>
-                                    <button onClick={() => handleStatus(c.platform, 'adset', as.adset_id, false)} className="p-1.5 rounded-md hover:bg-yellow-500/20 text-ats-text-muted hover:text-yellow-400" title="Pause"><Pause className="w-3 h-3" /></button>
+                                    <button onClick={() => requestStatusChange(c.platform, 'adset', as.adset_id, false, as.adset_name)} className="p-1.5 rounded-md hover:bg-yellow-500/20 text-ats-text-muted hover:text-yellow-400" title="Pause"><Pause className="w-3 h-3" /></button>
                                     <button
                                       onClick={() => { setBudgetModal({ platform: c.platform, entityId: as.adset_id, currentBudget }); setBudgetValue(currentBudget ? String(currentBudget) : ''); }}
                                       className="flex items-center gap-1 px-2 py-1 rounded-md bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 text-[10px] font-semibold transition-colors"
@@ -2004,7 +2415,7 @@ export default function LiveCampaignsPage() {
                                   {ad.ad_id && (
                                     <>
                                       {actionLoading[`status:ad:${ad.ad_id}`] ? <Loader2 className="w-3 h-3 animate-spin text-ats-text-muted" /> : (
-                                        <button onClick={() => handleStatus(c.platform, 'ad', ad.ad_id!, false)} className="p-1 rounded-md hover:bg-yellow-500/20 text-ats-text-muted hover:text-yellow-400" title="Pause Ad">
+                                        <button onClick={() => requestStatusChange(c.platform, 'ad', ad.ad_id!, false, ad.ad_name)} className="p-1 rounded-md hover:bg-yellow-500/20 text-ats-text-muted hover:text-yellow-400" title="Pause Ad">
                                           <Pause className="w-3 h-3" />
                                         </button>
                                       )}
@@ -2035,46 +2446,196 @@ export default function LiveCampaignsPage() {
       )}
 
       {/* Budget modal */}
-      {budgetModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setBudgetModal(null)}>
+      {budgetModal && (() => {
+        const currentBudget = budgetModal.currentBudget;
+        const newVal = parseFloat(budgetValue) || 0;
+        const diff = currentBudget !== undefined ? newVal - currentBudget : 0;
+        const diffPct = currentBudget ? ((diff / currentBudget) * 100) : 0;
+        return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => { setBudgetModal(null); setBudgetTab('adjust'); }}>
+          <div className="bg-ats-card border border-ats-border rounded-2xl w-full max-w-md mx-4" onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 pt-5 pb-3">
+              <h3 className="text-base font-bold text-ats-text">Daily Budget</h3>
+              <button onClick={() => { setBudgetModal(null); setBudgetTab('adjust'); }} className="p-1 rounded-lg hover:bg-ats-bg text-ats-text-muted hover:text-ats-text"><X className="w-4 h-4" /></button>
+            </div>
+
+            {/* Current budget display */}
+            {currentBudget !== undefined && (
+              <div className="mx-6 mb-4 p-3 rounded-xl bg-ats-bg border border-ats-border">
+                <p className="text-[11px] text-ats-text-muted uppercase tracking-wider mb-1">Current Budget</p>
+                <p className="text-2xl font-bold text-ats-text font-mono">{fmt$(currentBudget)}</p>
+              </div>
+            )}
+
+            {/* Tab bar */}
+            <div className="flex mx-6 mb-4 bg-ats-bg rounded-lg p-0.5 border border-ats-border">
+              <button
+                onClick={() => setBudgetTab('adjust')}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-md text-xs font-semibold transition-colors ${budgetTab === 'adjust' ? 'bg-ats-card text-ats-text shadow-sm' : 'text-ats-text-muted hover:text-ats-text'}`}
+              >
+                <DollarSign className="w-3 h-3" />Adjust
+              </button>
+              <button
+                onClick={() => { setBudgetTab('history'); loadBudgetHistory(budgetModal.entityId); }}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-md text-xs font-semibold transition-colors ${budgetTab === 'history' ? 'bg-ats-card text-ats-text shadow-sm' : 'text-ats-text-muted hover:text-ats-text'}`}
+              >
+                <History className="w-3 h-3" />History
+              </button>
+            </div>
+
+            {/* Adjust tab */}
+            {budgetTab === 'adjust' && (
+              <div className="px-6 pb-5">
+                {/* New budget input */}
+                <label className="text-[11px] text-ats-text-muted uppercase tracking-wider mb-1.5 block">New Budget</label>
+                <div className="relative mb-3">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-ats-text-muted">$</span>
+                  <input type="number" min="5" step="1" value={budgetValue} onChange={e => setBudgetValue(e.target.value)} placeholder="50" autoFocus
+                    className="w-full pl-7 pr-3 py-2.5 bg-ats-bg border border-ats-border rounded-lg text-sm text-ats-text focus:outline-none focus:border-ats-accent" />
+                </div>
+
+                {/* Change preview */}
+                {currentBudget !== undefined && newVal > 0 && newVal !== currentBudget && (
+                  <div className={`mb-3 p-2.5 rounded-lg border text-xs ${diff < 0 ? 'border-red-500/20 bg-red-500/5' : 'border-green-500/20 bg-green-500/5'}`}>
+                    <div className="flex items-center gap-1.5">
+                      {diff < 0 ? <TrendingDown className="w-3.5 h-3.5 text-red-400" /> : <TrendingUp className="w-3.5 h-3.5 text-green-400" />}
+                      <span className={diff < 0 ? 'text-red-400 font-semibold' : 'text-green-400 font-semibold'}>
+                        {diff > 0 ? '+' : ''}{fmt$(diff)} ({diff > 0 ? '+' : ''}{diffPct.toFixed(1)}%)
+                      </span>
+                      <span className="text-ats-text-muted ml-auto">{fmt$(currentBudget)} → {fmt$(newVal)}</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Quick adjust - decrease buttons */}
+                <div className="grid grid-cols-4 gap-2 mb-2">
+                  {[-50, -25, -10, -5].map(amt => (
+                    <button key={amt} onClick={() => {
+                      const cur = parseFloat(budgetValue) || 0;
+                      const next = Math.max(5, cur + amt);
+                      setBudgetValue(String(Math.round(next * 100) / 100));
+                    }}
+                      className="py-1.5 rounded-lg text-xs font-semibold border border-red-500/30 text-red-400 hover:bg-red-500/10">
+                      {amt}
+                    </button>
+                  ))}
+                </div>
+                {/* Quick adjust - increase buttons */}
+                <div className="grid grid-cols-4 gap-2 mb-4">
+                  {[5, 10, 25, 50].map(amt => (
+                    <button key={amt} onClick={() => {
+                      const cur = parseFloat(budgetValue) || 0;
+                      const next = Math.max(5, cur + amt);
+                      setBudgetValue(String(Math.round(next * 100) / 100));
+                    }}
+                      className="py-1.5 rounded-lg text-xs font-semibold border border-green-500/30 text-green-400 hover:bg-green-500/10">
+                      +{amt}
+                    </button>
+                  ))}
+                </div>
+
+                <p className="text-[11px] text-ats-text-muted mb-4">Minimum $5.00</p>
+                <div className="flex gap-2 justify-end">
+                  <button onClick={() => { setBudgetModal(null); setBudgetTab('adjust'); }} className="px-4 py-2 text-sm text-ats-text-muted hover:text-ats-text">Cancel</button>
+                  <button onClick={handleBudgetSubmit} disabled={actionLoading[`budget:${budgetModal.entityId}`]}
+                    className="px-4 py-2 bg-ats-accent text-white rounded-lg text-sm font-semibold hover:opacity-90 disabled:opacity-50">
+                    {actionLoading[`budget:${budgetModal.entityId}`] ? 'Saving...' : 'Update Budget'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* History tab */}
+            {budgetTab === 'history' && (
+              <div className="px-6 pb-5">
+                {budgetHistoryLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="w-5 h-5 animate-spin text-ats-text-muted" />
+                  </div>
+                ) : budgetHistory.length === 0 ? (
+                  <div className="text-center py-8">
+                    <History className="w-8 h-8 text-ats-text-muted/40 mx-auto mb-2" />
+                    <p className="text-sm text-ats-text-muted">No budget changes yet</p>
+                    <p className="text-[11px] text-ats-text-muted/60 mt-1">Changes will appear here after your first adjustment</p>
+                  </div>
+                ) : (
+                  <div className="space-y-0 max-h-72 overflow-y-auto">
+                    {budgetHistory.map((entry, i) => {
+                      const change = entry.old_budget != null ? entry.new_budget - entry.old_budget : null;
+                      const changePct = entry.old_budget ? ((change! / entry.old_budget) * 100) : null;
+                      const isDecrease = change != null && change < 0;
+                      const isIncrease = change != null && change > 0;
+                      const date = new Date(entry.created_at);
+                      return (
+                        <div key={entry.id} className={`flex items-start gap-3 py-3 ${i > 0 ? 'border-t border-ats-border/50' : ''}`}>
+                          <div className={`mt-0.5 w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 ${isDecrease ? 'bg-red-500/10' : isIncrease ? 'bg-green-500/10' : 'bg-ats-bg'}`}>
+                            {isDecrease ? <ArrowDown className="w-3 h-3 text-red-400" /> : isIncrease ? <ArrowUp className="w-3 h-3 text-green-400" /> : <DollarSign className="w-3 h-3 text-ats-text-muted" />}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-baseline gap-2">
+                              <span className="text-sm font-semibold text-ats-text font-mono">{fmt$(entry.new_budget)}</span>
+                              {change != null && (
+                                <span className={`text-[11px] font-semibold ${isDecrease ? 'text-red-400' : 'text-green-400'}`}>
+                                  {change > 0 ? '+' : ''}{fmt$(change)} ({change > 0 ? '+' : ''}{changePct!.toFixed(1)}%)
+                                </span>
+                              )}
+                            </div>
+                            {entry.old_budget != null && (
+                              <p className="text-[11px] text-ats-text-muted">from {fmt$(entry.old_budget)}</p>
+                            )}
+                          </div>
+                          <div className="text-right flex-shrink-0">
+                            <p className="text-[11px] text-ats-text-muted">{date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</p>
+                            <p className="text-[10px] text-ats-text-muted/60">{date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}</p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+        );
+      })()}
+
+      {/* Confirmation modal */}
+      {confirmModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => { if (!confirmLoading) setConfirmModal(null); }}>
           <div className="bg-ats-card border border-ats-border rounded-2xl p-6 w-full max-w-sm mx-4" onClick={e => e.stopPropagation()}>
-            <h3 className="text-base font-bold text-ats-text mb-4">Adjust Daily Budget</h3>
-            <div className="relative mb-3">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-ats-text-muted">$</span>
-              <input type="number" min="5" step="1" value={budgetValue} onChange={e => setBudgetValue(e.target.value)} placeholder="50" autoFocus
-                className="w-full pl-7 pr-3 py-2.5 bg-ats-bg border border-ats-border rounded-lg text-sm text-ats-text focus:outline-none focus:border-ats-accent" />
+            <div className="flex items-center gap-3 mb-3">
+              <div className="p-2 rounded-full bg-yellow-500/15">
+                <AlertTriangle className="w-5 h-5 text-yellow-400" />
+              </div>
+              <h3 className="text-base font-bold text-ats-text">{confirmModal.title}</h3>
             </div>
-            {/* Quick adjust buttons */}
-            <div className="grid grid-cols-4 gap-2 mb-3">
-              {[-10, -5, 5, 10].map(amt => (
-                <button key={amt} onClick={() => {
-                  const cur = parseFloat(budgetValue) || 0;
-                  const next = Math.max(5, cur + amt);
-                  setBudgetValue(String(Math.round(next * 100) / 100));
-                }}
-                  className={`py-1.5 rounded-lg text-xs font-semibold border ${amt < 0 ? 'border-red-500/30 text-red-400 hover:bg-red-500/10' : 'border-green-500/30 text-green-400 hover:bg-green-500/10'}`}>
-                  {amt > 0 ? '+' : ''}{amt}
-                </button>
-              ))}
-            </div>
-            <div className="grid grid-cols-4 gap-2 mb-4">
-              {[-50, -25, 25, 50].map(amt => (
-                <button key={amt} onClick={() => {
-                  const cur = parseFloat(budgetValue) || 0;
-                  const next = Math.max(5, cur + amt);
-                  setBudgetValue(String(Math.round(next * 100) / 100));
-                }}
-                  className={`py-1.5 rounded-lg text-xs font-semibold border ${amt < 0 ? 'border-red-500/30 text-red-400 hover:bg-red-500/10' : 'border-green-500/30 text-green-400 hover:bg-green-500/10'}`}>
-                  {amt > 0 ? '+' : ''}{amt}
-                </button>
-              ))}
-            </div>
-            <p className="text-[11px] text-ats-text-muted mb-3">Minimum $5.00</p>
+            <p className="text-sm text-ats-text-muted mb-5">{confirmModal.description}</p>
             <div className="flex gap-2 justify-end">
-              <button onClick={() => setBudgetModal(null)} className="px-4 py-2 text-sm text-ats-text-muted hover:text-ats-text">Cancel</button>
-              <button onClick={handleBudgetSubmit} disabled={actionLoading[`budget:${budgetModal.entityId}`]}
-                className="px-4 py-2 bg-ats-accent text-white rounded-lg text-sm font-semibold hover:opacity-90 disabled:opacity-50">
-                {actionLoading[`budget:${budgetModal.entityId}`] ? 'Saving...' : 'Update'}
+              <button
+                onClick={() => setConfirmModal(null)}
+                disabled={confirmLoading}
+                className="px-4 py-2 text-sm text-ats-text-muted hover:text-ats-text disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  setConfirmLoading(true);
+                  try {
+                    await confirmModal.onConfirm();
+                  } finally {
+                    setConfirmLoading(false);
+                    setConfirmModal(null);
+                  }
+                }}
+                disabled={confirmLoading}
+                className="px-4 py-2 bg-ats-accent text-white rounded-lg text-sm font-semibold hover:opacity-90 disabled:opacity-50"
+              >
+                {confirmLoading ? (
+                  <span className="flex items-center gap-2"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Syncing...</span>
+                ) : 'Confirm'}
               </button>
             </div>
           </div>
@@ -2086,6 +2647,9 @@ export default function LiveCampaignsPage() {
 
       {/* Format launcher */}
       {showFormatLauncher && <FormatLauncher onClose={() => setShowFormatLauncher(false)} onSuccess={load} accounts={accounts} />}
+
+      {/* Audience manager */}
+      {showAudienceManager && <AudienceManager onClose={() => setShowAudienceManager(false)} accounts={accounts} />}
     </PageShell>
   );
 }
