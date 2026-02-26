@@ -167,10 +167,12 @@ router.get('/', async (req: Request, res: Response) => {
     const params: any[] = [userId];
     let paramIdx = 2;
 
+    const { account_id: acctId } = req.query;
     if (platform) { conditions.push(`ac.platform = $${paramIdx++}`); params.push(platform); }
     if (status) { conditions.push(`ac.status = $${paramIdx++}`); params.push(status); }
     if (campaign_id) { conditions.push(`ac.campaign_id = $${paramIdx++}`); params.push(campaign_id); }
     if (creative_type) { conditions.push(`ac.creative_type = $${paramIdx++}`); params.push(creative_type); }
+    if (acctId) { conditions.push(`ac.account_id = $${paramIdx++}`); params.push(acctId); }
     if (search) { conditions.push(`(ac.ad_name ILIKE $${paramIdx} OR ac.ad_copy ILIKE $${paramIdx})`); params.push(`%${search}%`); paramIdx++; }
 
     // Tag filters
@@ -183,10 +185,10 @@ router.get('/', async (req: Request, res: Response) => {
     if (tag_offer_type) { conditions.push(`ct.offer_type = $${paramIdx++}`); params.push(tag_offer_type); }
     if (tag_cta_style) { conditions.push(`ct.cta_style = $${paramIdx++}`); params.push(tag_cta_style); }
 
-    // Date filters for metrics
+    // Date filters for metrics (add 1 day buffer to date_to for timezone tolerance)
     let dateFilter = '';
     if (date_from) { dateFilter += ` AND cmd.date >= $${paramIdx++}::DATE`; params.push(date_from); }
-    if (date_to) { dateFilter += ` AND cmd.date <= $${paramIdx++}::DATE`; params.push(date_to); }
+    if (date_to) { dateFilter += ` AND cmd.date <= ($${paramIdx++}::DATE + INTERVAL '1 day')`; params.push(date_to); }
 
     const allowedSorts = ['spend', 'roas', 'cpa', 'revenue', 'clicks', 'impressions', 'ctr', 'cvr'];
     const sortField = allowedSorts.includes(sort_by as string) ? sort_by : 'spend';
@@ -233,7 +235,7 @@ router.get('/', async (req: Request, res: Response) => {
 router.get('/top-performing', async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
-    const { date_from, date_to, group_by, sort_by, limit: lim, platform } = req.query;
+    const { date_from, date_to, group_by, sort_by, limit: lim, platform, account_id } = req.query;
     const pageSize = Math.min(100, parseInt(lim as string) || 20);
 
     const conditions: string[] = ['ac.user_id = $1'];
@@ -241,10 +243,11 @@ router.get('/top-performing', async (req: Request, res: Response) => {
     let paramIdx = 2;
 
     if (platform) { conditions.push(`ac.platform = $${paramIdx++}`); params.push(platform); }
+    if (account_id) { conditions.push(`ac.account_id = $${paramIdx++}`); params.push(account_id); }
 
     let dateFilter = '';
     if (date_from) { dateFilter += ` AND cmd.date >= $${paramIdx++}::DATE`; params.push(date_from); }
-    if (date_to) { dateFilter += ` AND cmd.date <= $${paramIdx++}::DATE`; params.push(date_to); }
+    if (date_to) { dateFilter += ` AND cmd.date <= ($${paramIdx++}::DATE + INTERVAL '1 day')`; params.push(date_to); }
 
     const result = await pool.query(`
       WITH metrics_agg AS (
@@ -260,13 +263,15 @@ router.get('/top-performing', async (req: Request, res: Response) => {
         GROUP BY creative_id
       )
       SELECT ac.id, ac.ad_id, ac.ad_name, ac.campaign_name, ac.adset_name, ac.creative_type,
-        ac.thumbnail_url, ac.image_url, ac.headline, ac.platform, ac.status,
+        ac.thumbnail_url, ac.image_url, ac.headline, ac.platform, ac.status, ac.account_id,
+        a.name AS account_name,
         ct.asset_type, ct.visual_format, ct.hook_type, ct.creative_angle,
         ct.messaging_theme, ct.talent_type, ct.offer_type, ct.cta_style,
         ma.spend, ma.impressions, ma.clicks, ma.purchases, ma.revenue,
         ma.ctr, ma.cpa, ma.roas, ma.cvr
       FROM ad_creatives ac
       LEFT JOIN creative_tags ct ON ct.creative_id = ac.id
+      LEFT JOIN accounts a ON a.id = ac.account_id
       INNER JOIN metrics_agg ma ON ma.creative_id = ac.id
       WHERE ${conditions.join(' AND ')} AND ma.spend > 0
       ORDER BY ma.spend DESC NULLS LAST
@@ -284,7 +289,7 @@ router.get('/top-performing', async (req: Request, res: Response) => {
 router.get('/comparative', async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
-    const { date_from, date_to, dimension, metric } = req.query;
+    const { date_from, date_to, dimension, metric, account_id } = req.query;
 
     const tagDimensions = ['asset_type', 'visual_format', 'hook_type', 'creative_angle',
       'messaging_theme', 'talent_type', 'offer_type', 'cta_style'];
@@ -295,11 +300,15 @@ router.get('/comparative', async (req: Request, res: Response) => {
     const isTagDim = tagDimensions.includes(dim);
     const dimColumn = isTagDim ? `ct.${dim}` : `ac.${dim}`;
 
+    const conditions: string[] = ['ac.user_id = $1'];
     const params: any[] = [userId];
     let paramIdx = 2;
+
+    if (account_id) { conditions.push(`ac.account_id = $${paramIdx++}`); params.push(account_id); }
+
     let dateFilter = '';
     if (date_from) { dateFilter += ` AND cmd.date >= $${paramIdx++}::DATE`; params.push(date_from); }
-    if (date_to) { dateFilter += ` AND cmd.date <= $${paramIdx++}::DATE`; params.push(date_to); }
+    if (date_to) { dateFilter += ` AND cmd.date <= ($${paramIdx++}::DATE + INTERVAL '1 day')`; params.push(date_to); }
 
     const result = await pool.query(`
       SELECT ${dimColumn} AS dimension_value,
@@ -312,7 +321,7 @@ router.get('/comparative', async (req: Request, res: Response) => {
       FROM ad_creatives ac
       LEFT JOIN creative_tags ct ON ct.creative_id = ac.id
       LEFT JOIN creative_metrics_daily cmd ON cmd.creative_id = ac.id ${dateFilter.replace(/AND/g, 'AND')}
-      WHERE ac.user_id = $1 AND ${dimColumn} IS NOT NULL
+      WHERE ${conditions.join(' AND ')} AND ${dimColumn} IS NOT NULL
       GROUP BY ${dimColumn}
       ORDER BY total_spend DESC
     `, params);
@@ -328,13 +337,18 @@ router.get('/comparative', async (req: Request, res: Response) => {
 router.get('/launch-analysis', async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
+    const { account_id } = req.query;
+
+    const conditions: string[] = ['ac.user_id = $1'];
+    const params: any[] = [userId];
+    if (account_id) { conditions.push(`ac.account_id = $2`); params.push(account_id); }
 
     const result = await pool.query(`
       WITH recent_creatives AS (
         SELECT ac.*, ct.asset_type, ct.hook_type, ct.creative_angle, ct.visual_format
         FROM ad_creatives ac
         LEFT JOIN creative_tags ct ON ct.creative_id = ac.id
-        WHERE ac.user_id = $1 AND ac.first_seen >= CURRENT_DATE - INTERVAL '7 days'
+        WHERE ${conditions.join(' AND ')} AND ac.first_seen >= CURRENT_DATE - INTERVAL '7 days'
       ),
       first_3 AS (
         SELECT creative_id, SUM(spend) AS spend, SUM(revenue) AS revenue,
@@ -362,7 +376,7 @@ router.get('/launch-analysis', async (req: Request, res: Response) => {
       LEFT JOIN first_3 f3 ON f3.creative_id = rc.id
       LEFT JOIN last_3 l3 ON l3.creative_id = rc.id
       ORDER BY last_3_spend DESC
-    `, [userId]);
+    `, params);
 
     res.json(result.rows);
   } catch (err) {

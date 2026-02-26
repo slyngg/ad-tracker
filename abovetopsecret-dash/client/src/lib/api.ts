@@ -827,8 +827,9 @@ export function fetchComparative(params: Record<string, string> = {}): Promise<C
   return request(`/creatives/comparative${qs ? `?${qs}` : ''}`);
 }
 
-export function fetchLaunchAnalysis(): Promise<CreativeItem[]> {
-  return request('/creatives/launch-analysis');
+export function fetchLaunchAnalysis(params: Record<string, string> = {}): Promise<CreativeItem[]> {
+  const qs = new URLSearchParams(params).toString();
+  return request(`/creatives/launch-analysis${qs ? `?${qs}` : ''}`);
 }
 
 export function fetchCreativeDiversity(): Promise<Record<string, Record<string, number>>> {

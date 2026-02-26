@@ -5,7 +5,7 @@ import PageShell from '../../components/shared/PageShell';
 import { useChartTheme } from '../../hooks/useChartTheme';
 import {
   fetchTopPerforming, fetchComparative, fetchLaunchAnalysis,
-  CreativeItem, ComparativeRow, createSnapshot,
+  CreativeItem, ComparativeRow, createSnapshot, fetchAccounts, Account,
 } from '../../lib/api';
 import { getAuthToken } from '../../stores/authStore';
 import { useLiveRefresh } from '../../hooks/useLiveRefresh';
@@ -106,6 +106,11 @@ export default function CreativeAnalyticsPage() {
   const dateFrom = toIso(dateRange.from);
   const dateTo = toIso(dateRange.to);
 
+  // Accounts for filter
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [accountId, setAccountId] = useState('');
+  useEffect(() => { fetchAccounts().then(setAccounts).catch(() => {}); }, []);
+
   // Filters
   const [platform, setPlatform] = useState('');
   const [compDimension, setCompDimension] = useState('asset_type');
@@ -126,18 +131,23 @@ export default function CreativeAnalyticsPage() {
       if (tab === 'top') {
         const params: Record<string, string> = { date_from: dateFrom, date_to: dateTo, limit: '100' };
         if (platform) params.platform = platform;
+        if (accountId) params.account_id = accountId;
         const data = await fetchTopPerforming(params);
         setCreatives(data);
       } else if (tab === 'comparative') {
-        const data = await fetchComparative({ date_from: dateFrom, date_to: dateTo, dimension: compDimension, metric: compMetric });
+        const params: Record<string, string> = { date_from: dateFrom, date_to: dateTo, dimension: compDimension, metric: compMetric };
+        if (accountId) params.account_id = accountId;
+        const data = await fetchComparative(params);
         setComparative(data);
       } else {
-        const data = await fetchLaunchAnalysis();
+        const params: Record<string, string> = {};
+        if (accountId) params.account_id = accountId;
+        const data = await fetchLaunchAnalysis(params);
         setLaunches(data);
       }
     } catch { /* empty */ }
     finally { setLoading(false); }
-  }, [tab, dateRange, platform, compDimension, compMetric]);
+  }, [tab, dateRange, platform, compDimension, compMetric, accountId]);
 
   useEffect(() => { load(); }, [load]);
   useLiveRefresh(load);
@@ -208,6 +218,14 @@ export default function CreativeAnalyticsPage() {
         </button>
         {filtersOpen && (
           <div className="mt-2 space-y-2 bg-ats-card rounded-xl p-3 border border-ats-border">
+            {accounts.length > 1 && (
+              <select value={accountId} onChange={e => setAccountId(e.target.value)} className={filterInputCls}>
+                <option value="">All Accounts</option>
+                {accounts.filter(a => a.status === 'active').map(a => (
+                  <option key={a.id} value={a.id}>{a.name}</option>
+                ))}
+              </select>
+            )}
             {tab === 'top' && (
               <>
                 <select value={platform} onChange={e => setPlatform(e.target.value)} className={filterInputCls}>
@@ -235,6 +253,14 @@ export default function CreativeAnalyticsPage() {
 
       {/* Desktop: Inline filter row */}
       <div className="hidden lg:flex flex-wrap gap-2 mb-4">
+        {accounts.length > 1 && (
+          <select value={accountId} onChange={e => setAccountId(e.target.value)} className="bg-ats-card border border-ats-border rounded-lg px-3 py-1.5 text-sm text-ats-text">
+            <option value="">All Accounts</option>
+            {accounts.filter(a => a.status === 'active').map(a => (
+              <option key={a.id} value={a.id}>{a.name}</option>
+            ))}
+          </select>
+        )}
         {tab === 'top' && (
           <>
             <select value={platform} onChange={e => setPlatform(e.target.value)} className="bg-ats-card border border-ats-border rounded-lg px-3 py-1.5 text-sm text-ats-text">
@@ -293,7 +319,7 @@ export default function CreativeAnalyticsPage() {
                   <span className="text-sm font-semibold text-ats-text truncate">{c.ad_name || c.ad_id}</span>
                   <MomentumBadge momentum={c.momentum} />
                 </div>
-                <div className="text-xs text-ats-text-muted mb-2">{c.campaign_name} {c.headline ? `| ${c.headline}` : ''}</div>
+                <div className="text-xs text-ats-text-muted mb-2">{c.campaign_name} {c.headline ? `| ${c.headline}` : ''} {(c as any).account_name ? <span className="text-purple-400">({(c as any).account_name})</span> : ''}</div>
                 <div className="flex flex-wrap gap-2">
                   <MetricChip label="Spend" value={`$${parseFloat(String(c.spend)).toFixed(0)}`} />
                   <MetricChip label="ROAS" value={`${parseFloat(String(c.roas)).toFixed(2)}x`} color={parseFloat(String(c.roas)) >= 2 ? 'text-emerald-400' : parseFloat(String(c.roas)) >= 1 ? 'text-amber-400' : 'text-red-400'} />

@@ -258,6 +258,25 @@ export async function syncNewsBreakAds(userId?: number, authOverride?: NewsBreak
 async function ingestNewsBreakCreatives(userId: number, rows: any[]): Promise<void> {
   const today = new Date().toISOString().split('T')[0];
 
+  // Build campaign_id → accounts.id lookup from newsbreak_ads_today + nb_campaign_account_map
+  const acctLookup: Record<string, number> = {};
+  try {
+    const mapRes = await pool.query(
+      `SELECT DISTINCT nb.campaign_id, a.id as account_id
+       FROM newsbreak_ads_today nb
+       JOIN accounts a ON a.platform_account_id = nb.account_id AND a.user_id = nb.user_id AND a.status = 'active'
+       WHERE nb.user_id = $1
+       UNION
+       SELECT m.campaign_id, m.account_id
+       FROM nb_campaign_account_map m
+       WHERE m.user_id = $1`,
+      [userId]
+    );
+    for (const r of mapRes.rows) {
+      acctLookup[r.campaign_id] = r.account_id;
+    }
+  } catch { /* ignore */ }
+
   for (const row of rows) {
     const adId = row.adId;
     if (!adId) continue;
@@ -267,13 +286,15 @@ async function ingestNewsBreakCreatives(userId: number, rows: any[]): Promise<vo
     const clicks = parseInt(row.click) || 0;
     const conversions = parseInt(row.conversion) || 0;
     const conversionValue = (parseFloat(row.conversionValueDecimal) || row.conversionValue || 0) / 100;
+    const campaignId = row.campaignId || null;
+    const accountId = campaignId ? acctLookup[campaignId] || null : null;
 
     try {
       // Upsert into ad_creatives
       const creativeRes = await pool.query(
         `INSERT INTO ad_creatives (user_id, platform, ad_id, ad_name, adset_id, adset_name, campaign_id, campaign_name,
-          creative_type, status, last_seen)
-         VALUES ($1, 'newsbreak', $2, $3, $4, $5, $6, $7, 'image', 'active', CURRENT_DATE)
+          creative_type, status, last_seen, account_id)
+         VALUES ($1, 'newsbreak', $2, $3, $4, $5, $6, $7, 'image', 'active', CURRENT_DATE, $8)
          ON CONFLICT (user_id, platform, ad_id) DO UPDATE SET
            ad_name = COALESCE(NULLIF(EXCLUDED.ad_name, ''), ad_creatives.ad_name),
            adset_id = EXCLUDED.adset_id,
@@ -281,9 +302,10 @@ async function ingestNewsBreakCreatives(userId: number, rows: any[]): Promise<vo
            campaign_id = EXCLUDED.campaign_id,
            campaign_name = COALESCE(NULLIF(EXCLUDED.campaign_name, ''), ad_creatives.campaign_name),
            status = 'active',
-           last_seen = CURRENT_DATE
+           last_seen = CURRENT_DATE,
+           account_id = COALESCE(EXCLUDED.account_id, ad_creatives.account_id)
          RETURNING id`,
-        [userId, adId, row.ad || null, row.adSetId || null, row.adSet || null, row.campaignId || null, row.campaign || null]
+        [userId, adId, row.ad || null, row.adSetId || null, row.adSet || null, campaignId, row.campaign || null, accountId]
       );
 
       const creativeId = creativeRes.rows[0]?.id;
