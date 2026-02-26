@@ -4,8 +4,30 @@ import { getSetting } from './settings';
 import { decrypt } from './oauth-providers';
 
 const TIKTOK_API_BASE = 'https://business-api.tiktok.com/open_api/v1.3';
+const TIKTOK_RESEARCH_API_BASE = 'https://open.tiktokapis.com/v2';
 
 // ── Auth resolution ────────────────────────────────────────────
+
+export async function getTikTokResearchAuth(userId: number): Promise<string | null> {
+  // Check integration_configs for a TikTok research API token
+  try {
+    const result = await pool.query(
+      `SELECT credentials FROM integration_configs
+       WHERE user_id = $1 AND platform = 'tiktok' AND status = 'connected'`,
+      [userId]
+    );
+    if (result.rows.length > 0) {
+      const { credentials } = result.rows[0];
+      if (credentials?.research_token_encrypted) {
+        return decrypt(credentials.research_token_encrypted);
+      }
+    }
+  } catch { /* fall through */ }
+
+  // Fall back to settings
+  const token = await getSetting('tiktok_research_api_token', userId);
+  return token || null;
+}
 
 export async function getTikTokAuth(userId: number): Promise<{ accessToken: string; advertiserId: string } | null> {
   try {
@@ -320,4 +342,88 @@ export async function createTikTokAd(
 
   const result = await tiktokPost('/ad/create/', body, accessToken);
   return { ad_id: result.ad_id };
+}
+
+// ── TikTok Ad Library (Commercial Content Library API) ──────────
+
+function tiktokResearchPost(endpoint: string, body: any, accessToken: string): Promise<any> {
+  const url = new URL(`${TIKTOK_RESEARCH_API_BASE}${endpoint}`);
+  const bodyStr = JSON.stringify(body);
+
+  return new Promise((resolve, reject) => {
+    const req = https.request(
+      {
+        hostname: url.hostname,
+        path: url.pathname,
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(bodyStr),
+        },
+      },
+      (res) => {
+        let data = '';
+        res.on('data', (chunk: string) => (data += chunk));
+        res.on('end', () => {
+          try {
+            const parsed = JSON.parse(data);
+            if (parsed.error?.code) {
+              reject(new Error(parsed.error?.message || `TikTok Research API error: ${parsed.error.code}`));
+            } else {
+              resolve(parsed.data || parsed);
+            }
+          } catch {
+            reject(new Error(`TikTok Research API returned invalid JSON: ${data.slice(0, 200)}`));
+          }
+        });
+      }
+    );
+    req.on('error', reject);
+    req.write(bodyStr);
+    req.end();
+  });
+}
+
+export async function searchTikTokAdLibrary(
+  params: {
+    search_term?: string;
+    country_code?: string;
+    ad_published_date_range?: { min: string; max: string };
+    max_count?: number;
+    search_id?: string;
+    cursor?: number;
+  },
+  accessToken: string
+): Promise<{ data: any[]; has_more: boolean; search_id?: string; cursor?: number }> {
+  const filters: any = {};
+  if (params.country_code) filters.country_code = params.country_code;
+  if (params.ad_published_date_range) {
+    filters.ad_published_date_range = params.ad_published_date_range;
+  } else {
+    // Default to last 30 days
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    filters.ad_published_date_range = {
+      min: thirtyDaysAgo.toISOString().slice(0, 10).replace(/-/g, ''),
+      max: now.toISOString().slice(0, 10).replace(/-/g, ''),
+    };
+  }
+
+  const body: any = {
+    filters,
+    max_count: params.max_count || 20,
+  };
+  if (params.search_term) body.search_term = params.search_term;
+  if (params.search_id) body.search_id = params.search_id;
+  if (params.cursor != null) body.cursor = params.cursor;
+
+  const result = await tiktokResearchPost('/research/adlib/ad/query/', body, accessToken);
+
+  return {
+    data: result.ads || [],
+    has_more: result.has_more ?? false,
+    search_id: result.search_id,
+    cursor: result.cursor,
+  };
 }

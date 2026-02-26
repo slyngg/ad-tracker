@@ -2,11 +2,12 @@ import Anthropic from '@anthropic-ai/sdk';
 import { Response } from 'express';
 import pool from '../db';
 import { searchAdLibrary as metaSearchAdLibrary } from './meta-api';
+import { searchTikTokAdLibrary, getTikTokResearchAuth } from './tiktok-api';
 import { decrypt } from './oauth-providers';
 
 const anthropic = new Anthropic();
 
-async function getAccessToken(userId: number): Promise<string> {
+async function getMetaAccessToken(userId: number): Promise<string> {
   const result = await pool.query(
     `SELECT credentials FROM integration_configs
      WHERE user_id = $1 AND platform = 'meta' AND status = 'connected' AND connection_method = 'oauth'`,
@@ -37,6 +38,7 @@ function parseSpendRange(spend: any): { lower: number | null; upper: number | nu
 export async function searchAndCacheAdLibrary(
   userId: number,
   params: {
+    platform?: string;
     search_terms?: string;
     page_id?: string;
     country: string;
@@ -46,7 +48,28 @@ export async function searchAndCacheAdLibrary(
     after?: string;
   }
 ): Promise<{ data: any[]; paging?: { after?: string } }> {
-  const accessToken = await getAccessToken(userId);
+  const platform = params.platform || 'meta';
+
+  if (platform === 'tiktok') {
+    return searchAndCacheTikTok(userId, params);
+  }
+
+  return searchAndCacheMeta(userId, params);
+}
+
+async function searchAndCacheMeta(
+  userId: number,
+  params: {
+    search_terms?: string;
+    page_id?: string;
+    country: string;
+    ad_active_status?: string;
+    ad_type?: string;
+    limit?: number;
+    after?: string;
+  }
+): Promise<{ data: any[]; paging?: { after?: string } }> {
+  const accessToken = await getMetaAccessToken(userId);
 
   const searchParams: any = {
     ad_reached_countries: [params.country || 'US'],
@@ -62,8 +85,8 @@ export async function searchAndCacheAdLibrary(
 
   // Log search
   await pool.query(
-    `INSERT INTO ad_library_searches (user_id, search_type, search_terms, page_id, country, filters, results_count)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    `INSERT INTO ad_library_searches (user_id, search_type, search_terms, page_id, country, filters, results_count, platform)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, 'meta')`,
     [
       userId,
       params.page_id ? 'page' : 'keyword',
@@ -83,9 +106,9 @@ export async function searchAndCacheAdLibrary(
 
     try {
       const upsertRes = await pool.query(
-        `INSERT INTO ad_library_cache (user_id, meta_ad_id, page_id, page_name, ad_creative_bodies, ad_creative_link_titles, ad_creative_link_descriptions, ad_creative_link_captions, ad_snapshot_url, impressions_lower, impressions_upper, spend_lower, spend_upper, currency, ad_delivery_start, ad_delivery_stop, ad_creation_time, publisher_platforms, bylines, raw_data)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
-         ON CONFLICT (user_id, meta_ad_id) DO UPDATE SET
+        `INSERT INTO ad_library_cache (user_id, platform, meta_ad_id, page_id, page_name, ad_creative_bodies, ad_creative_link_titles, ad_creative_link_descriptions, ad_creative_link_captions, ad_snapshot_url, impressions_lower, impressions_upper, spend_lower, spend_upper, currency, ad_delivery_start, ad_delivery_stop, ad_creation_time, publisher_platforms, bylines, raw_data)
+         VALUES ($1, 'meta', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+         ON CONFLICT (user_id, platform, meta_ad_id) DO UPDATE SET
            ad_creative_bodies = EXCLUDED.ad_creative_bodies,
            ad_creative_link_titles = EXCLUDED.ad_creative_link_titles,
            impressions_lower = COALESCE(EXCLUDED.impressions_lower, ad_library_cache.impressions_lower),
@@ -122,6 +145,94 @@ export async function searchAndCacheAdLibrary(
   return {
     data: cached,
     paging: result.paging?.cursors?.after ? { after: result.paging.cursors.after } : undefined,
+  };
+}
+
+async function searchAndCacheTikTok(
+  userId: number,
+  params: {
+    search_terms?: string;
+    country: string;
+    limit?: number;
+    after?: string;
+  }
+): Promise<{ data: any[]; paging?: { after?: string } }> {
+  const accessToken = await getTikTokResearchAuth(userId);
+  if (!accessToken) throw new Error('No TikTok Research API token configured. Add your TikTok Research API token in Integrations.');
+
+  const countryMap: Record<string, string> = { US: 'US', CA: 'CA', GB: 'GB', AU: 'AU', DE: 'DE', FR: 'FR' };
+
+  const result = await searchTikTokAdLibrary(
+    {
+      search_term: params.search_terms,
+      country_code: countryMap[params.country] || 'US',
+      max_count: params.limit || 20,
+      cursor: params.after ? parseInt(params.after, 10) : undefined,
+    },
+    accessToken
+  );
+
+  // Log search
+  await pool.query(
+    `INSERT INTO ad_library_searches (user_id, search_type, search_terms, country, filters, results_count, platform)
+     VALUES ($1, 'keyword', $2, $3, $4, $5, 'tiktok')`,
+    [
+      userId,
+      params.search_terms || null,
+      params.country || 'US',
+      JSON.stringify({}),
+      result.data?.length || 0,
+    ]
+  );
+
+  // Cache TikTok results (normalize to same schema as Meta)
+  const cached: any[] = [];
+  for (const ad of (result.data || [])) {
+    try {
+      const adId = ad.id || ad.ad_id || `tt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const firstShown = ad.first_shown || null;
+      const lastShown = ad.last_shown || null;
+      const paidForBy = ad.paid_for_by || 'Unknown';
+
+      // Extract creative content from TikTok ad data
+      const bodies = ad.ad_text ? [ad.ad_text] : [];
+      const titles = ad.ad_title ? [ad.ad_title] : [];
+      const reach = ad.reach || {};
+
+      const upsertRes = await pool.query(
+        `INSERT INTO ad_library_cache (user_id, platform, meta_ad_id, page_id, page_name, ad_creative_bodies, ad_creative_link_titles, ad_creative_link_descriptions, ad_creative_link_captions, ad_snapshot_url, impressions_lower, impressions_upper, ad_delivery_start, ad_delivery_stop, ad_creation_time, publisher_platforms, raw_data)
+         VALUES ($1, 'tiktok', $2, $3, $4, $5, $6, '[]', '[]', $7, $8, $9, $10, $11, $12, $13, $14)
+         ON CONFLICT (user_id, platform, meta_ad_id) DO UPDATE SET
+           ad_creative_bodies = EXCLUDED.ad_creative_bodies,
+           ad_creative_link_titles = EXCLUDED.ad_creative_link_titles,
+           impressions_lower = COALESCE(EXCLUDED.impressions_lower, ad_library_cache.impressions_lower),
+           impressions_upper = COALESCE(EXCLUDED.impressions_upper, ad_library_cache.impressions_upper),
+           ad_delivery_stop = EXCLUDED.ad_delivery_stop,
+           raw_data = EXCLUDED.raw_data
+         RETURNING *`,
+        [
+          userId, adId, paidForBy, paidForBy,
+          JSON.stringify(bodies),
+          JSON.stringify(titles),
+          (ad.videos?.[0]?.cover_image_url || ad.images?.[0]?.image_url) || null,
+          reach.unique_users_seen_lower_bound || null,
+          reach.unique_users_seen_upper_bound || null,
+          firstShown || null,
+          lastShown || null,
+          firstShown || null,
+          JSON.stringify(['tiktok']),
+          JSON.stringify(ad),
+        ]
+      );
+      cached.push(upsertRes.rows[0]);
+    } catch (err) {
+      console.error('Error caching TikTok ad library result:', err);
+    }
+  }
+
+  return {
+    data: cached,
+    paging: result.has_more && result.cursor != null ? { after: String(result.cursor) } : undefined,
   };
 }
 

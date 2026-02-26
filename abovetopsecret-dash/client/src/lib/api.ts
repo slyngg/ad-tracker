@@ -1572,6 +1572,7 @@ export function extractCreativeTemplate(creativeId: number): Promise<CreativeTem
 // --- Ad Library API (Phase 3) ---
 export interface AdLibraryResult {
   id: number;
+  platform: string;
   meta_ad_id: string;
   page_id: string;
   page_name: string;
@@ -1591,6 +1592,7 @@ export interface AdLibraryResult {
 }
 
 export interface AdLibrarySearchParams {
+  platform?: 'meta' | 'tiktok';
   search_terms?: string;
   page_id?: string;
   country: string;

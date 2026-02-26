@@ -288,7 +288,7 @@ export async function searchAdLibrary(
 ): Promise<{ data: any[]; paging?: { cursors?: { after?: string }; next?: string } }> {
   const queryParams: Record<string, string> = {
     ad_reached_countries: JSON.stringify(params.ad_reached_countries),
-    fields: 'id,ad_creation_time,ad_creative_bodies,ad_creative_link_captions,ad_creative_link_descriptions,ad_creative_link_titles,ad_delivery_start_time,ad_delivery_stop_time,ad_snapshot_url,bylines,currency,impressions,page_id,page_name,publisher_platforms,spend,estimated_audience_size',
+    fields: 'id,ad_creation_time,ad_creative_bodies,ad_creative_link_captions,ad_creative_link_descriptions,ad_creative_link_titles,ad_delivery_start_time,ad_delivery_stop_time,ad_snapshot_url,bylines,currency,impressions,page_id,page_name,publisher_platforms,spend',
     limit: String(params.limit || 25),
   };
   if (params.search_terms) queryParams.search_terms = params.search_terms;

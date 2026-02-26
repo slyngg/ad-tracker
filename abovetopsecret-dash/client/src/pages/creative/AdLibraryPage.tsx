@@ -22,6 +22,11 @@ const COUNTRIES = [
   { code: 'FR', label: 'France' },
 ];
 
+const PLATFORMS = [
+  { value: 'meta' as const, label: 'Meta' },
+  { value: 'tiktok' as const, label: 'TikTok' },
+];
+
 const STATUS_OPTIONS = [
   { value: 'ALL', label: 'All Statuses' },
   { value: 'ACTIVE', label: 'Active' },
@@ -36,6 +41,7 @@ export default function AdLibraryPage() {
   const navigate = useNavigate();
 
   // Search state
+  const [platform, setPlatform] = useState<'meta' | 'tiktok'>('meta');
   const [searchTerms, setSearchTerms] = useState('');
   const [country, setCountry] = useState('US');
   const [adStatus, setAdStatus] = useState('ALL');
@@ -106,6 +112,7 @@ export default function AdLibraryPage() {
 
     try {
       const params: AdLibrarySearchParams = {
+        platform,
         search_terms: searchTerms.trim(),
         country,
         ad_active_status: adStatus === 'ALL' ? undefined : adStatus,
@@ -120,13 +127,14 @@ export default function AdLibraryPage() {
     } finally {
       setLoading(false);
     }
-  }, [searchTerms, country, adStatus]);
+  }, [searchTerms, country, adStatus, platform]);
 
   const handleLoadMore = useCallback(async () => {
     if (!pagingCursor || loadingMore) return;
     setLoadingMore(true);
     try {
       const params: AdLibrarySearchParams = {
+        platform,
         search_terms: searchTerms.trim(),
         country,
         ad_active_status: adStatus === 'ALL' ? undefined : adStatus,
@@ -141,7 +149,7 @@ export default function AdLibraryPage() {
     } finally {
       setLoadingMore(false);
     }
-  }, [pagingCursor, loadingMore, searchTerms, country, adStatus]);
+  }, [pagingCursor, loadingMore, searchTerms, country, adStatus, platform]);
 
   const handleSaveToInspo = useCallback(async (ad: AdLibraryResult) => {
     setActionLoading(prev => ({ ...prev, [ad.id]: 'saving' }));
@@ -251,7 +259,7 @@ export default function AdLibraryPage() {
   return (
     <PageShell
       title="Ad Library Spy"
-      subtitle="Search the Meta Ad Library and analyze competitor creatives"
+      subtitle="Search ad libraries across platforms and analyze competitor creatives"
       actions={rateStatus ? (
         <span className={`px-3 py-1 rounded-full text-xs font-mono font-semibold ${
           rateStatus.calls_used / rateStatus.limit > 0.8
@@ -280,6 +288,15 @@ export default function AdLibraryPage() {
           </div>
           {/* Filters + search button */}
           <div className="flex items-center gap-2 flex-wrap">
+            <select
+              value={platform}
+              onChange={e => setPlatform(e.target.value as 'meta' | 'tiktok')}
+              className={inputCls}
+            >
+              {PLATFORMS.map(p => (
+                <option key={p.value} value={p.value}>{p.label}</option>
+              ))}
+            </select>
             <div className="relative">
               <Globe className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ats-text-muted" />
               <select
@@ -292,15 +309,17 @@ export default function AdLibraryPage() {
                 ))}
               </select>
             </div>
-            <select
-              value={adStatus}
-              onChange={e => setAdStatus(e.target.value)}
-              className={inputCls}
-            >
-              {STATUS_OPTIONS.map(o => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
+            {platform === 'meta' && (
+              <select
+                value={adStatus}
+                onChange={e => setAdStatus(e.target.value)}
+                className={inputCls}
+              >
+                {STATUS_OPTIONS.map(o => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            )}
             <button
               onClick={handleSearch}
               disabled={loading || !searchTerms.trim()}
@@ -354,8 +373,8 @@ export default function AdLibraryPage() {
           {!loading && results.length === 0 && !searchTerms && (
             <div className={`${cardCls} text-center py-16 text-ats-text-muted`}>
               <Search className="w-10 h-10 mx-auto mb-3 opacity-40" />
-              <p className="text-lg font-semibold text-ats-text mb-1">Search the Meta Ad Library</p>
-              <p className="text-sm">Enter keywords above to discover competitor ads, analyze strategies, and save inspiration.</p>
+              <p className="text-lg font-semibold text-ats-text mb-1">Search Ad Libraries</p>
+              <p className="text-sm">Select a platform and enter keywords to discover competitor ads, analyze strategies, and save inspiration.</p>
             </div>
           )}
 

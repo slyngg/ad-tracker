@@ -19,6 +19,7 @@ function parseId(val: string): number | null {
 }
 
 const searchSchema = z.object({
+  platform: z.enum(['meta', 'tiktok']).default('meta'),
   search_terms: z.string().max(500).optional(),
   page_id: z.string().max(100).optional(),
   country: z.string().max(5).default('US'),
@@ -66,7 +67,7 @@ router.get('/results', async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
     if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
-    const { page_id, search, limit: lim, offset: off } = req.query;
+    const { page_id, search, platform, limit: lim, offset: off } = req.query;
     const limit = Math.min(100, parseInt(lim as string) || 50);
     const offset = Math.max(0, parseInt(off as string) || 0);
 
@@ -74,6 +75,7 @@ router.get('/results', async (req: Request, res: Response) => {
     const params: any[] = [userId];
     let idx = 2;
 
+    if (platform) { conditions.push(`platform = $${idx++}`); params.push(platform); }
     if (page_id) { conditions.push(`page_id = $${idx++}`); params.push(page_id); }
     if (search) {
       conditions.push(`(page_name ILIKE $${idx} OR ad_creative_bodies::TEXT ILIKE $${idx})`);
