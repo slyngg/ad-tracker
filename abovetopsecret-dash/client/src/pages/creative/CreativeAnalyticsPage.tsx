@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
-import { ChevronUp, ChevronDown } from 'lucide-react';
+import { ChevronUp, ChevronDown, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import PageShell from '../../components/shared/PageShell';
 import { useChartTheme } from '../../hooks/useChartTheme';
 import {
@@ -9,6 +9,7 @@ import {
 } from '../../lib/api';
 import { getAuthToken } from '../../stores/authStore';
 import { useLiveRefresh } from '../../hooks/useLiveRefresh';
+import { useDateRangeStore } from '../../stores/dateRangeStore';
 
 const TAG_DIMENSIONS = [
   'asset_type', 'visual_format', 'hook_type', 'creative_angle',
@@ -99,20 +100,31 @@ export default function CreativeAnalyticsPage() {
   const [comparative, setComparative] = useState<ComparativeRow[]>([]);
   const [launches, setLaunches] = useState<CreativeItem[]>([]);
 
+  // Use global date range from PageShell date picker
+  const dateRange = useDateRangeStore((s) => s.dateRange);
+  const toIso = (d: Date) => d.toISOString().split('T')[0];
+  const dateFrom = toIso(dateRange.from);
+  const dateTo = toIso(dateRange.to);
+
   // Filters
-  const [dateFrom, setDateFrom] = useState(() => new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0]);
-  const [dateTo, setDateTo] = useState(() => new Date().toISOString().split('T')[0]);
-  const [sortBy, setSortBy] = useState('spend');
   const [platform, setPlatform] = useState('');
   const [compDimension, setCompDimension] = useState('asset_type');
   const [compMetric, setCompMetric] = useState('roas');
   const [search, setSearch] = useState('');
 
+  // Client-side sorting (like attribution page)
+  const [sortCol, setSortCol] = useState('spend');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const handleSort = useCallback((col: string) => {
+    if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortCol(col); setSortDir('desc'); }
+  }, [sortCol]);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
       if (tab === 'top') {
-        const params: Record<string, string> = { date_from: dateFrom, date_to: dateTo, sort_by: sortBy };
+        const params: Record<string, string> = { date_from: dateFrom, date_to: dateTo, limit: '100' };
         if (platform) params.platform = platform;
         const data = await fetchTopPerforming(params);
         setCreatives(data);
@@ -125,19 +137,27 @@ export default function CreativeAnalyticsPage() {
       }
     } catch { /* empty */ }
     finally { setLoading(false); }
-  }, [tab, dateFrom, dateTo, sortBy, platform, compDimension, compMetric]);
+  }, [tab, dateRange, platform, compDimension, compMetric]);
 
   useEffect(() => { load(); }, [load]);
   useLiveRefresh(load);
 
-  const filtered = creatives.filter(c => !search || (c.ad_name || '').toLowerCase().includes(search.toLowerCase()));
+  const sorted = useMemo(() => {
+    let rows = creatives.filter(c => !search || (c.ad_name || '').toLowerCase().includes(search.toLowerCase()));
+    rows.sort((a, b) => {
+      const av = parseFloat(String((a as any)[sortCol] ?? 0));
+      const bv = parseFloat(String((b as any)[sortCol] ?? 0));
+      return sortDir === 'asc' ? av - bv : bv - av;
+    });
+    return rows;
+  }, [creatives, search, sortCol, sortDir]);
 
   const handleSnapshot = async () => {
     try {
       const snap = await createSnapshot({
         title: `Creative Report - ${tab}`,
         report_type: tab,
-        report_config: { dateFrom, dateTo, sortBy, platform, compDimension, compMetric },
+        report_config: { dateFrom, dateTo, sortCol, sortDir, platform, compDimension, compMetric },
       });
       navigator.clipboard?.writeText(window.location.origin + snap.url);
       alert('Snapshot URL copied to clipboard!');
@@ -183,22 +203,15 @@ export default function CreativeAnalyticsPage() {
           className={`w-full flex items-center justify-between px-4 py-3 rounded-lg text-sm font-semibold border transition-colors ${
             filtersOpen ? 'bg-ats-accent/10 border-ats-accent text-ats-accent' : 'bg-ats-card border-ats-border text-ats-text-muted'
           }`}>
-          <span>Filters & Date Range</span>
+          <span>Filters</span>
           {filtersOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
         </button>
         {filtersOpen && (
           <div className="mt-2 space-y-2 bg-ats-card rounded-xl p-3 border border-ats-border">
-            <div className="grid grid-cols-2 gap-2">
-              <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className={filterInputCls} />
-              <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className={filterInputCls} />
-            </div>
             {tab === 'top' && (
               <>
                 <select value={platform} onChange={e => setPlatform(e.target.value)} className={filterInputCls}>
                   <option value="">All Platforms</option><option value="meta">Meta</option><option value="tiktok">TikTok</option><option value="newsbreak">NewsBreak</option><option value="youtube">YouTube</option>
-                </select>
-                <select value={sortBy} onChange={e => setSortBy(e.target.value)} className={filterInputCls}>
-                  {SORT_OPTIONS.map(s => <option key={s} value={s}>Sort: {s.toUpperCase()}</option>)}
                 </select>
                 <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search ads..." className={filterInputCls} />
               </>
@@ -222,15 +235,10 @@ export default function CreativeAnalyticsPage() {
 
       {/* Desktop: Inline filter row */}
       <div className="hidden lg:flex flex-wrap gap-2 mb-4">
-        <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="bg-ats-card border border-ats-border rounded-lg px-3 py-1.5 text-sm text-ats-text" />
-        <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="bg-ats-card border border-ats-border rounded-lg px-3 py-1.5 text-sm text-ats-text" />
         {tab === 'top' && (
           <>
             <select value={platform} onChange={e => setPlatform(e.target.value)} className="bg-ats-card border border-ats-border rounded-lg px-3 py-1.5 text-sm text-ats-text">
               <option value="">All Platforms</option><option value="meta">Meta</option><option value="tiktok">TikTok</option><option value="newsbreak">NewsBreak</option><option value="youtube">YouTube</option>
-            </select>
-            <select value={sortBy} onChange={e => setSortBy(e.target.value)} className="bg-ats-card border border-ats-border rounded-lg px-3 py-1.5 text-sm text-ats-text">
-              {SORT_OPTIONS.map(s => <option key={s} value={s}>Sort: {s.toUpperCase()}</option>)}
             </select>
             <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search ads..." className="bg-ats-card border border-ats-border rounded-lg px-3 py-1.5 text-sm text-ats-text" />
           </>
@@ -255,8 +263,23 @@ export default function CreativeAnalyticsPage() {
       {/* Top Performing Tab */}
       {!loading && tab === 'top' && (
         <div className="grid gap-3">
-          {filtered.length === 0 && <div className={`${cardCls} text-center py-8 text-ats-text-muted`}>No creative data found for this period.</div>}
-          {filtered.map((c, i) => (
+          {/* Sort chips */}
+          <div className="flex flex-wrap gap-1.5">
+            {SORT_OPTIONS.map(s => {
+              const active = sortCol === s;
+              return (
+                <button key={s} onClick={() => handleSort(s)}
+                  className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                    active ? 'bg-ats-accent text-white' : 'bg-ats-card border border-ats-border text-ats-text-muted hover:text-ats-text'
+                  }`}>
+                  {s.toUpperCase()}
+                  {active ? (sortDir === 'desc' ? <ArrowDown className="w-3 h-3" /> : <ArrowUp className="w-3 h-3" />) : <ArrowUpDown className="w-3 h-3 opacity-40" />}
+                </button>
+              );
+            })}
+          </div>
+          {sorted.length === 0 && <div className={`${cardCls} text-center py-8 text-ats-text-muted`}>No creative data found for this period.</div>}
+          {sorted.map((c, i) => (
             <div key={i} className={`${cardCls} flex gap-4`}>
               <div className="w-16 h-16 flex-shrink-0 rounded-lg bg-ats-bg overflow-hidden">
                 {(c.thumbnail_url || c.image_url) ? (

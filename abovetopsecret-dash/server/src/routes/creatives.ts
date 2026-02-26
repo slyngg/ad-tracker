@@ -246,9 +246,6 @@ router.get('/top-performing', async (req: Request, res: Response) => {
     if (date_from) { dateFilter += ` AND cmd.date >= $${paramIdx++}::DATE`; params.push(date_from); }
     if (date_to) { dateFilter += ` AND cmd.date <= $${paramIdx++}::DATE`; params.push(date_to); }
 
-    const allowedSorts = ['spend', 'roas', 'cpa', 'revenue', 'clicks', 'impressions', 'ctr', 'cvr'];
-    const sortField = allowedSorts.includes(sort_by as string) ? sort_by : 'spend';
-
     const result = await pool.query(`
       WITH metrics_agg AS (
         SELECT creative_id,
@@ -266,15 +263,13 @@ router.get('/top-performing', async (req: Request, res: Response) => {
         ac.thumbnail_url, ac.image_url, ac.headline, ac.platform, ac.status,
         ct.asset_type, ct.visual_format, ct.hook_type, ct.creative_angle,
         ct.messaging_theme, ct.talent_type, ct.offer_type, ct.cta_style,
-        COALESCE(ma.spend, 0) AS spend, COALESCE(ma.impressions, 0) AS impressions,
-        COALESCE(ma.clicks, 0) AS clicks, COALESCE(ma.purchases, 0) AS purchases,
-        COALESCE(ma.revenue, 0) AS revenue, COALESCE(ma.ctr, 0) AS ctr,
-        COALESCE(ma.cpa, 0) AS cpa, COALESCE(ma.roas, 0) AS roas, COALESCE(ma.cvr, 0) AS cvr
+        ma.spend, ma.impressions, ma.clicks, ma.purchases, ma.revenue,
+        ma.ctr, ma.cpa, ma.roas, ma.cvr
       FROM ad_creatives ac
       LEFT JOIN creative_tags ct ON ct.creative_id = ac.id
-      LEFT JOIN metrics_agg ma ON ma.creative_id = ac.id
-      WHERE ${conditions.join(' AND ')}
-      ORDER BY ${sortField} DESC NULLS LAST
+      INNER JOIN metrics_agg ma ON ma.creative_id = ac.id
+      WHERE ${conditions.join(' AND ')} AND ma.spend > 0
+      ORDER BY ma.spend DESC NULLS LAST
       LIMIT ${pageSize}
     `, params);
 
