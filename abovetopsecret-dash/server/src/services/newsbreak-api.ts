@@ -146,7 +146,19 @@ export async function createNewsBreakAdGroup(
   },
   accessToken: string
 ): Promise<{ adgroup_id: string }> {
-  const data = await newsbreakRequest('POST', '/business-api/v1/adgroups/create', accessToken, {
+  // Extract special fields from targeting so they go as top-level API params
+  const targeting = { ...(params.targeting || {}) };
+  const placements = targeting.placements;
+  const eventType = targeting.event_type;
+  const optimizationGoal = targeting.optimization_goal;
+  const bidAmount = targeting.bid_amount;
+  // Remove them from targeting so they don't get double-sent
+  delete targeting.placements;
+  delete targeting.event_type;
+  delete targeting.optimization_goal;
+  delete targeting.bid_amount;
+
+  const body: Record<string, any> = {
     advertiser_id: accountId,
     campaign_id: params.campaign_id,
     adgroup_name: params.adgroup_name,
@@ -155,8 +167,20 @@ export async function createNewsBreakAdGroup(
     schedule_type: params.schedule_end_time ? 'SCHEDULE_START_END' : 'SCHEDULE_FROM_NOW',
     schedule_start_time: params.schedule_start_time || undefined,
     schedule_end_time: params.schedule_end_time || undefined,
-    targeting: params.targeting || {},
-  });
+    targeting,
+  };
+
+  // Placements as top-level field (NewsBreak API expects placement_type or placements)
+  if (placements && Array.isArray(placements) && placements.length > 0 && !placements.includes('ALL')) {
+    body.placement_type = placements;
+  }
+
+  // Optimization & conversion event
+  if (optimizationGoal) body.optimization_goal = optimizationGoal;
+  if (eventType) body.conversion_event = eventType;
+  if (bidAmount) body.bid_amount = bidAmount;
+
+  const data = await newsbreakRequest('POST', '/business-api/v1/adgroups/create', accessToken, body);
   return { adgroup_id: String(data.adgroup_id) };
 }
 
@@ -169,8 +193,11 @@ export async function createNewsBreakAd(
     headline?: string;
     image_url?: string;
     video_url?: string;
+    thumbnail_url?: string;
     landing_page_url?: string;
     call_to_action?: string;
+    brand_name?: string;
+    button_text?: string;
   },
   accessToken: string
 ): Promise<{ ad_id: string }> {
@@ -181,13 +208,15 @@ export async function createNewsBreakAd(
     ad_text: params.ad_text,
     headline: params.headline,
     landing_page_url: params.landing_page_url,
-    call_to_action: params.call_to_action || 'LEARN_MORE',
+    call_to_action: params.button_text || params.call_to_action || 'LEARN_MORE',
   };
   if (params.video_url) {
     body.video_url = params.video_url;
+    if (params.thumbnail_url) body.thumbnail_url = params.thumbnail_url;
   } else if (params.image_url) {
     body.image_url = params.image_url;
   }
+  if (params.brand_name) body.brand_name = params.brand_name;
   const data = await newsbreakRequest('POST', '/business-api/v1/ads/create', accessToken, body);
   return { ad_id: String(data.ad_id) };
 }

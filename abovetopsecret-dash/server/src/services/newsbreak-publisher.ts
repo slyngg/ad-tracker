@@ -159,8 +159,11 @@ export async function publishNewsBreakCampaignDraft(draftId: number, userId: num
                 headline: cc.headline || '',
                 image_url: imageUrl || cc.image_url,
                 video_url: cc.video_url,
+                thumbnail_url: cc.thumbnail_url,
                 landing_page_url: cc.link_url,
                 call_to_action: cc.cta || 'LEARN_MORE',
+                brand_name: cc.brand_name,
+                button_text: cc.button_text,
               },
               auth.accessToken
             );
