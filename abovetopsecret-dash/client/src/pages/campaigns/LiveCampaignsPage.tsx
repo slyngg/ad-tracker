@@ -1,4 +1,4 @@
-import { useState, useEffect, Fragment } from 'react';
+import { useState, useEffect, useRef, Fragment } from 'react';
 import {
   fetchLiveCampaigns,
   fetchLiveAdsets,
@@ -6,6 +6,8 @@ import {
   updateLiveEntityStatus,
   updateLiveEntityBudget,
   quickCreateCampaign,
+  batchCreateCampaign,
+  duplicateLiveEntity,
   fetchAccounts,
   uploadCampaignMedia,
   LiveCampaign,
@@ -28,7 +30,11 @@ import {
   AlertCircle,
   Image as ImageIcon,
   RefreshCw,
-  CalendarDays,
+  Copy,
+  Layers,
+  ArrowUpDown,
+  Film,
+  Zap,
 } from 'lucide-react';
 import PageShell from '../../components/shared/PageShell';
 
@@ -70,11 +76,70 @@ const CTA_OPTIONS = [
   'CONTACT_US', 'GET_OFFER', 'SUBSCRIBE', 'APPLY_NOW', 'GET_QUOTE',
 ];
 
+const EVENTS = [
+  { value: 'Purchase', label: 'Purchase' },
+  { value: 'AddToCart', label: 'Add to Cart' },
+  { value: 'Lead', label: 'Lead' },
+  { value: 'CompleteRegistration', label: 'Complete Registration' },
+  { value: 'ViewContent', label: 'View Content' },
+  { value: 'InitiateCheckout', label: 'Initiate Checkout' },
+  { value: 'Search', label: 'Search' },
+  { value: 'PageView', label: 'Page View' },
+];
+
+const NB_PLACEMENTS = [
+  { value: 'FEED', label: 'News Feed' },
+  { value: 'DETAIL_PAGE', label: 'Detail Page' },
+  { value: 'PUSH', label: 'Push Notification' },
+  { value: 'ALL', label: 'All Placements' },
+];
+
+const DYNAMIC_VARS = [
+  { var: '{city}', label: 'City' },
+  { var: '{state}', label: 'State' },
+  { var: '{year}', label: 'Year' },
+  { var: '{month}', label: 'Month' },
+  { var: '{day_of_week}', label: 'Day' },
+  { var: '{date}', label: 'Date' },
+  { var: '{os}', label: 'OS' },
+];
+
+const FORMAT_PRESETS = [
+  { format: '1-1-1', label: '1-1-1', desc: '1 campaign, 1 ad set, 1 ad' },
+  { format: '1-3-1', label: '1-3-1', desc: '1 campaign, 3 ad sets, 1 ad each' },
+  { format: '1-5-1', label: '1-5-1', desc: '1 campaign, 5 ad sets, 1 ad each' },
+  { format: '1-1-3', label: '1-1-3', desc: '1 campaign, 1 ad set, 3 ads' },
+  { format: '1-3-3', label: '1-3-3', desc: '1 campaign, 3 ad sets, 3 ads each' },
+];
+
 function fmt$(v: number) {
   return '$' + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 function fmtNum(v: number) { return v.toLocaleString(); }
 function fmtRoas(v: number) { return v.toFixed(2) + 'x'; }
+
+type SortKey = 'spend' | 'clicks' | 'impressions' | 'conversions' | 'conversion_value' | 'roas' | 'campaign_name';
+type SortDir = 'asc' | 'desc';
+
+// ── Dynamic Content Inserter ─────────────────────────────────
+
+function DynVarBar({ onInsert }: { onInsert: (v: string) => void }) {
+  return (
+    <div className="flex flex-wrap gap-1 mb-1.5">
+      <span className="text-[9px] text-ats-text-muted/60 mr-1 self-center">Insert:</span>
+      {DYNAMIC_VARS.map(d => (
+        <button
+          key={d.var}
+          type="button"
+          onClick={() => onInsert(d.var)}
+          className="px-1.5 py-0.5 text-[9px] bg-purple-500/15 text-purple-400 rounded font-mono hover:bg-purple-500/25 transition-colors"
+        >
+          {d.label}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 // ── Campaign Creator Panel ──────────────────────────────────
 
@@ -89,6 +154,19 @@ interface CreatorState {
   dailyBudget: string;
   scheduleStart: string;
   scheduleEnd: string;
+  eventType: string;
+  placements: string[];
+  // Targeting
+  gender: 'all' | 'male' | 'female';
+  ageMin: string;
+  ageMax: string;
+  locations: string;
+  languages: string;
+  audienceList: string;
+  // Optimization
+  optimizationGoal: string;
+  bidType: string;
+  bidAmount: string;
   // Ad creative
   adName: string;
   headline: string;
@@ -97,6 +175,9 @@ interface CreatorState {
   mediaUrl: string;
   landingUrl: string;
   cta: string;
+  brandName: string;
+  buttonText: string;
+  thumbnailUrl: string;
 }
 
 const INITIAL_CREATOR: CreatorState = {
@@ -109,6 +190,17 @@ const INITIAL_CREATOR: CreatorState = {
   dailyBudget: '10',
   scheduleStart: '',
   scheduleEnd: '',
+  eventType: '',
+  placements: ['ALL'],
+  gender: 'all',
+  ageMin: '18',
+  ageMax: '65',
+  locations: '',
+  languages: '',
+  audienceList: '',
+  optimizationGoal: 'CONVERSIONS',
+  bidType: 'LOWEST_COST_WITHOUT_CAP',
+  bidAmount: '',
   adName: '',
   headline: '',
   adText: '',
@@ -116,6 +208,9 @@ const INITIAL_CREATOR: CreatorState = {
   mediaUrl: '',
   landingUrl: '',
   cta: 'LEARN_MORE',
+  brandName: '',
+  buttonText: '',
+  thumbnailUrl: '',
 };
 
 function CampaignCreator({ onClose, onSuccess, accounts }: {
@@ -128,12 +223,14 @@ function CampaignCreator({ onClose, onSuccess, accounts }: {
   const [result, setResult] = useState<{ success: boolean; error?: string } | null>(null);
   const [uploading, setUploading] = useState(false);
   const [mediaPreview, setMediaPreview] = useState<string | null>(null);
-  const [step, setStep] = useState(0); // 0 = campaign, 1 = ad set, 2 = creative
+  const [thumbPreview, setThumbPreview] = useState<string | null>(null);
+  const [step, setStep] = useState(0);
+  const headlineRef = useRef<HTMLInputElement>(null);
+  const adTextRef = useRef<HTMLTextAreaElement>(null);
 
   const platformAccounts = accounts.filter(a => a.platform === form.platform && a.status === 'active');
   const objectives = OBJECTIVES[form.platform] || OBJECTIVES.newsbreak;
 
-  // Auto-select first account when platform changes
   useEffect(() => {
     const accts = accounts.filter(a => a.platform === form.platform && a.status === 'active');
     setForm(f => ({
@@ -143,14 +240,27 @@ function CampaignCreator({ onClose, onSuccess, accounts }: {
     }));
   }, [form.platform, accounts]);
 
-  function set(key: keyof CreatorState, value: string | number | undefined) {
+  function set(key: keyof CreatorState, value: any) {
     setForm(f => ({ ...f, [key]: value }));
+  }
+
+  function insertVar(ref: React.RefObject<HTMLInputElement | HTMLTextAreaElement | null>, key: keyof CreatorState, v: string) {
+    const el = ref.current;
+    if (!el) { set(key, (form as any)[key] + v); return; }
+    const start = el.selectionStart || 0;
+    const end = el.selectionEnd || 0;
+    const cur = (form as any)[key] as string;
+    const newVal = cur.slice(0, start) + v + cur.slice(end);
+    set(key, newVal);
+    setTimeout(() => { el.selectionStart = el.selectionEnd = start + v.length; el.focus(); }, 0);
   }
 
   async function handleMediaUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
     const isVideo = file.type.startsWith('video/');
+    if (isVideo && file.size > 500 * 1024 * 1024) { alert('Video max size is 500MB'); return; }
+    if (!isVideo && file.size > 30 * 1024 * 1024) { alert('Image max size is 30MB'); return; }
     setUploading(true);
     try {
       const res = await uploadCampaignMedia(file, form.accountId);
@@ -167,20 +277,42 @@ function CampaignCreator({ onClose, onSuccess, accounts }: {
     }
   }
 
+  async function handleThumbnailUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) { alert('Thumbnail max size is 5MB'); return; }
+    try {
+      const res = await uploadCampaignMedia(file, form.accountId);
+      set('thumbnailUrl', `/api/campaigns/media/${res.id}`);
+      setThumbPreview(URL.createObjectURL(file));
+    } catch (err: any) {
+      alert(err.message || 'Upload failed');
+    }
+  }
+
   async function handlePublish() {
     if (!form.campaignName.trim()) { alert('Campaign name is required'); return; }
-    if (!form.adText.trim()) { alert('Ad text is required'); return; }
+    if (!form.adText.trim() && !form.headline.trim()) { alert('Headline or ad text is required'); return; }
     if (parseFloat(form.dailyBudget) < 5) { alert('Minimum budget is $5.00'); return; }
 
     setPublishing(true);
     setResult(null);
     try {
+      const targeting: Record<string, any> = {};
+      if (form.gender !== 'all') targeting.gender = form.gender;
+      if (form.ageMin) targeting.age_min = parseInt(form.ageMin);
+      if (form.ageMax) targeting.age_max = parseInt(form.ageMax);
+      if (form.locations.trim()) targeting.locations = form.locations.split(',').map(s => s.trim()).filter(Boolean);
+      if (form.languages.trim()) targeting.languages = form.languages.split(',').map(s => s.trim()).filter(Boolean);
+      if (form.audienceList.trim()) targeting.audience_list = form.audienceList.trim();
+
       const res = await quickCreateCampaign({
         account_id: form.accountId,
         platform: form.platform,
         campaign_name: form.campaignName.trim(),
         objective: form.objective,
         daily_budget: parseFloat(form.dailyBudget) || 10,
+        budget_type: form.budgetType,
         adset_name: form.adsetName.trim() || undefined,
         ad_name: form.adName.trim() || undefined,
         headline: form.headline.trim() || undefined,
@@ -189,6 +321,15 @@ function CampaignCreator({ onClose, onSuccess, accounts }: {
         video_url: form.mediaType === 'video' && form.mediaUrl.trim() ? form.mediaUrl.trim() : undefined,
         landing_page_url: form.landingUrl.trim() || undefined,
         call_to_action: form.cta,
+        targeting: Object.keys(targeting).length > 0 ? targeting : undefined,
+        placements: form.placements.includes('ALL') ? undefined : form.placements,
+        optimization_goal: form.optimizationGoal || undefined,
+        bid_type: form.bidType || undefined,
+        bid_amount: form.bidAmount ? parseFloat(form.bidAmount) : undefined,
+        event_type: form.eventType || undefined,
+        brand_name: form.brandName.trim() || undefined,
+        button_text: form.buttonText.trim() || undefined,
+        thumbnail_url: form.thumbnailUrl.trim() || undefined,
       });
       setResult({ success: res.success, error: res.error });
       if (res.success) {
@@ -201,7 +342,10 @@ function CampaignCreator({ onClose, onSuccess, accounts }: {
     }
   }
 
-  const canPublish = form.campaignName.trim() && form.adText.trim() && parseFloat(form.dailyBudget) >= 5;
+  const canPublish = form.campaignName.trim() && (form.adText.trim() || form.headline.trim()) && parseFloat(form.dailyBudget) >= 5;
+
+  const inputCls = "w-full px-3 py-2.5 bg-ats-card border border-ats-border rounded-lg text-sm text-ats-text placeholder-ats-text-muted/50 focus:outline-none focus:border-ats-accent";
+  const inputSmCls = inputCls + " text-xs";
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
@@ -243,7 +387,6 @@ function CampaignCreator({ onClose, onSuccess, accounts }: {
           {/* Step 0: Campaign */}
           {step === 0 && (
             <div className="space-y-4">
-              {/* Platform */}
               <div>
                 <Label>Platform</Label>
                 <div className="flex gap-2 mt-1.5">
@@ -263,14 +406,13 @@ function CampaignCreator({ onClose, onSuccess, accounts }: {
                 </div>
               </div>
 
-              {/* Account */}
               {platformAccounts.length > 0 && (
                 <div>
                   <Label>Ad Account</Label>
                   <select
                     value={form.accountId}
                     onChange={(e) => set('accountId', parseInt(e.target.value))}
-                    className="w-full px-3 py-2.5 bg-ats-card border border-ats-border rounded-lg text-sm text-ats-text placeholder-ats-text-muted/50 focus:outline-none focus:border-ats-accent"
+                    className={inputCls}
                   >
                     {platformAccounts.map(a => (
                       <option key={a.id} value={a.id}>{a.name} ({a.platform_account_id})</option>
@@ -279,18 +421,16 @@ function CampaignCreator({ onClose, onSuccess, accounts }: {
                 </div>
               )}
 
-              {/* Campaign name */}
               <div>
                 <Label required>Campaign Name</Label>
                 <input
                   value={form.campaignName}
                   onChange={(e) => set('campaignName', e.target.value)}
                   placeholder="e.g. Spring Sale 2026"
-                  className="w-full px-3 py-2.5 bg-ats-card border border-ats-border rounded-lg text-sm text-ats-text placeholder-ats-text-muted/50 focus:outline-none focus:border-ats-accent"
+                  className={inputCls}
                 />
               </div>
 
-              {/* Objective */}
               <div>
                 <Label>Objective</Label>
                 <div className="grid grid-cols-2 gap-2 mt-1.5">
@@ -311,7 +451,7 @@ function CampaignCreator({ onClose, onSuccess, accounts }: {
               </div>
 
               <button onClick={() => setStep(1)} className="w-full py-2.5 bg-ats-card border border-ats-border rounded-lg text-sm font-semibold text-ats-text hover:bg-ats-hover transition-colors mt-2">
-                Next: Ad Set Settings →
+                Next: Ad Set Settings &rarr;
               </button>
             </div>
           )}
@@ -325,14 +465,29 @@ function CampaignCreator({ onClose, onSuccess, accounts }: {
                   value={form.adsetName}
                   onChange={(e) => set('adsetName', e.target.value)}
                   placeholder={`${form.campaignName || 'Campaign'} - Ad Set`}
-                  className="w-full px-3 py-2.5 bg-ats-card border border-ats-border rounded-lg text-sm text-ats-text placeholder-ats-text-muted/50 focus:outline-none focus:border-ats-accent"
+                  className={inputCls}
                 />
-                <Hint>Leave blank to auto-generate from campaign name</Hint>
+                <Hint>Leave blank to auto-generate</Hint>
               </div>
 
               {/* Budget */}
               <div>
-                <Label required>Daily Budget</Label>
+                <Label required>Budget</Label>
+                <div className="flex gap-2 mb-2">
+                  {(['daily', 'lifetime'] as const).map(t => (
+                    <button
+                      key={t}
+                      onClick={() => set('budgetType', t)}
+                      className={`flex-1 px-3 py-2 rounded-lg text-xs font-semibold border transition-all ${
+                        form.budgetType === t
+                          ? 'bg-ats-accent/15 border-ats-accent text-ats-accent'
+                          : 'bg-ats-card border-ats-border text-ats-text-muted hover:bg-ats-hover'
+                      }`}
+                    >
+                      {t === 'daily' ? 'Daily' : 'Lifetime'}
+                    </button>
+                  ))}
+                </div>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-ats-text-muted">$</span>
                   <input
@@ -341,10 +496,10 @@ function CampaignCreator({ onClose, onSuccess, accounts }: {
                     step="1"
                     value={form.dailyBudget}
                     onChange={(e) => set('dailyBudget', e.target.value)}
-                    className="w-full px-3 py-2.5 bg-ats-card border border-ats-border rounded-lg text-sm text-ats-text placeholder-ats-text-muted/50 focus:outline-none focus:border-ats-accent pl-7"
+                    className={inputCls + " pl-7"}
                   />
                 </div>
-                <Hint>Minimum $5.00 per day</Hint>
+                <Hint>Minimum $5.00</Hint>
               </div>
 
               {/* Schedule */}
@@ -352,33 +507,188 @@ function CampaignCreator({ onClose, onSuccess, accounts }: {
                 <Label>Schedule</Label>
                 <div className="grid grid-cols-2 gap-3 mt-1.5">
                   <div>
-                    <span className="text-[10px] text-ats-text-muted block mb-1">Start (optional)</span>
-                    <input
-                      type="datetime-local"
-                      value={form.scheduleStart}
-                      onChange={(e) => set('scheduleStart', e.target.value)}
-                      className="w-full px-3 py-2.5 bg-ats-card border border-ats-border rounded-lg text-sm text-ats-text placeholder-ats-text-muted/50 focus:outline-none focus:border-ats-accent text-xs"
-                    />
+                    <span className="text-[10px] text-ats-text-muted block mb-1">Start</span>
+                    <input type="datetime-local" value={form.scheduleStart} onChange={(e) => set('scheduleStart', e.target.value)} className={inputSmCls} />
                   </div>
                   <div>
-                    <span className="text-[10px] text-ats-text-muted block mb-1">End (optional)</span>
-                    <input
-                      type="datetime-local"
-                      value={form.scheduleEnd}
-                      onChange={(e) => set('scheduleEnd', e.target.value)}
-                      className="w-full px-3 py-2.5 bg-ats-card border border-ats-border rounded-lg text-sm text-ats-text placeholder-ats-text-muted/50 focus:outline-none focus:border-ats-accent text-xs"
-                    />
+                    <span className="text-[10px] text-ats-text-muted block mb-1">End</span>
+                    <input type="datetime-local" value={form.scheduleEnd} onChange={(e) => set('scheduleEnd', e.target.value)} className={inputSmCls} />
                   </div>
                 </div>
-                <Hint>Leave blank to start immediately with no end date</Hint>
+                <Hint>Leave blank to start immediately</Hint>
+              </div>
+
+              {/* Event to Track */}
+              <div>
+                <Label>Event to Track</Label>
+                <select value={form.eventType} onChange={(e) => set('eventType', e.target.value)} className={inputCls}>
+                  <option value="">None (default)</option>
+                  {EVENTS.map(ev => <option key={ev.value} value={ev.value}>{ev.label}</option>)}
+                </select>
+              </div>
+
+              {/* Placements */}
+              <div>
+                <Label>Platform Placements</Label>
+                <div className="grid grid-cols-2 gap-2 mt-1.5">
+                  {NB_PLACEMENTS.map(p => (
+                    <label key={p.value} className={`flex items-center gap-2 px-3 py-2.5 rounded-lg text-xs border cursor-pointer transition-all ${
+                      form.placements.includes(p.value)
+                        ? 'bg-ats-accent/15 border-ats-accent text-ats-accent'
+                        : 'bg-ats-card border-ats-border text-ats-text-muted hover:bg-ats-hover'
+                    }`}>
+                      <input
+                        type="checkbox"
+                        checked={form.placements.includes(p.value)}
+                        onChange={(e) => {
+                          if (p.value === 'ALL') {
+                            set('placements', e.target.checked ? ['ALL'] : []);
+                          } else {
+                            const next = e.target.checked
+                              ? [...form.placements.filter(v => v !== 'ALL'), p.value]
+                              : form.placements.filter(v => v !== p.value);
+                            set('placements', next.length === 0 ? ['ALL'] : next);
+                          }
+                        }}
+                        className="accent-ats-accent"
+                      />
+                      {p.label}
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Targeting Section */}
+              <SectionDivider label="Targeting" />
+
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <Label>Gender</Label>
+                  <select value={form.gender} onChange={(e) => set('gender', e.target.value)} className={inputSmCls}>
+                    <option value="all">All</option>
+                    <option value="male">Male</option>
+                    <option value="female">Female</option>
+                  </select>
+                </div>
+                <div>
+                  <Label>Age Min</Label>
+                  <select value={form.ageMin} onChange={(e) => set('ageMin', e.target.value)} className={inputSmCls}>
+                    {Array.from({ length: 48 }, (_, i) => i + 18).map(a => (
+                      <option key={a} value={a}>{a}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <Label>Age Max</Label>
+                  <select value={form.ageMax} onChange={(e) => set('ageMax', e.target.value)} className={inputSmCls}>
+                    {Array.from({ length: 48 }, (_, i) => i + 18).map(a => (
+                      <option key={a} value={a}>{a}{a === 65 ? '+' : ''}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <Label>Locations</Label>
+                <input
+                  value={form.locations}
+                  onChange={(e) => set('locations', e.target.value)}
+                  placeholder="US, CA, UK (comma-separated)"
+                  className={inputCls}
+                />
+                <Hint>Country codes or city names, comma-separated</Hint>
+              </div>
+
+              <div>
+                <Label>Languages</Label>
+                <input
+                  value={form.languages}
+                  onChange={(e) => set('languages', e.target.value)}
+                  placeholder="en, es (comma-separated)"
+                  className={inputCls}
+                />
+              </div>
+
+              <div>
+                <Label>Audience List</Label>
+                <input
+                  value={form.audienceList}
+                  onChange={(e) => set('audienceList', e.target.value)}
+                  placeholder="Audience ID or name"
+                  className={inputCls}
+                />
+                <Hint>Include a custom audience by ID</Hint>
+              </div>
+
+              {/* Optimization & Bidding */}
+              <SectionDivider label="Optimization & Bidding" />
+
+              <div>
+                <Label>Optimization Goal</Label>
+                <div className="grid grid-cols-2 gap-2 mt-1.5">
+                  {[
+                    { v: 'CONVERSIONS', l: 'Conversions' },
+                    { v: 'CONVERSION_VALUE', l: 'Conversion Value' },
+                    { v: 'CLICKS', l: 'Link Clicks' },
+                    { v: 'IMPRESSIONS', l: 'Impressions' },
+                  ].map(o => (
+                    <button
+                      key={o.v}
+                      onClick={() => set('optimizationGoal', o.v)}
+                      className={`px-3 py-2 rounded-lg text-xs font-medium border transition-all ${
+                        form.optimizationGoal === o.v
+                          ? 'bg-ats-accent/15 border-ats-accent text-ats-accent'
+                          : 'bg-ats-card border-ats-border text-ats-text-muted hover:bg-ats-hover'
+                      }`}
+                    >
+                      {o.l}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <Label>Bid Strategy</Label>
+                <div className="grid grid-cols-2 gap-2 mt-1.5">
+                  {[
+                    { v: 'LOWEST_COST_WITHOUT_CAP', l: 'Max Conversions (Auto)' },
+                    { v: 'COST_CAP', l: 'Target CPA' },
+                  ].map(o => (
+                    <button
+                      key={o.v}
+                      onClick={() => set('bidType', o.v)}
+                      className={`px-3 py-2 rounded-lg text-xs font-medium border transition-all ${
+                        form.bidType === o.v
+                          ? 'bg-ats-accent/15 border-ats-accent text-ats-accent'
+                          : 'bg-ats-card border-ats-border text-ats-text-muted hover:bg-ats-hover'
+                      }`}
+                    >
+                      {o.l}
+                    </button>
+                  ))}
+                </div>
+                {form.bidType === 'COST_CAP' && (
+                  <div className="relative mt-2">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-ats-text-muted">$</span>
+                    <input
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      value={form.bidAmount}
+                      onChange={(e) => set('bidAmount', e.target.value)}
+                      placeholder="Target CPA"
+                      className={inputCls + " pl-7"}
+                    />
+                  </div>
+                )}
               </div>
 
               <div className="flex gap-2 mt-2">
                 <button onClick={() => setStep(0)} className="flex-1 py-2.5 bg-ats-card border border-ats-border rounded-lg text-sm text-ats-text-muted hover:bg-ats-hover transition-colors">
-                  ← Back
+                  &larr; Back
                 </button>
                 <button onClick={() => setStep(2)} className="flex-1 py-2.5 bg-ats-card border border-ats-border rounded-lg text-sm font-semibold text-ats-text hover:bg-ats-hover transition-colors">
-                  Next: Creative →
+                  Next: Creative &rarr;
                 </button>
               </div>
             </div>
@@ -393,31 +703,30 @@ function CampaignCreator({ onClose, onSuccess, accounts }: {
                   value={form.adName}
                   onChange={(e) => set('adName', e.target.value)}
                   placeholder={`${form.campaignName || 'Campaign'} - Ad`}
-                  className="w-full px-3 py-2.5 bg-ats-card border border-ats-border rounded-lg text-sm text-ats-text placeholder-ats-text-muted/50 focus:outline-none focus:border-ats-accent"
+                  className={inputCls}
                 />
               </div>
 
-              {/* Media (Image or Video) */}
+              {/* Media */}
               <div>
                 <Label>Media</Label>
-                {/* Type toggle */}
                 <div className="flex gap-2 mt-1.5 mb-2">
                   {(['image', 'video'] as const).map(t => (
                     <button
                       key={t}
                       onClick={() => { set('mediaType', t); set('mediaUrl', ''); setMediaPreview(null); }}
-                      className={`flex-1 px-3 py-2 rounded-lg text-xs font-semibold border transition-all ${
+                      className={`flex-1 px-3 py-2 rounded-lg text-xs font-semibold border transition-all flex items-center justify-center gap-1.5 ${
                         form.mediaType === t
                           ? 'bg-ats-accent/15 border-ats-accent text-ats-accent'
                           : 'bg-ats-card border-ats-border text-ats-text-muted hover:bg-ats-hover'
                       }`}
                     >
+                      {t === 'image' ? <ImageIcon className="w-3.5 h-3.5" /> : <Film className="w-3.5 h-3.5" />}
                       {t === 'image' ? 'Image' : 'Video'}
                     </button>
                   ))}
                 </div>
 
-                {/* Preview */}
                 {mediaPreview ? (
                   <div className="relative rounded-xl overflow-hidden border border-ats-border">
                     {form.mediaType === 'video' ? (
@@ -444,11 +753,13 @@ function CampaignCreator({ onClose, onSuccess, accounts }: {
                       <Loader2 className="w-6 h-6 text-ats-text-muted animate-spin" />
                     ) : (
                       <>
-                        <ImageIcon className="w-6 h-6 text-ats-text-muted" />
+                        {form.mediaType === 'video' ? <Film className="w-6 h-6 text-ats-text-muted" /> : <ImageIcon className="w-6 h-6 text-ats-text-muted" />}
                         <span className="text-xs text-ats-text-muted">
                           Upload {form.mediaType === 'video' ? 'video (MP4, MOV)' : 'image (JPG, PNG, GIF)'}
                         </span>
-                        <span className="text-[10px] text-ats-text-muted/50">Max 30MB</span>
+                        <span className="text-[10px] text-ats-text-muted/50">
+                          Max {form.mediaType === 'video' ? '500MB' : '30MB'}
+                        </span>
                       </>
                     )}
                   </label>
@@ -458,33 +769,80 @@ function CampaignCreator({ onClose, onSuccess, accounts }: {
                     value={form.mediaUrl}
                     onChange={(e) => set('mediaUrl', e.target.value)}
                     placeholder={`or paste ${form.mediaType} URL`}
-                    className="w-full px-3 py-2.5 bg-ats-card border border-ats-border rounded-lg text-sm text-ats-text placeholder-ats-text-muted/50 focus:outline-none focus:border-ats-accent text-xs mt-2"
+                    className={inputSmCls + " mt-2"}
                   />
                 )}
               </div>
 
-              {/* Headline */}
+              {/* Thumbnail Cover (for video) */}
+              {form.mediaType === 'video' && (
+                <div>
+                  <Label>Thumbnail Cover</Label>
+                  {thumbPreview ? (
+                    <div className="relative rounded-lg overflow-hidden border border-ats-border w-32 h-20">
+                      <img src={thumbPreview} alt="Thumb" className="w-full h-full object-cover" />
+                      <button onClick={() => { setThumbPreview(null); set('thumbnailUrl', ''); }} className="absolute top-1 right-1 p-1 bg-black/60 rounded text-white"><X className="w-3 h-3" /></button>
+                    </div>
+                  ) : (
+                    <label className="flex items-center justify-center gap-2 h-20 w-32 rounded-lg border-2 border-dashed border-ats-border hover:border-ats-accent/50 cursor-pointer bg-ats-card/50">
+                      <input type="file" accept="image/*" onChange={handleThumbnailUpload} className="hidden" />
+                      <ImageIcon className="w-4 h-4 text-ats-text-muted" />
+                      <span className="text-[10px] text-ats-text-muted">Max 5MB</span>
+                    </label>
+                  )}
+                </div>
+              )}
+
+              {/* Headline with dynamic vars */}
               <div>
                 <Label>Headline</Label>
+                <DynVarBar onInsert={(v) => insertVar(headlineRef, 'headline', v)} />
                 <input
+                  ref={headlineRef}
                   value={form.headline}
                   onChange={(e) => set('headline', e.target.value)}
                   placeholder="Short, attention-grabbing headline"
-                  maxLength={100}
-                  className="w-full px-3 py-2.5 bg-ats-card border border-ats-border rounded-lg text-sm text-ats-text placeholder-ats-text-muted/50 focus:outline-none focus:border-ats-accent"
+                  maxLength={90}
+                  className={inputCls}
                 />
-                <CharCount current={form.headline.length} max={100} />
+                <CharCount current={form.headline.length} max={90} />
               </div>
 
-              {/* Ad text */}
+              {/* Description/Ad Text with dynamic vars */}
               <div>
-                <Label required>Ad Text</Label>
+                <Label required>Description</Label>
+                <DynVarBar onInsert={(v) => insertVar(adTextRef, 'adText', v)} />
                 <textarea
+                  ref={adTextRef}
                   value={form.adText}
                   onChange={(e) => set('adText', e.target.value)}
-                  placeholder="Your primary ad copy — the main message"
-                  rows={4}
-                  className="w-full px-3 py-2.5 bg-ats-card border border-ats-border rounded-lg text-sm text-ats-text placeholder-ats-text-muted/50 focus:outline-none focus:border-ats-accent resize-none"
+                  placeholder="Your primary ad copy"
+                  rows={3}
+                  maxLength={90}
+                  className={inputCls + " resize-none"}
+                />
+                <CharCount current={form.adText.length} max={90} />
+              </div>
+
+              {/* Brand Name */}
+              <div>
+                <Label>Brand Name</Label>
+                <input
+                  value={form.brandName}
+                  onChange={(e) => set('brandName', e.target.value)}
+                  placeholder="Your brand name"
+                  className={inputCls}
+                />
+              </div>
+
+              {/* Button Text */}
+              <div>
+                <Label>Button Text</Label>
+                <input
+                  value={form.buttonText}
+                  onChange={(e) => set('buttonText', e.target.value)}
+                  placeholder="Custom button text (e.g. Shop Now)"
+                  className={inputCls}
                 />
               </div>
 
@@ -495,13 +853,13 @@ function CampaignCreator({ onClose, onSuccess, accounts }: {
                   value={form.landingUrl}
                   onChange={(e) => set('landingUrl', e.target.value)}
                   placeholder="https://yoursite.com/offer"
-                  className="w-full px-3 py-2.5 bg-ats-card border border-ats-border rounded-lg text-sm text-ats-text placeholder-ats-text-muted/50 focus:outline-none focus:border-ats-accent"
+                  className={inputCls}
                 />
               </div>
 
               {/* CTA */}
               <div>
-                <Label>Call to Action</Label>
+                <Label>Call to Action Preset</Label>
                 <div className="grid grid-cols-3 gap-1.5 mt-1.5">
                   {CTA_OPTIONS.map(c => (
                     <button
@@ -531,7 +889,7 @@ function CampaignCreator({ onClose, onSuccess, accounts }: {
 
               <div className="flex gap-2 mt-2">
                 <button onClick={() => setStep(1)} className="py-2.5 px-4 bg-ats-card border border-ats-border rounded-lg text-sm text-ats-text-muted hover:bg-ats-hover transition-colors">
-                  ←
+                  &larr;
                 </button>
                 <button
                   onClick={handlePublish}
@@ -555,7 +913,278 @@ function CampaignCreator({ onClose, onSuccess, accounts }: {
             {PLATFORM_BADGE[form.platform]?.label}
           </span>
           {form.campaignName && <span className="truncate">{form.campaignName}</span>}
-          <span className="ml-auto">{fmt$(parseFloat(form.dailyBudget) || 0)}/day</span>
+          <span className="ml-auto">{fmt$(parseFloat(form.dailyBudget) || 0)}/{form.budgetType === 'daily' ? 'day' : 'total'}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Format Launcher Modal ──────────────────────────────────
+
+function FormatLauncher({ onClose, onSuccess, accounts }: {
+  onClose: () => void;
+  onSuccess: () => void;
+  accounts: Account[];
+}) {
+  const [format, setFormat] = useState('1-1-1');
+  const [customFormat, setCustomFormat] = useState('');
+  const [platform, setPlatform] = useState('newsbreak');
+  const [accountId, setAccountId] = useState<number | undefined>(undefined);
+  const [campaignName, setCampaignName] = useState('');
+  const [objective, setObjective] = useState('TRAFFIC');
+  const [dailyBudget, setDailyBudget] = useState('10');
+  const [headline, setHeadline] = useState('');
+  const [adText, setAdText] = useState('');
+  const [landingUrl, setLandingUrl] = useState('');
+  const [cta, setCta] = useState('LEARN_MORE');
+  const [files, setFiles] = useState<File[]>([]);
+  const [mediaIds, setMediaIds] = useState<number[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [launching, setLaunching] = useState(false);
+  const [result, setResult] = useState<{ success: boolean; error?: string } | null>(null);
+
+  const platformAccounts = accounts.filter(a => a.platform === platform && a.status === 'active');
+  const objectives = OBJECTIVES[platform] || OBJECTIVES.newsbreak;
+
+  useEffect(() => {
+    const accts = accounts.filter(a => a.platform === platform && a.status === 'active');
+    setAccountId(accts[0]?.id);
+  }, [platform, accounts]);
+
+  const effectiveFormat = format === 'custom' ? customFormat : format;
+  const parts = effectiveFormat.split('-').map(Number);
+  const valid = parts.length === 3 && parts.every(n => n >= 1 && n <= 10);
+  const totalAds = valid ? parts[0] * parts[1] * parts[2] : 0;
+
+  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const newFiles = Array.from(e.target.files || []);
+    if (newFiles.length === 0) return;
+    setUploading(true);
+    const ids: number[] = [...mediaIds];
+    for (const f of newFiles) {
+      try {
+        const res = await uploadCampaignMedia(f, accountId);
+        ids.push(res.id);
+      } catch (err: any) {
+        alert(`Failed to upload ${f.name}: ${err.message}`);
+      }
+    }
+    setMediaIds(ids);
+    setFiles(prev => [...prev, ...newFiles]);
+    setUploading(false);
+  }
+
+  async function handleLaunch() {
+    if (!campaignName.trim()) { alert('Campaign name is required'); return; }
+    if (!valid) { alert('Invalid format'); return; }
+
+    setLaunching(true);
+    setResult(null);
+    try {
+      const res = await batchCreateCampaign({
+        format: effectiveFormat,
+        platform,
+        account_id: accountId,
+        campaign_name: campaignName.trim(),
+        objective,
+        adset_config: {
+          daily_budget: parseFloat(dailyBudget) || 10,
+          budget_type: 'daily',
+        },
+        creative_config: {
+          headline: headline.trim() || undefined,
+          primary_text: adText.trim() || undefined,
+          link_url: landingUrl.trim() || undefined,
+          cta: cta,
+        },
+        media_ids: mediaIds.length > 0 ? mediaIds : undefined,
+        auto_publish: true,
+      });
+      setResult({ success: res.success });
+      if (res.success) {
+        setTimeout(() => { onSuccess(); onClose(); }, 1200);
+      }
+    } catch (err: any) {
+      setResult({ success: false, error: err.message });
+    } finally {
+      setLaunching(false);
+    }
+  }
+
+  const inputCls = "w-full px-3 py-2.5 bg-ats-card border border-ats-border rounded-lg text-sm text-ats-text placeholder-ats-text-muted/50 focus:outline-none focus:border-ats-accent";
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
+      <div className="bg-ats-bg border border-ats-border rounded-2xl w-full max-w-xl mx-4 max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="shrink-0 border-b border-ats-border px-6 py-4 flex items-center justify-between">
+          <div>
+            <h2 className="text-base font-bold text-ats-text flex items-center gap-2">
+              <Layers className="w-5 h-5 text-ats-accent" />
+              Format Template Launcher
+            </h2>
+            <p className="text-[11px] text-ats-text-muted mt-0.5">Launch campaigns in bulk using a format template</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-ats-hover text-ats-text-muted"><X className="w-5 h-5" /></button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
+          {/* Format selection */}
+          <div>
+            <Label>Campaign Format</Label>
+            <div className="grid grid-cols-3 gap-2 mt-1.5">
+              {FORMAT_PRESETS.map(f => (
+                <button
+                  key={f.format}
+                  onClick={() => setFormat(f.format)}
+                  className={`px-3 py-3 rounded-lg border transition-all text-center ${
+                    format === f.format
+                      ? 'bg-ats-accent/15 border-ats-accent text-ats-accent'
+                      : 'bg-ats-card border-ats-border text-ats-text-muted hover:bg-ats-hover'
+                  }`}
+                >
+                  <div className="text-sm font-bold">{f.label}</div>
+                  <div className="text-[9px] mt-0.5 opacity-70">{f.desc}</div>
+                </button>
+              ))}
+              <button
+                onClick={() => setFormat('custom')}
+                className={`px-3 py-3 rounded-lg border transition-all text-center ${
+                  format === 'custom'
+                    ? 'bg-ats-accent/15 border-ats-accent text-ats-accent'
+                    : 'bg-ats-card border-ats-border text-ats-text-muted hover:bg-ats-hover'
+                }`}
+              >
+                <div className="text-sm font-bold">Custom</div>
+                <div className="text-[9px] mt-0.5 opacity-70">Your own format</div>
+              </button>
+            </div>
+            {format === 'custom' && (
+              <input
+                value={customFormat}
+                onChange={(e) => setCustomFormat(e.target.value)}
+                placeholder="e.g. 1-5-2"
+                className={inputCls + " mt-2 text-center font-mono"}
+              />
+            )}
+            {valid && (
+              <div className="mt-2 text-xs text-ats-text-muted bg-ats-card/50 rounded-lg px-3 py-2">
+                Will create: <strong>{parts[0]}</strong> campaign{parts[0] > 1 ? 's' : ''} &times; <strong>{parts[1]}</strong> ad set{parts[1] > 1 ? 's' : ''} &times; <strong>{parts[2]}</strong> ad{parts[2] > 1 ? 's' : ''} each = <strong>{totalAds}</strong> total ads
+              </div>
+            )}
+          </div>
+
+          {/* Platform & Account */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>Platform</Label>
+              <select value={platform} onChange={(e) => setPlatform(e.target.value)} className={inputCls}>
+                {['newsbreak', 'meta', 'tiktok'].map(p => <option key={p} value={p}>{PLATFORM_BADGE[p].label}</option>)}
+              </select>
+            </div>
+            <div>
+              <Label>Account</Label>
+              <select value={accountId} onChange={(e) => setAccountId(parseInt(e.target.value))} className={inputCls}>
+                {platformAccounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <Label required>Campaign Name</Label>
+            <input value={campaignName} onChange={(e) => setCampaignName(e.target.value)} placeholder="e.g. Spring Sale Batch" className={inputCls} />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>Objective</Label>
+              <select value={objective} onChange={(e) => setObjective(e.target.value)} className={inputCls}>
+                {objectives.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <Label>Daily Budget</Label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-ats-text-muted">$</span>
+                <input type="number" min="5" value={dailyBudget} onChange={(e) => setDailyBudget(e.target.value)} className={inputCls + " pl-7"} />
+              </div>
+            </div>
+          </div>
+
+          {/* Creative settings */}
+          <SectionDivider label="Creative (shared across all ads)" />
+
+          <div>
+            <Label>Headline</Label>
+            <input value={headline} onChange={(e) => setHeadline(e.target.value)} placeholder="Ad headline" maxLength={90} className={inputCls} />
+          </div>
+          <div>
+            <Label>Ad Text</Label>
+            <input value={adText} onChange={(e) => setAdText(e.target.value)} placeholder="Primary ad text" maxLength={90} className={inputCls} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>Landing URL</Label>
+              <input value={landingUrl} onChange={(e) => setLandingUrl(e.target.value)} placeholder="https://..." className={inputCls} />
+            </div>
+            <div>
+              <Label>CTA</Label>
+              <select value={cta} onChange={(e) => setCta(e.target.value)} className={inputCls}>
+                {CTA_OPTIONS.map(c => <option key={c} value={c}>{c.replace(/_/g, ' ')}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {/* Batch file upload */}
+          <div>
+            <Label>Batch Media Upload</Label>
+            <label className="flex items-center justify-center gap-2 h-24 rounded-xl border-2 border-dashed border-ats-border hover:border-ats-accent/50 cursor-pointer transition-colors bg-ats-card/50">
+              <input type="file" accept="image/*,video/mp4,video/quicktime" multiple onChange={handleFileUpload} className="hidden" />
+              {uploading ? (
+                <Loader2 className="w-5 h-5 text-ats-text-muted animate-spin" />
+              ) : (
+                <div className="text-center">
+                  <div className="text-xs text-ats-text-muted">Drop or click to upload multiple files</div>
+                  <div className="text-[10px] text-ats-text-muted/50 mt-1">Files will be distributed round-robin across ads</div>
+                </div>
+              )}
+            </label>
+            {files.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1">
+                {files.map((f, i) => (
+                  <span key={i} className="px-2 py-1 bg-ats-card border border-ats-border rounded text-[10px] text-ats-text-muted">
+                    {f.name.length > 20 ? f.name.slice(0, 17) + '...' : f.name}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Result */}
+          {result && (
+            <div className={`flex items-start gap-2 px-4 py-3 rounded-xl text-sm ${
+              result.success ? 'bg-emerald-900/30 text-emerald-400' : 'bg-red-900/30 text-red-400'
+            }`}>
+              {result.success ? <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" /> : <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />}
+              <span>{result.success ? 'Batch launched! Refreshing...' : result.error}</span>
+            </div>
+          )}
+        </div>
+
+        <div className="shrink-0 border-t border-ats-border px-6 py-4 flex items-center justify-between">
+          <div className="text-xs text-ats-text-muted">
+            {valid ? `${totalAds} ads will be created` : 'Select a valid format'}
+          </div>
+          <div className="flex gap-2">
+            <button onClick={onClose} className="px-4 py-2.5 text-sm text-ats-text-muted hover:text-ats-text">Cancel</button>
+            <button
+              onClick={handleLaunch}
+              disabled={launching || !valid || !campaignName.trim()}
+              className="flex items-center gap-2 px-5 py-2.5 bg-ats-accent text-white rounded-xl text-sm font-bold hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {launching ? <><Loader2 className="w-4 h-4 animate-spin" /> Launching...</> : <><Zap className="w-4 h-4" /> Launch Batch</>}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -577,7 +1206,18 @@ function Hint({ children }: { children: string }) {
 }
 
 function CharCount({ current, max }: { current: number; max: number }) {
-  return <p className="text-[10px] text-ats-text-muted/60 mt-1 text-right">{current}/{max}</p>;
+  const warn = current > max * 0.85;
+  return <p className={`text-[10px] mt-1 text-right ${warn ? 'text-yellow-400' : 'text-ats-text-muted/60'}`}>{current}/{max}</p>;
+}
+
+function SectionDivider({ label }: { label: string }) {
+  return (
+    <div className="flex items-center gap-3 pt-2">
+      <div className="flex-1 h-px bg-ats-border" />
+      <span className="text-[10px] font-semibold uppercase tracking-wider text-ats-text-muted">{label}</span>
+      <div className="flex-1 h-px bg-ats-border" />
+    </div>
+  );
 }
 
 // ── Main Page ───────────────────────────────────────────────
@@ -588,6 +1228,7 @@ export default function LiveCampaignsPage() {
   const [error, setError] = useState<string | null>(null);
   const [platformFilter, setPlatformFilter] = useState('all');
   const [showCreator, setShowCreator] = useState(false);
+  const [showFormatLauncher, setShowFormatLauncher] = useState(false);
   const [accounts, setAccounts] = useState<Account[]>([]);
 
   const [expanded, setExpanded] = useState<Record<string, LiveAdset[] | 'loading'>>({});
@@ -595,6 +1236,10 @@ export default function LiveCampaignsPage() {
   const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({});
   const [budgetModal, setBudgetModal] = useState<{ platform: string; entityId: string } | null>(null);
   const [budgetValue, setBudgetValue] = useState('');
+
+  // Sorting
+  const [sortKey, setSortKey] = useState<SortKey>('spend');
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
 
   useEffect(() => {
     load();
@@ -612,6 +1257,22 @@ export default function LiveCampaignsPage() {
       setLoading(false);
     }
   }
+
+  function handleSort(key: SortKey) {
+    if (sortKey === key) {
+      setSortDir(d => d === 'desc' ? 'asc' : 'desc');
+    } else {
+      setSortKey(key);
+      setSortDir('desc');
+    }
+  }
+
+  const sortedCampaigns = [...campaigns].sort((a, b) => {
+    const av = (a as any)[sortKey];
+    const bv = (b as any)[sortKey];
+    if (typeof av === 'string') return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
+    return sortDir === 'asc' ? av - bv : bv - av;
+  });
 
   async function toggleCampaign(c: LiveCampaign) {
     const key = `${c.platform}:${c.campaign_id}`;
@@ -673,6 +1334,19 @@ export default function LiveCampaignsPage() {
     }
   }
 
+  async function handleDuplicate(entityType: string, entityId: number) {
+    const key = `dup:${entityType}:${entityId}`;
+    setActionLoading(p => ({ ...p, [key]: true }));
+    try {
+      await duplicateLiveEntity(entityType, entityId);
+      await load();
+    } catch (err: any) {
+      alert(err.message || 'Failed to duplicate');
+    } finally {
+      setActionLoading(p => ({ ...p, [key]: false }));
+    }
+  }
+
   // Loading skeleton
   if (loading && campaigns.length === 0) {
     return (
@@ -705,6 +1379,14 @@ export default function LiveCampaignsPage() {
         <div className="flex items-center gap-2">
           <button onClick={load} className="p-2 rounded-lg text-ats-text-muted hover:bg-ats-hover transition-colors" title="Refresh">
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+          </button>
+          <button
+            onClick={() => setShowFormatLauncher(true)}
+            className="flex items-center gap-1.5 px-3 py-2 bg-ats-card border border-ats-border text-ats-text-muted rounded-lg text-sm font-semibold hover:bg-ats-hover transition-colors"
+            title="Format Template Launcher"
+          >
+            <Layers className="w-4 h-4" />
+            <span className="hidden sm:inline">Batch</span>
           </button>
           <button
             onClick={() => setShowCreator(true)}
@@ -750,12 +1432,20 @@ export default function LiveCampaignsPage() {
           <p className="text-sm text-ats-text-muted max-w-sm mb-6">
             Create your first campaign to start driving results.
           </p>
-          <button
-            onClick={() => setShowCreator(true)}
-            className="flex items-center gap-1.5 px-5 py-2.5 bg-ats-accent text-white rounded-lg text-sm font-semibold hover:opacity-90"
-          >
-            <Plus className="w-4 h-4" /> Create Campaign
-          </button>
+          <div className="flex gap-3">
+            <button
+              onClick={() => setShowFormatLauncher(true)}
+              className="flex items-center gap-1.5 px-4 py-2.5 bg-ats-card border border-ats-border text-ats-text rounded-lg text-sm font-semibold hover:bg-ats-hover"
+            >
+              <Layers className="w-4 h-4" /> Batch Launch
+            </button>
+            <button
+              onClick={() => setShowCreator(true)}
+              className="flex items-center gap-1.5 px-5 py-2.5 bg-ats-accent text-white rounded-lg text-sm font-semibold hover:opacity-90"
+            >
+              <Plus className="w-4 h-4" /> Create Campaign
+            </button>
+          </div>
         </div>
       ) : (
         /* Campaign table */
@@ -764,19 +1454,19 @@ export default function LiveCampaignsPage() {
             <thead>
               <tr className="border-b border-ats-border">
                 <TH className="w-8" />
-                <TH align="left">Campaign</TH>
+                <SortTH label="Campaign" sortKey="campaign_name" currentKey={sortKey} dir={sortDir} onSort={handleSort} align="left" />
                 <TH align="left" hide="md">Platform</TH>
-                <TH>Spend</TH>
-                <TH hide="sm">Clicks</TH>
-                <TH hide="lg">Impr.</TH>
-                <TH hide="md">Conv.</TH>
-                <TH>Revenue</TH>
-                <TH hide="sm">ROAS</TH>
-                <TH className="w-20">Actions</TH>
+                <SortTH label="Spend" sortKey="spend" currentKey={sortKey} dir={sortDir} onSort={handleSort} />
+                <SortTH label="Clicks" sortKey="clicks" currentKey={sortKey} dir={sortDir} onSort={handleSort} hide="sm" />
+                <SortTH label="Impr." sortKey="impressions" currentKey={sortKey} dir={sortDir} onSort={handleSort} hide="lg" />
+                <SortTH label="Conv." sortKey="conversions" currentKey={sortKey} dir={sortDir} onSort={handleSort} hide="md" />
+                <SortTH label="Revenue" sortKey="conversion_value" currentKey={sortKey} dir={sortDir} onSort={handleSort} />
+                <SortTH label="ROAS" sortKey="roas" currentKey={sortKey} dir={sortDir} onSort={handleSort} hide="sm" />
+                <TH className="w-24">Actions</TH>
               </tr>
             </thead>
             <tbody>
-              {campaigns.map(c => {
+              {sortedCampaigns.map(c => {
                 const key = `${c.platform}:${c.campaign_id}`;
                 const adsets = expanded[key];
                 const isExpanded = adsets && adsets !== 'loading';
@@ -784,7 +1474,6 @@ export default function LiveCampaignsPage() {
 
                 return (
                   <Fragment key={key}>
-                    {/* Campaign row */}
                     <tr className="border-b border-ats-border/50 hover:bg-ats-hover/50 transition-colors cursor-pointer" onClick={() => toggleCampaign(c)}>
                       <td className="px-4 py-3">
                         {isLoading ? <Loader2 className="w-4 h-4 text-ats-text-muted animate-spin" /> :
@@ -792,7 +1481,7 @@ export default function LiveCampaignsPage() {
                       </td>
                       <td className="px-4 py-3">
                         <div className="font-medium text-ats-text">{c.campaign_name || c.campaign_id}</div>
-                        <div className="text-[11px] text-ats-text-muted">{c.account_name} · {c.adset_count} adsets · {c.ad_count} ads</div>
+                        <div className="text-[11px] text-ats-text-muted">{c.account_name} &middot; {c.adset_count} adsets &middot; {c.ad_count} ads</div>
                       </td>
                       <td className="px-4 py-3 hidden md:table-cell">
                         <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold ${PLATFORM_BADGE[c.platform]?.bg} ${PLATFORM_BADGE[c.platform]?.text}`}>
@@ -806,13 +1495,23 @@ export default function LiveCampaignsPage() {
                       <td className="px-4 py-3 text-right font-mono text-emerald-400">{fmt$(c.conversion_value)}</td>
                       <td className="px-4 py-3 text-right text-ats-text-muted hidden sm:table-cell">{fmtRoas(c.roas)}</td>
                       <td className="px-4 py-3 text-right" onClick={e => e.stopPropagation()}>
-                        {actionLoading[`status:campaign:${c.campaign_id}`] ? (
-                          <Loader2 className="w-3.5 h-3.5 animate-spin text-ats-text-muted inline-block" />
-                        ) : (
-                          <button onClick={() => handleStatus(c.platform, 'campaign', c.campaign_id, false)} className="p-1.5 rounded-md hover:bg-yellow-500/20 text-ats-text-muted hover:text-yellow-400 transition-colors" title="Pause">
-                            <Pause className="w-3.5 h-3.5" />
+                        <div className="flex items-center justify-end gap-0.5">
+                          {actionLoading[`status:campaign:${c.campaign_id}`] ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin text-ats-text-muted" />
+                          ) : (
+                            <button onClick={() => handleStatus(c.platform, 'campaign', c.campaign_id, false)} className="p-1.5 rounded-md hover:bg-yellow-500/20 text-ats-text-muted hover:text-yellow-400 transition-colors" title="Pause">
+                              <Pause className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          <button
+                            onClick={() => handleDuplicate('campaign', parseInt(c.campaign_id))}
+                            disabled={actionLoading[`dup:campaign:${c.campaign_id}`]}
+                            className="p-1.5 rounded-md hover:bg-blue-500/20 text-ats-text-muted hover:text-blue-400 transition-colors"
+                            title="Duplicate"
+                          >
+                            {actionLoading[`dup:campaign:${c.campaign_id}`] ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Copy className="w-3.5 h-3.5" />}
                           </button>
-                        )}
+                        </div>
                       </td>
                     </tr>
 
@@ -838,11 +1537,19 @@ export default function LiveCampaignsPage() {
                             <td className="px-4 py-2.5 text-right font-mono text-emerald-400 text-xs">{fmt$(as.conversion_value)}</td>
                             <td className="hidden sm:table-cell" />
                             <td className="px-4 py-2.5 text-right" onClick={e => e.stopPropagation()}>
-                              <div className="flex items-center justify-end gap-1">
+                              <div className="flex items-center justify-end gap-0.5">
                                 {actionLoading[`status:adset:${as.adset_id}`] ? <Loader2 className="w-3 h-3 animate-spin text-ats-text-muted" /> : (
                                   <>
                                     <button onClick={() => handleStatus(c.platform, 'adset', as.adset_id, false)} className="p-1 rounded-md hover:bg-yellow-500/20 text-ats-text-muted hover:text-yellow-400" title="Pause"><Pause className="w-3 h-3" /></button>
                                     <button onClick={() => { setBudgetModal({ platform: c.platform, entityId: as.adset_id }); setBudgetValue(''); }} className="p-1 rounded-md hover:bg-emerald-500/20 text-ats-text-muted hover:text-emerald-400" title="Budget"><DollarSign className="w-3 h-3" /></button>
+                                    <button
+                                      onClick={() => handleDuplicate('adset', parseInt(as.adset_id))}
+                                      disabled={actionLoading[`dup:adset:${as.adset_id}`]}
+                                      className="p-1 rounded-md hover:bg-blue-500/20 text-ats-text-muted hover:text-blue-400"
+                                      title="Duplicate"
+                                    >
+                                      {actionLoading[`dup:adset:${as.adset_id}`] ? <Loader2 className="w-3 h-3 animate-spin" /> : <Copy className="w-3 h-3" />}
+                                    </button>
                                   </>
                                 )}
                               </div>
@@ -859,7 +1566,19 @@ export default function LiveCampaignsPage() {
                               <td className="px-4 py-2 text-right text-ats-text-muted text-[11px] hidden lg:table-cell">{fmtNum(ad.impressions)}</td>
                               <td className="px-4 py-2 text-right text-ats-text-muted text-[11px] hidden md:table-cell">{fmtNum(ad.conversions)}</td>
                               <td className="px-4 py-2 text-right font-mono text-emerald-400 text-[11px]">{fmt$(ad.conversion_value)}</td>
-                              <td className="hidden sm:table-cell" /><td />
+                              <td className="hidden sm:table-cell" />
+                              <td className="px-4 py-2 text-right" onClick={e => e.stopPropagation()}>
+                                {ad.ad_id && (
+                                  <button
+                                    onClick={() => handleDuplicate('ad', parseInt(ad.ad_id!))}
+                                    disabled={actionLoading[`dup:ad:${ad.ad_id}`]}
+                                    className="p-1 rounded-md hover:bg-blue-500/20 text-ats-text-muted hover:text-blue-400"
+                                    title="Duplicate"
+                                  >
+                                    {actionLoading[`dup:ad:${ad.ad_id}`] ? <Loader2 className="w-3 h-3 animate-spin" /> : <Copy className="w-3 h-3" />}
+                                  </button>
+                                )}
+                              </td>
                             </tr>
                           ))}
                         </Fragment>
@@ -897,6 +1616,9 @@ export default function LiveCampaignsPage() {
 
       {/* Campaign creator */}
       {showCreator && <CampaignCreator onClose={() => setShowCreator(false)} onSuccess={load} accounts={accounts} />}
+
+      {/* Format launcher */}
+      {showFormatLauncher && <FormatLauncher onClose={() => setShowFormatLauncher(false)} onSuccess={load} accounts={accounts} />}
     </PageShell>
   );
 }
@@ -917,6 +1639,34 @@ function TH({ children, align = 'right', hide, className = '' }: { children?: Re
   return (
     <th className={`text-${align} px-4 py-3 text-[11px] text-ats-text-muted uppercase tracking-wide font-medium ${hidden} ${className}`}>
       {children}
+    </th>
+  );
+}
+
+function SortTH({ label, sortKey, currentKey, dir, onSort, align = 'right', hide }: {
+  label: string;
+  sortKey: SortKey;
+  currentKey: SortKey;
+  dir: SortDir;
+  onSort: (k: SortKey) => void;
+  align?: 'left' | 'right';
+  hide?: string;
+}) {
+  const active = sortKey === currentKey;
+  const hidden = hide ? `hidden ${hide}:table-cell` : '';
+  return (
+    <th
+      className={`text-${align} px-4 py-3 text-[11px] uppercase tracking-wide font-medium cursor-pointer select-none hover:text-ats-text transition-colors ${hidden} ${active ? 'text-ats-accent' : 'text-ats-text-muted'}`}
+      onClick={() => onSort(sortKey)}
+    >
+      <span className="inline-flex items-center gap-1">
+        {label}
+        {active ? (
+          dir === 'desc' ? <ChevronDown className="w-3 h-3" /> : <ChevronDown className="w-3 h-3 rotate-180" />
+        ) : (
+          <ArrowUpDown className="w-3 h-3 opacity-30" />
+        )}
+      </span>
     </th>
   );
 }

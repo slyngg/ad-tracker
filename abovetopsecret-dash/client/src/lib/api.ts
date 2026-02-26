@@ -1312,6 +1312,7 @@ export interface QuickCreateParams {
   campaign_name: string;
   objective?: string;
   daily_budget?: number;
+  budget_type?: 'daily' | 'lifetime';
   adset_name?: string;
   ad_name?: string;
   headline?: string;
@@ -1320,10 +1321,50 @@ export interface QuickCreateParams {
   video_url?: string;
   landing_page_url?: string;
   call_to_action?: string;
+  // Targeting & optimization
+  targeting?: Record<string, any>;
+  placements?: string[];
+  optimization_goal?: string;
+  bid_type?: string;
+  bid_amount?: number;
+  event_type?: string;
+  // Extra creative fields
+  brand_name?: string;
+  button_text?: string;
+  thumbnail_url?: string;
 }
 
 export function quickCreateCampaign(params: QuickCreateParams): Promise<PublishResult & { draft_id: number }> {
   return request('/campaigns/quick-create', { method: 'POST', body: JSON.stringify(params) });
+}
+
+export interface BatchCreateParams {
+  format: string;
+  platform: string;
+  account_id?: number;
+  campaign_name: string;
+  objective?: string;
+  adset_config?: {
+    daily_budget?: number;
+    budget_type?: string;
+    bid_type?: string;
+    targeting?: Record<string, any>;
+    placements?: string[];
+    event_type?: string;
+    schedule_start?: string;
+    schedule_end?: string;
+  };
+  creative_config?: Record<string, any>;
+  media_ids?: number[];
+  auto_publish?: boolean;
+}
+
+export function batchCreateCampaign(params: BatchCreateParams): Promise<{ success: boolean; results: any[] }> {
+  return request('/campaigns/batch-create', { method: 'POST', body: JSON.stringify(params) });
+}
+
+export function duplicateLiveEntity(entityType: string, entityId: number, targetParentId?: number): Promise<{ success: boolean; new_id: number }> {
+  return request('/campaigns/duplicate', { method: 'POST', body: JSON.stringify({ entity_type: entityType, entity_id: entityId, target_parent_id: targetParentId }) });
 }
 
 // --- Creative Templates types (Phase 2) ---

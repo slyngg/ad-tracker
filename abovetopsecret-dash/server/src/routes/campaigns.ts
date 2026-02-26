@@ -39,7 +39,7 @@ const storage = multer.diskStorage({
 });
 const upload = multer({
   storage,
-  limits: { fileSize: 30 * 1024 * 1024 },
+  limits: { fileSize: 500 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     const extOk = /\.(jpg|jpeg|png|gif|mp4|mov|webp)$/i.test(path.extname(file.originalname));
     const mimeOk = ALLOWED_MIMES.includes(file.mimetype);
@@ -919,8 +919,10 @@ router.post('/quick-create', publishLimiter, async (req: Request, res: Response)
 
     const {
       account_id, platform, campaign_name, objective,
-      daily_budget, adset_name,
+      daily_budget, budget_type, adset_name,
       ad_name, headline, ad_text, image_url, video_url, landing_page_url, call_to_action,
+      targeting, placements, optimization_goal, bid_type, bid_amount, event_type,
+      brand_name, button_text, thumbnail_url,
     } = req.body;
 
     if (!platform || !campaign_name || !ad_text) {
@@ -936,6 +938,11 @@ router.post('/quick-create', publishLimiter, async (req: Request, res: Response)
 
     const budgetCents = Math.round((daily_budget || 10) * 100);
 
+    // Build targeting object
+    const targetingObj: Record<string, any> = targeting || {};
+    if (placements) targetingObj.placements = placements;
+    if (event_type) targetingObj.event_type = event_type;
+
     // 1. Create draft
     const draftRes = await pool.query(
       `INSERT INTO campaign_drafts (user_id, account_id, name, objective, platform, status)
@@ -947,8 +954,15 @@ router.post('/quick-create', publishLimiter, async (req: Request, res: Response)
     // 2. Create ad set
     const adsetRes = await pool.query(
       `INSERT INTO campaign_adsets (draft_id, name, budget_type, budget_cents, bid_strategy, targeting)
-       VALUES ($1, $2, 'daily', $3, 'LOWEST_COST_WITHOUT_CAP', '{}') RETURNING id`,
-      [draftId, adset_name || `${campaign_name} - Ad Set`, budgetCents]
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+      [
+        draftId,
+        adset_name || `${campaign_name} - Ad Set`,
+        budget_type || 'daily',
+        budgetCents,
+        bid_type || 'LOWEST_COST_WITHOUT_CAP',
+        JSON.stringify(targetingObj),
+      ]
     );
     const adsetId = adsetRes.rows[0].id;
 
@@ -960,6 +974,9 @@ router.post('/quick-create', publishLimiter, async (req: Request, res: Response)
     if (video_url) creativeConfig.video_url = video_url;
     if (landing_page_url) creativeConfig.link_url = landing_page_url;
     if (call_to_action) creativeConfig.cta = call_to_action;
+    if (brand_name) creativeConfig.brand_name = brand_name;
+    if (button_text) creativeConfig.button_text = button_text;
+    if (thumbnail_url) creativeConfig.thumbnail_url = thumbnail_url;
 
     await pool.query(
       `INSERT INTO campaign_ads (adset_id, name, creative_config) VALUES ($1, $2, $3)`,
@@ -977,6 +994,218 @@ router.post('/quick-create', publishLimiter, async (req: Request, res: Response)
   } catch (err: any) {
     console.error('Error in quick-create:', err);
     res.status(500).json({ error: err.message || 'Failed to create and publish campaign' });
+  }
+});
+
+// ── Duplicate entity ────────────────────────────────────────
+
+router.post('/duplicate', async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+    const { entity_type, entity_id, target_parent_id } = req.body;
+
+    if (!entity_type || !entity_id) {
+      res.status(400).json({ error: 'Missing entity_type or entity_id' });
+      return;
+    }
+
+    if (entity_type === 'campaign') {
+      // Duplicate an entire draft: campaign + adsets + ads
+      const draftRes = await pool.query(
+        'SELECT * FROM campaign_drafts WHERE id = $1 AND user_id = $2',
+        [entity_id, userId]
+      );
+      if (draftRes.rows.length === 0) { res.status(404).json({ error: 'Campaign not found' }); return; }
+      const d = draftRes.rows[0];
+
+      const newDraft = await pool.query(
+        `INSERT INTO campaign_drafts (user_id, account_id, name, objective, platform, status, config, special_ad_categories)
+         VALUES ($1, $2, $3, $4, $5, 'draft', $6, $7) RETURNING *`,
+        [userId, d.account_id, `${d.name} (Copy)`, d.objective, d.platform, d.config || '{}', d.special_ad_categories || '[]']
+      );
+      const newDraftId = newDraft.rows[0].id;
+
+      const adsets = await pool.query('SELECT * FROM campaign_adsets WHERE draft_id = $1 ORDER BY id', [entity_id]);
+      for (const as of adsets.rows) {
+        const newAs = await pool.query(
+          `INSERT INTO campaign_adsets (draft_id, name, targeting, budget_type, budget_cents, bid_strategy, schedule_start, schedule_end)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+          [newDraftId, as.name, JSON.stringify(as.targeting || {}), as.budget_type, as.budget_cents, as.bid_strategy, as.schedule_start, as.schedule_end]
+        );
+        const ads = await pool.query('SELECT * FROM campaign_ads WHERE adset_id = $1 ORDER BY id', [as.id]);
+        for (const ad of ads.rows) {
+          await pool.query(
+            `INSERT INTO campaign_ads (adset_id, name, creative_config, media_upload_id)
+             VALUES ($1, $2, $3, $4)`,
+            [newAs.rows[0].id, ad.name, JSON.stringify(ad.creative_config || {}), ad.media_upload_id]
+          );
+        }
+      }
+      res.json({ success: true, new_id: newDraftId });
+
+    } else if (entity_type === 'adset') {
+      // Duplicate an adset + its ads
+      const asRes = await pool.query(
+        `SELECT ca.* FROM campaign_adsets ca
+         JOIN campaign_drafts cd ON cd.id = ca.draft_id
+         WHERE ca.id = $1 AND cd.user_id = $2`,
+        [entity_id, userId]
+      );
+      if (asRes.rows.length === 0) { res.status(404).json({ error: 'Ad set not found' }); return; }
+      const as = asRes.rows[0];
+      const parentDraft = target_parent_id || as.draft_id;
+
+      const newAs = await pool.query(
+        `INSERT INTO campaign_adsets (draft_id, name, targeting, budget_type, budget_cents, bid_strategy, schedule_start, schedule_end)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+        [parentDraft, `${as.name} (Copy)`, JSON.stringify(as.targeting || {}), as.budget_type, as.budget_cents, as.bid_strategy, as.schedule_start, as.schedule_end]
+      );
+      const ads = await pool.query('SELECT * FROM campaign_ads WHERE adset_id = $1 ORDER BY id', [entity_id]);
+      for (const ad of ads.rows) {
+        await pool.query(
+          `INSERT INTO campaign_ads (adset_id, name, creative_config, media_upload_id)
+           VALUES ($1, $2, $3, $4)`,
+          [newAs.rows[0].id, ad.name, JSON.stringify(ad.creative_config || {}), ad.media_upload_id]
+        );
+      }
+      res.json({ success: true, new_id: newAs.rows[0].id });
+
+    } else if (entity_type === 'ad') {
+      const adRes = await pool.query(
+        `SELECT cad.* FROM campaign_ads cad
+         JOIN campaign_adsets ca ON ca.id = cad.adset_id
+         JOIN campaign_drafts cd ON cd.id = ca.draft_id
+         WHERE cad.id = $1 AND cd.user_id = $2`,
+        [entity_id, userId]
+      );
+      if (adRes.rows.length === 0) { res.status(404).json({ error: 'Ad not found' }); return; }
+      const ad = adRes.rows[0];
+      const parentAdset = target_parent_id || ad.adset_id;
+
+      const newAd = await pool.query(
+        `INSERT INTO campaign_ads (adset_id, name, creative_config, media_upload_id)
+         VALUES ($1, $2, $3, $4) RETURNING id`,
+        [parentAdset, `${ad.name} (Copy)`, JSON.stringify(ad.creative_config || {}), ad.media_upload_id]
+      );
+      res.json({ success: true, new_id: newAd.rows[0].id });
+    } else {
+      res.status(400).json({ error: 'Invalid entity_type' });
+    }
+  } catch (err: any) {
+    console.error('Error duplicating:', err);
+    res.status(500).json({ error: err.message || 'Failed to duplicate' });
+  }
+});
+
+// ── Batch create (format template launcher) ─────────────────
+
+router.post('/batch-create', publishLimiter, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+
+    const {
+      format, platform, account_id, campaign_name, objective,
+      adset_config, creative_config, media_ids, auto_publish,
+    } = req.body;
+
+    if (!format || !platform || !campaign_name) {
+      res.status(400).json({ error: 'Missing required fields: format, platform, campaign_name' });
+      return;
+    }
+
+    // Parse format string like "1-3-1" = 1 campaign, 3 adsets, 1 ad per adset
+    const parts = String(format).split('-').map(Number);
+    if (parts.length !== 3 || parts.some(isNaN) || parts.some(v => v < 1)) {
+      res.status(400).json({ error: 'Invalid format. Use pattern like 1-3-1 (campaigns-adsets-adsPerAdset)' });
+      return;
+    }
+    const [campaignCount, adsetCount, adsPerAdset] = parts;
+    const totalAds = campaignCount * adsetCount * adsPerAdset;
+
+    if (totalAds > 50) {
+      res.status(400).json({ error: 'Maximum 50 total ads per batch' });
+      return;
+    }
+
+    // Verify account
+    if (account_id) {
+      const check = await pool.query('SELECT id FROM accounts WHERE id = $1 AND user_id = $2', [account_id, userId]);
+      if (check.rows.length === 0) { res.status(403).json({ error: 'Account not found' }); return; }
+    }
+
+    const ac = adset_config || {};
+    const cc = creative_config || {};
+    const budgetCents = Math.round((ac.daily_budget || 10) * 100);
+    const mediaList: number[] = media_ids || [];
+    let mediaIdx = 0;
+
+    const results: { draft_id: number; published?: boolean; error?: string }[] = [];
+
+    for (let ci = 0; ci < campaignCount; ci++) {
+      const cName = campaignCount > 1 ? `${campaign_name} ${ci + 1}` : campaign_name;
+      const draftRes = await pool.query(
+        `INSERT INTO campaign_drafts (user_id, account_id, name, objective, platform, status)
+         VALUES ($1, $2, $3, $4, $5, 'draft') RETURNING id`,
+        [userId, account_id || null, cName, objective || 'TRAFFIC', platform]
+      );
+      const draftId = draftRes.rows[0].id;
+
+      for (let si = 0; si < adsetCount; si++) {
+        const sName = `${cName} - Ad Set ${si + 1}`;
+        const targetingObj = ac.targeting || {};
+        if (ac.placements) targetingObj.placements = ac.placements;
+        if (ac.event_type) targetingObj.event_type = ac.event_type;
+
+        const adsetRes = await pool.query(
+          `INSERT INTO campaign_adsets (draft_id, name, budget_type, budget_cents, bid_strategy, targeting, schedule_start, schedule_end)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+          [
+            draftId, sName,
+            ac.budget_type || 'daily', budgetCents,
+            ac.bid_type || 'LOWEST_COST_WITHOUT_CAP',
+            JSON.stringify(targetingObj),
+            ac.schedule_start || null, ac.schedule_end || null,
+          ]
+        );
+        const adsetId = adsetRes.rows[0].id;
+
+        for (let ai = 0; ai < adsPerAdset; ai++) {
+          const aName = `${cName} - Ad ${si * adsPerAdset + ai + 1}`;
+          const adCreative: Record<string, any> = { ...cc };
+          // Distribute media files round-robin
+          if (mediaList.length > 0) {
+            adCreative.media_upload_id = mediaList[mediaIdx % mediaList.length];
+            mediaIdx++;
+          }
+
+          await pool.query(
+            `INSERT INTO campaign_ads (adset_id, name, creative_config, media_upload_id)
+             VALUES ($1, $2, $3, $4)`,
+            [adsetId, aName, JSON.stringify(adCreative), adCreative.media_upload_id || null]
+          );
+        }
+      }
+
+      // Optionally auto-publish
+      if (auto_publish) {
+        try {
+          const { publishDraft } = await import('../services/campaign-publisher');
+          const pub = await publishDraft(draftId, userId);
+          results.push({ draft_id: draftId, published: pub.success, error: pub.error });
+        } catch (e: any) {
+          results.push({ draft_id: draftId, published: false, error: e.message });
+        }
+      } else {
+        results.push({ draft_id: draftId });
+      }
+    }
+
+    res.json({ success: true, results });
+  } catch (err: any) {
+    console.error('Error in batch-create:', err);
+    res.status(500).json({ error: err.message || 'Failed to batch create' });
   }
 });
 
