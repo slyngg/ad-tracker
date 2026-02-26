@@ -91,7 +91,7 @@ router.get('/data', async (req: Request, res: Response) => {
             SELECT COALESCE(a.name, 'NewsBreak') AS source,
               (n.ad_data->>'spend')::NUMERIC, (n.ad_data->>'clicks')::NUMERIC, (n.ad_data->>'impressions')::NUMERIC,
               COALESCE((n.ad_data->>'conversions')::NUMERIC, 0), COALESCE((n.ad_data->>'conversion_value')::NUMERIC, 0)
-            FROM newsbreak_ads_archive n LEFT JOIN accounts a ON a.platform = 'newsbreak' AND a.user_id = n.user_id
+            FROM newsbreak_ads_archive n LEFT JOIN accounts a ON a.platform_account_id = n.account_id AND a.user_id = n.user_id AND a.status = 'active'
             WHERE n.user_id = $1 AND n.archived_date BETWEEN $2 AND $3
           ) all_ads
           GROUP BY source
@@ -163,7 +163,7 @@ router.get('/data', async (req: Request, res: Response) => {
             FROM tiktok_ads_today t LEFT JOIN accounts a ON a.id = t.account_id ${uf.replace('WHERE', 'WHERE t.')}
             UNION ALL
             SELECT COALESCE(a.name, 'NewsBreak') AS source, n.spend, n.clicks, n.impressions, COALESCE(n.conversions, 0)::NUMERIC, COALESCE(n.conversion_value, 0)::NUMERIC
-            FROM newsbreak_ads_today n LEFT JOIN accounts a ON a.platform = 'newsbreak' AND a.user_id = n.user_id ${uf.replace('WHERE', 'WHERE n.')}
+            FROM newsbreak_ads_today n LEFT JOIN accounts a ON a.platform_account_id = n.account_id AND a.user_id = n.user_id AND a.status = 'active' ${uf.replace('WHERE', 'WHERE n.')}
           ) all_ads
           GROUP BY source
         ),
@@ -220,19 +220,21 @@ router.get('/ads', async (req: Request, res: Response) => {
       const result = await pool.query(`
         SELECT
           'newsbreak' AS platform,
-          ad_data->>'ad_id' AS ad_id, ad_data->>'ad_name' AS ad_name,
-          ad_data->>'campaign_name' AS campaign_name, ad_data->>'adset_name' AS adset_name,
-          (ad_data->>'spend')::NUMERIC AS cost, (ad_data->>'impressions')::NUMERIC AS impressions,
-          (ad_data->>'cpm')::NUMERIC AS cpm, (ad_data->>'clicks')::NUMERIC AS clicks,
-          (ad_data->>'cpc')::NUMERIC AS cpc, (ad_data->>'ctr')::NUMERIC AS ctr,
-          COALESCE((ad_data->>'conversions')::NUMERIC, 0) AS conversions,
-          (ad_data->>'cpa')::NUMERIC AS cpa,
-          COALESCE((ad_data->>'cvr')::NUMERIC, 0) AS cvr,
-          COALESCE((ad_data->>'conversion_value')::NUMERIC, 0) AS total_conversion_value,
-          CASE WHEN COALESCE((ad_data->>'conversions')::NUMERIC, 0) > 0
-            THEN COALESCE((ad_data->>'conversion_value')::NUMERIC, 0) / (ad_data->>'conversions')::NUMERIC ELSE 0 END AS value_per_conversion,
-          created_at AS synced_at
-        FROM newsbreak_ads_archive WHERE user_id = $1 AND archived_date BETWEEN $2 AND $3
+          n.ad_data->>'ad_id' AS ad_id, n.ad_data->>'ad_name' AS ad_name,
+          n.ad_data->>'campaign_name' AS campaign_name, n.ad_data->>'adset_name' AS adset_name,
+          (n.ad_data->>'spend')::NUMERIC AS cost, (n.ad_data->>'impressions')::NUMERIC AS impressions,
+          (n.ad_data->>'cpm')::NUMERIC AS cpm, (n.ad_data->>'clicks')::NUMERIC AS clicks,
+          (n.ad_data->>'cpc')::NUMERIC AS cpc, (n.ad_data->>'ctr')::NUMERIC AS ctr,
+          COALESCE((n.ad_data->>'conversions')::NUMERIC, 0) AS conversions,
+          (n.ad_data->>'cpa')::NUMERIC AS cpa,
+          COALESCE((n.ad_data->>'cvr')::NUMERIC, 0) AS cvr,
+          COALESCE((n.ad_data->>'conversion_value')::NUMERIC, 0) AS total_conversion_value,
+          CASE WHEN COALESCE((n.ad_data->>'conversions')::NUMERIC, 0) > 0
+            THEN COALESCE((n.ad_data->>'conversion_value')::NUMERIC, 0) / (n.ad_data->>'conversions')::NUMERIC ELSE 0 END AS value_per_conversion,
+          n.created_at AS synced_at,
+          COALESCE(a.name, 'NewsBreak') AS account_name
+        FROM newsbreak_ads_archive n LEFT JOIN accounts a ON a.platform_account_id = n.account_id AND a.user_id = n.user_id AND a.status = 'active'
+        WHERE n.user_id = $1 AND n.archived_date BETWEEN $2 AND $3
         UNION ALL
         SELECT
           'meta' AS platform,
@@ -245,23 +247,26 @@ router.get('/ads', async (req: Request, res: Response) => {
           CASE WHEN (ad_data->>'impressions')::NUMERIC > 0 THEN (ad_data->>'clicks')::NUMERIC / (ad_data->>'impressions')::NUMERIC ELSE 0 END AS ctr,
           0 AS conversions, 0 AS cpa, 0 AS cvr,
           0 AS total_conversion_value, 0 AS value_per_conversion,
-          archived_at AS synced_at
+          archived_at AS synced_at,
+          ad_data->>'account_name' AS account_name
         FROM fb_ads_archive WHERE user_id = $1 AND archived_date BETWEEN $2 AND $3
         UNION ALL
         SELECT
           'tiktok' AS platform,
-          ad_data->>'ad_id' AS ad_id, ad_data->>'ad_name' AS ad_name,
-          ad_data->>'campaign_name' AS campaign_name, ad_data->>'adgroup_name' AS adset_name,
-          (ad_data->>'spend')::NUMERIC AS cost, (ad_data->>'impressions')::NUMERIC AS impressions,
-          (ad_data->>'cpm')::NUMERIC AS cpm, (ad_data->>'clicks')::NUMERIC AS clicks,
-          (ad_data->>'cpc')::NUMERIC AS cpc, (ad_data->>'ctr')::NUMERIC AS ctr,
-          COALESCE((ad_data->>'conversions')::NUMERIC, 0) AS conversions,
-          CASE WHEN COALESCE((ad_data->>'conversions')::NUMERIC, 0) > 0 THEN (ad_data->>'spend')::NUMERIC / (ad_data->>'conversions')::NUMERIC ELSE 0 END AS cpa,
-          CASE WHEN (ad_data->>'clicks')::NUMERIC > 0 THEN COALESCE((ad_data->>'conversions')::NUMERIC, 0) / (ad_data->>'clicks')::NUMERIC ELSE 0 END AS cvr,
-          COALESCE((ad_data->>'conversion_value')::NUMERIC, 0) AS total_conversion_value,
-          CASE WHEN COALESCE((ad_data->>'conversions')::NUMERIC, 0) > 0 THEN COALESCE((ad_data->>'conversion_value')::NUMERIC, 0) / (ad_data->>'conversions')::NUMERIC ELSE 0 END AS value_per_conversion,
-          created_at AS synced_at
-        FROM tiktok_ads_archive WHERE user_id = $1 AND archived_date BETWEEN $2 AND $3
+          t.ad_data->>'ad_id' AS ad_id, t.ad_data->>'ad_name' AS ad_name,
+          t.ad_data->>'campaign_name' AS campaign_name, t.ad_data->>'adgroup_name' AS adset_name,
+          (t.ad_data->>'spend')::NUMERIC AS cost, (t.ad_data->>'impressions')::NUMERIC AS impressions,
+          (t.ad_data->>'cpm')::NUMERIC AS cpm, (t.ad_data->>'clicks')::NUMERIC AS clicks,
+          (t.ad_data->>'cpc')::NUMERIC AS cpc, (t.ad_data->>'ctr')::NUMERIC AS ctr,
+          COALESCE((t.ad_data->>'conversions')::NUMERIC, 0) AS conversions,
+          CASE WHEN COALESCE((t.ad_data->>'conversions')::NUMERIC, 0) > 0 THEN (t.ad_data->>'spend')::NUMERIC / (t.ad_data->>'conversions')::NUMERIC ELSE 0 END AS cpa,
+          CASE WHEN (t.ad_data->>'clicks')::NUMERIC > 0 THEN COALESCE((t.ad_data->>'conversions')::NUMERIC, 0) / (t.ad_data->>'clicks')::NUMERIC ELSE 0 END AS cvr,
+          COALESCE((t.ad_data->>'conversion_value')::NUMERIC, 0) AS total_conversion_value,
+          CASE WHEN COALESCE((t.ad_data->>'conversions')::NUMERIC, 0) > 0 THEN COALESCE((t.ad_data->>'conversion_value')::NUMERIC, 0) / (t.ad_data->>'conversions')::NUMERIC ELSE 0 END AS value_per_conversion,
+          t.created_at AS synced_at,
+          COALESCE(ta.name, 'TikTok') AS account_name
+        FROM tiktok_ads_archive t LEFT JOIN accounts ta ON ta.id = t.account_id
+        WHERE t.user_id = $1 AND t.archived_date BETWEEN $2 AND $3
         ORDER BY cost DESC
       `, params);
 
@@ -274,13 +279,14 @@ router.get('/ads', async (req: Request, res: Response) => {
       const result = await pool.query(`
         SELECT
           'newsbreak' AS platform,
-          ad_id, ad_name, campaign_name, adset_name,
-          spend AS cost, impressions, cpm, clicks, cpc, ctr, conversions, cpa,
-          COALESCE(cvr, 0) AS cvr,
-          conversion_value AS total_conversion_value,
-          CASE WHEN conversions > 0 THEN conversion_value / conversions ELSE 0 END AS value_per_conversion,
-          synced_at
-        FROM newsbreak_ads_today ${uf}
+          n.ad_id, n.ad_name, n.campaign_name, n.adset_name,
+          n.spend AS cost, n.impressions, n.cpm, n.clicks, n.cpc, n.ctr, n.conversions, n.cpa,
+          COALESCE(n.cvr, 0) AS cvr,
+          n.conversion_value AS total_conversion_value,
+          CASE WHEN n.conversions > 0 THEN n.conversion_value / n.conversions ELSE 0 END AS value_per_conversion,
+          n.synced_at,
+          COALESCE(a.name, 'NewsBreak') AS account_name
+        FROM newsbreak_ads_today n LEFT JOIN accounts a ON a.platform_account_id = n.account_id AND a.user_id = n.user_id AND a.status = 'active' ${uf.replace('WHERE', 'WHERE n.')}
         UNION ALL
         SELECT
           'meta' AS platform,
@@ -292,20 +298,22 @@ router.get('/ads', async (req: Request, res: Response) => {
           CASE WHEN impressions > 0 THEN clicks::NUMERIC / impressions ELSE 0 END AS ctr,
           0 AS conversions, 0 AS cpa, 0 AS cvr,
           0 AS total_conversion_value, 0 AS value_per_conversion,
-          synced_at
+          synced_at,
+          account_name
         FROM fb_ads_today ${uf}
         UNION ALL
         SELECT
           'tiktok' AS platform,
-          ad_id, ad_name, campaign_name, adgroup_name AS adset_name,
-          spend AS cost, impressions, cpm, clicks, cpc, ctr,
-          COALESCE(conversions, 0) AS conversions,
-          CASE WHEN COALESCE(conversions, 0) > 0 THEN spend / conversions ELSE 0 END AS cpa,
-          CASE WHEN clicks > 0 THEN COALESCE(conversions, 0)::NUMERIC / clicks ELSE 0 END AS cvr,
-          COALESCE(conversion_value, 0) AS total_conversion_value,
-          CASE WHEN COALESCE(conversions, 0) > 0 THEN COALESCE(conversion_value, 0) / conversions ELSE 0 END AS value_per_conversion,
-          synced_at
-        FROM tiktok_ads_today ${uf}
+          t.ad_id, t.ad_name, t.campaign_name, t.adgroup_name AS adset_name,
+          t.spend AS cost, t.impressions, t.cpm, t.clicks, t.cpc, t.ctr,
+          COALESCE(t.conversions, 0) AS conversions,
+          CASE WHEN COALESCE(t.conversions, 0) > 0 THEN t.spend / t.conversions ELSE 0 END AS cpa,
+          CASE WHEN t.clicks > 0 THEN COALESCE(t.conversions, 0)::NUMERIC / t.clicks ELSE 0 END AS cvr,
+          COALESCE(t.conversion_value, 0) AS total_conversion_value,
+          CASE WHEN COALESCE(t.conversions, 0) > 0 THEN COALESCE(t.conversion_value, 0) / t.conversions ELSE 0 END AS value_per_conversion,
+          t.synced_at,
+          COALESCE(ta.name, 'TikTok') AS account_name
+        FROM tiktok_ads_today t LEFT JOIN accounts ta ON ta.id = t.account_id ${uf.replace('WHERE', 'WHERE t.')}
         ORDER BY cost DESC
       `, params);
 

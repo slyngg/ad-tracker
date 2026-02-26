@@ -25,7 +25,7 @@ interface AdRow {
   platform: string; ad_id: string; ad_name: string; campaign_name: string; adset_name: string;
   cost: number; impressions: number; cpm: number; clicks: number; cpc: number; ctr: number;
   conversions: number; cpa: number; cvr: number; total_conversion_value: number; value_per_conversion: number;
-  synced_at: string;
+  synced_at: string; account_name?: string;
 }
 const MODELS = [
   { id: 'last_click', label: 'Last Click' },
@@ -85,9 +85,13 @@ export default function AttributionDashboard() {
   }, [data]);
 
   const accounts = useMemo(() => {
-    const set = new Set(data.map((d) => d.account_name));
-    return ['All', ...Array.from(set)];
-  }, [data]);
+    const set = new Set([
+      ...data.map((d) => d.account_name),
+      ...attrData.map((d) => d.source),
+      ...adRows.filter(r => r.account_name).map(r => r.account_name!),
+    ]);
+    return ['All', ...Array.from(set).filter(Boolean)];
+  }, [data, attrData, adRows]);
 
   const filtered = useMemo(() => {
     let rows = [...data];
@@ -135,6 +139,12 @@ export default function AttributionDashboard() {
   // Channel overlap max for scaling
   const overlapMax = useMemo(() => Math.max(...overlap.map(o => o.shared_conversions), 1), [overlap]);
 
+  // Filter attrData by account
+  const filteredAttrData = useMemo(() => {
+    if (filterAccount === 'All') return attrData;
+    return attrData.filter(r => r.source === filterAccount);
+  }, [attrData, filterAccount]);
+
   // Ad-level data: filter + sort
   const adPlatforms = useMemo(() => {
     const set = new Set(adRows.map(r => r.platform));
@@ -143,6 +153,7 @@ export default function AttributionDashboard() {
 
   const sortedAds = useMemo(() => {
     let rows = adPlatformFilter === 'all' ? [...adRows] : adRows.filter(r => r.platform === adPlatformFilter);
+    if (filterAccount !== 'All') rows = rows.filter(r => r.account_name === filterAccount);
     rows.sort((a, b) => {
       const av = (a as any)[adSort.col] ?? 0;
       const bv = (b as any)[adSort.col] ?? 0;
@@ -150,7 +161,7 @@ export default function AttributionDashboard() {
       return adSort.dir === 'asc' ? av - bv : bv - av;
     });
     return rows;
-  }, [adRows, adPlatformFilter, adSort]);
+  }, [adRows, adPlatformFilter, adSort, filterAccount]);
 
   const handleAdSort = useCallback((col: string) => {
     setAdSort(prev => prev.col === col ? { col, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { col, dir: 'desc' });
@@ -196,9 +207,9 @@ export default function AttributionDashboard() {
           </div>
 
           {/* Mobile Channel Attribution Cards */}
-          {attrData.length > 0 && (
+          {filteredAttrData.length > 0 && (
             <div className="space-y-2">
-              {attrData.map((r, i) => {
+              {filteredAttrData.map((r, i) => {
                 const roas = parseFloat(String(r.roas)) || 0;
                 const roasColor = roas >= 2 ? 'text-ats-green' : roas >= 1 ? 'text-ats-yellow' : 'text-ats-red';
                 return (
@@ -297,7 +308,7 @@ export default function AttributionDashboard() {
           )}
 
           {/* Attribution by Model Table */}
-          {attrData.length > 0 && (
+          {filteredAttrData.length > 0 && (
             <div className={`${cardCls} mb-4`}>
               <h3 className="text-sm font-semibold text-ats-text mb-3">Attribution by Channel ({MODELS.find(m => m.id === model)?.label})</h3>
               <div className="overflow-x-auto">
@@ -312,7 +323,7 @@ export default function AttributionDashboard() {
                     <th className="text-right pb-2 font-mono">NC CPA</th>
                     <th className="text-right pb-2 font-mono">NC ROAS</th>
                   </tr></thead>
-                  <tbody>{attrData.map((r, i) => {
+                  <tbody>{filteredAttrData.map((r, i) => {
                     const roas = parseFloat(String(r.roas)) || 0;
                     const ncCpa = parseFloat(String(r.nc_cpa)) || 0;
                     return (
