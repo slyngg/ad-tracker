@@ -1,43 +1,9 @@
 import pool from '../db';
 import https from 'https';
-import { getSetting } from './settings';
+import { getAllNewsBreakAuth, getNewsBreakAuth, NewsBreakAuth } from './newsbreak-api';
 import { createLogger } from '../lib/logger';
 
 const log = createLogger('NewsBreakSync');
-
-// ── Auth resolution ────────────────────────────────────────────
-
-async function getNewsBreakAuth(userId?: number): Promise<{ accessToken: string; accountId: string } | null> {
-  // Check integration_configs first (encrypted credentials)
-  if (userId) {
-    try {
-      const result = await pool.query(
-        `SELECT credentials, config FROM integration_configs
-         WHERE user_id = $1 AND platform = 'newsbreak' AND status = 'connected'`,
-        [userId]
-      );
-      if (result.rows.length > 0) {
-        const { credentials, config } = result.rows[0];
-        const apiKey = credentials?.api_key;
-        const accountId = config?.account_id || credentials?.account_id;
-        if (apiKey) {
-          return { accessToken: apiKey, accountId: String(accountId || 'default') };
-        }
-      }
-    } catch {
-      // Fall through to getSetting
-    }
-  }
-
-  // Fallback to app_settings
-  const accessToken = await getSetting('newsbreak_api_key', userId);
-  const accountId = await getSetting('newsbreak_account_id', userId);
-  if (accessToken) {
-    return { accessToken, accountId: accountId || 'default' };
-  }
-
-  return null;
-}
 
 // ── HTTP helper ────────────────────────────────────────────────
 
@@ -78,14 +44,32 @@ function fetchNewsBreakJSON(accessToken: string, body: any): Promise<any> {
 
 // ── Sync ───────────────────────────────────────────────────────
 
-export async function syncNewsBreakAds(userId?: number): Promise<{ synced: number; skipped: boolean }> {
-  const auth = await getNewsBreakAuth(userId);
+/**
+ * Sync all NewsBreak accounts for a user (multi-account aware).
+ * Called by the scheduler instead of syncNewsBreakAds directly.
+ */
+export async function syncAllNewsBreakForUser(userId: number): Promise<{ synced: number; skipped: boolean; accounts: number }> {
+  const allAuth = await getAllNewsBreakAuth(userId);
+  if (allAuth.length === 0) return { synced: 0, skipped: true, accounts: 0 };
+
+  let totalSynced = 0;
+  for (const auth of allAuth) {
+    const result = await syncNewsBreakAds(userId, auth);
+    totalSynced += result.synced;
+  }
+
+  return { synced: totalSynced, skipped: false, accounts: allAuth.length };
+}
+
+export async function syncNewsBreakAds(userId?: number, authOverride?: NewsBreakAuth): Promise<{ synced: number; skipped: boolean }> {
+  const auth = authOverride || (userId ? await getNewsBreakAuth(userId) : null);
   if (!auth) return { synced: 0, skipped: true };
 
   const { accessToken, accountId } = auth;
 
   // Auto-create accounts row if missing (so accounts summary + other pages work)
-  if (userId && accountId && accountId !== 'default') {
+  // Skip if this auth already came from the accounts table (has dbAccountId)
+  if (userId && accountId && accountId !== 'default' && !auth.dbAccountId) {
     try {
       const existing = await pool.query(
         `SELECT id FROM accounts WHERE user_id = $1 AND platform = 'newsbreak' AND platform_account_id = $2`,
@@ -186,6 +170,11 @@ export async function syncNewsBreakAds(userId?: number): Promise<{ synced: numbe
 
     await dbClient.query('COMMIT');
     log.info({ synced, userId }, `Synced ${synced} ad rows`);
+
+    // Ingest creatives into ad_creatives + creative_metrics_daily
+    if (userId) {
+      await ingestNewsBreakCreatives(userId, rows);
+    }
   } catch (err) {
     await dbClient.query('ROLLBACK');
     log.error({ err }, 'Fetch failed');
@@ -196,10 +185,80 @@ export async function syncNewsBreakAds(userId?: number): Promise<{ synced: numbe
   return { synced, skipped: false };
 }
 
+// ── Creative ingestion ────────────────────────────────────────
+
+async function ingestNewsBreakCreatives(userId: number, rows: any[]): Promise<void> {
+  const today = new Date().toISOString().split('T')[0];
+
+  for (const row of rows) {
+    const adId = row.adId;
+    if (!adId) continue;
+
+    const spend = (parseFloat(row.costDecimal) || row.cost || 0) / 100;
+    const impressions = parseInt(row.impression) || 0;
+    const clicks = parseInt(row.click) || 0;
+    const conversions = parseInt(row.conversion) || 0;
+    const conversionValue = (parseFloat(row.conversionValueDecimal) || row.conversionValue || 0) / 100;
+
+    try {
+      // Upsert into ad_creatives
+      const creativeRes = await pool.query(
+        `INSERT INTO ad_creatives (user_id, platform, ad_id, ad_name, adset_id, adset_name, campaign_id, campaign_name,
+          creative_type, status, last_seen)
+         VALUES ($1, 'newsbreak', $2, $3, $4, $5, $6, $7, 'image', 'active', CURRENT_DATE)
+         ON CONFLICT (user_id, platform, ad_id) DO UPDATE SET
+           ad_name = COALESCE(NULLIF(EXCLUDED.ad_name, ''), ad_creatives.ad_name),
+           adset_id = EXCLUDED.adset_id,
+           adset_name = COALESCE(NULLIF(EXCLUDED.adset_name, ''), ad_creatives.adset_name),
+           campaign_id = EXCLUDED.campaign_id,
+           campaign_name = COALESCE(NULLIF(EXCLUDED.campaign_name, ''), ad_creatives.campaign_name),
+           status = 'active',
+           last_seen = CURRENT_DATE
+         RETURNING id`,
+        [userId, adId, row.ad || null, row.adSetId || null, row.adSet || null, row.campaignId || null, row.campaign || null]
+      );
+
+      const creativeId = creativeRes.rows[0]?.id;
+      if (!creativeId) continue;
+
+      // Upsert daily metrics
+      await pool.query(
+        `INSERT INTO creative_metrics_daily (creative_id, date, spend, impressions, clicks, purchases, revenue)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (creative_id, date) DO UPDATE SET
+           spend = EXCLUDED.spend,
+           impressions = EXCLUDED.impressions,
+           clicks = EXCLUDED.clicks,
+           purchases = EXCLUDED.purchases,
+           revenue = EXCLUDED.revenue`,
+        [creativeId, today, spend, impressions, clicks, conversions, conversionValue]
+      );
+    } catch (err) {
+      log.error({ err, adId }, 'Failed to ingest NewsBreak creative');
+    }
+  }
+}
+
 // ── Historical backfill ───────────────────────────────────────
 
-export async function backfillNewsBreak(userId?: number, days = 90): Promise<{ backfilled: number; days: number }> {
-  const auth = await getNewsBreakAuth(userId);
+/**
+ * Backfill all NewsBreak accounts for a user.
+ */
+export async function backfillAllNewsBreakForUser(userId: number, days = 90): Promise<{ backfilled: number; days: number; accounts: number }> {
+  const allAuth = await getAllNewsBreakAuth(userId);
+  if (allAuth.length === 0) return { backfilled: 0, days: 0, accounts: 0 };
+
+  let totalBackfilled = 0;
+  for (const auth of allAuth) {
+    const result = await backfillNewsBreak(userId, days, auth);
+    totalBackfilled += result.backfilled;
+  }
+
+  return { backfilled: totalBackfilled, days, accounts: allAuth.length };
+}
+
+export async function backfillNewsBreak(userId?: number, days = 90, authOverride?: NewsBreakAuth): Promise<{ backfilled: number; days: number }> {
+  const auth = authOverride || (userId ? await getNewsBreakAuth(userId) : null);
   if (!auth) return { backfilled: 0, days: 0 };
 
   const { accessToken, accountId } = auth;

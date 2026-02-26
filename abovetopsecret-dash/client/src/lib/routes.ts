@@ -8,7 +8,7 @@ import {
   Palette, Clock, Shield, BookOpen, Compass, Layers,
   MessageSquare, FileText, Sparkles, PenTool, PieChart,
   Library, LayoutList, Radar, Building2, Megaphone, Send,
-  Wand2, Binoculars,
+  Wand2, Binoculars, Scan, Radio,
 } from 'lucide-react';
 import { NavSectionConfig } from '../types/navigation';
 
@@ -82,12 +82,16 @@ export const ROUTES = {
   // Campaign Manager
   CAMPAIGN_LIST: '/campaigns',
   CAMPAIGN_BUILDER: '/campaigns/builder',
+  LIVE_CAMPAIGNS: '/campaigns/live',
 
   // Creative Templates
   CREATIVE_TEMPLATES: '/creative/templates',
 
   // Ad Library (Spy)
   AD_LIBRARY: '/creative/ad-library',
+
+  // Pixel Tracking
+  PIXEL: '/pixel',
 } as const;
 
 export const NAV_SECTIONS: NavSectionConfig[] = [
@@ -126,6 +130,7 @@ export const NAV_SECTIONS: NavSectionConfig[] = [
     label: 'Campaign Manager',
     icon: Megaphone,
     children: [
+      { label: 'Live Campaigns', path: ROUTES.LIVE_CAMPAIGNS, icon: Radio },
       { label: 'Campaigns', path: ROUTES.CAMPAIGN_LIST, icon: Send },
       { label: 'Builder', path: ROUTES.CAMPAIGN_BUILDER, icon: Wand2 },
     ],
@@ -162,6 +167,11 @@ export const NAV_SECTIONS: NavSectionConfig[] = [
       { label: 'AI Visibility', path: ROUTES.AI_VISIBILITY, icon: Eye },
       { label: 'Keyword Intel', path: ROUTES.KEYWORD_INTELLIGENCE, icon: Key },
     ],
+  },
+  {
+    label: 'Pixel',
+    icon: Scan,
+    path: ROUTES.PIXEL,
   },
   {
     label: 'Data',

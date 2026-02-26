@@ -706,4 +706,208 @@ router.delete('/templates/:id', async (req: Request, res: Response) => {
   }
 });
 
+// ── Live Campaigns (across all platforms) ─────────────────
+
+router.get('/live', async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+    const platform = req.query.platform as string | undefined;
+
+    const platformFilter = platform && platform !== 'all'
+      ? `AND platform = '${platform === 'meta' ? 'meta' : platform}'`
+      : '';
+
+    const result = await pool.query(`
+      WITH all_campaigns AS (
+        SELECT 'meta' AS platform, campaign_id, campaign_name, account_name,
+          SUM(spend) AS spend, SUM(clicks) AS clicks, SUM(impressions) AS impressions,
+          0::numeric AS conversions, 0::numeric AS conversion_value,
+          COUNT(DISTINCT ad_set_id) AS adset_count, COUNT(DISTINCT ad_name) AS ad_count
+        FROM fb_ads_today WHERE user_id = $1
+        GROUP BY campaign_id, campaign_name, account_name
+        UNION ALL
+        SELECT 'tiktok' AS platform, campaign_id, campaign_name, COALESCE(a.name, 'TikTok') AS account_name,
+          SUM(t.spend), SUM(t.clicks), SUM(t.impressions),
+          COALESCE(SUM(t.conversions), 0), COALESCE(SUM(t.conversion_value), 0),
+          COUNT(DISTINCT t.adgroup_id), COUNT(DISTINCT t.ad_name)
+        FROM tiktok_ads_today t LEFT JOIN accounts a ON a.id = t.account_id
+        WHERE t.user_id = $1
+        GROUP BY t.campaign_id, t.campaign_name, a.name
+        UNION ALL
+        SELECT 'newsbreak' AS platform, campaign_id, campaign_name, COALESCE(a.name, 'NewsBreak') AS account_name,
+          SUM(n.spend), SUM(n.clicks), SUM(n.impressions),
+          COALESCE(SUM(n.conversions), 0), COALESCE(SUM(n.conversion_value), 0),
+          COUNT(DISTINCT n.adset_id), COUNT(DISTINCT n.ad_name)
+        FROM newsbreak_ads_today n LEFT JOIN accounts a ON a.platform = 'newsbreak' AND a.user_id = n.user_id
+        WHERE n.user_id = $1
+        GROUP BY n.campaign_id, n.campaign_name, a.name
+      )
+      SELECT * FROM all_campaigns WHERE 1=1 ${platformFilter}
+      ORDER BY spend DESC
+    `, [userId]);
+
+    res.json(result.rows.map(r => ({
+      platform: r.platform,
+      campaign_id: r.campaign_id,
+      campaign_name: r.campaign_name,
+      account_name: r.account_name,
+      spend: parseFloat(r.spend) || 0,
+      clicks: parseInt(r.clicks) || 0,
+      impressions: parseInt(r.impressions) || 0,
+      conversions: parseInt(r.conversions) || 0,
+      conversion_value: parseFloat(r.conversion_value) || 0,
+      roas: parseFloat(r.spend) > 0 ? (parseFloat(r.conversion_value) || 0) / parseFloat(r.spend) : 0,
+      cpa: parseInt(r.conversions) > 0 ? (parseFloat(r.spend) || 0) / parseInt(r.conversions) : 0,
+      adset_count: parseInt(r.adset_count) || 0,
+      ad_count: parseInt(r.ad_count) || 0,
+    })));
+  } catch (err) {
+    console.error('Error fetching live campaigns:', err);
+    res.status(500).json({ error: 'Failed to fetch live campaigns' });
+  }
+});
+
+router.get('/live/:platform/:campaignId/adsets', async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+    const { platform, campaignId } = req.params;
+
+    let query: string;
+    if (platform === 'meta') {
+      query = `SELECT ad_set_id AS adset_id, ad_set_name AS adset_name,
+        SUM(spend) AS spend, SUM(clicks) AS clicks, SUM(impressions) AS impressions,
+        0::numeric AS conversions, 0::numeric AS conversion_value, COUNT(DISTINCT ad_name) AS ad_count
+        FROM fb_ads_today WHERE user_id = $1 AND campaign_id = $2
+        GROUP BY ad_set_id, ad_set_name ORDER BY spend DESC`;
+    } else if (platform === 'tiktok') {
+      query = `SELECT adgroup_id AS adset_id, adgroup_name AS adset_name,
+        SUM(spend) AS spend, SUM(clicks) AS clicks, SUM(impressions) AS impressions,
+        COALESCE(SUM(conversions), 0) AS conversions, COALESCE(SUM(conversion_value), 0) AS conversion_value,
+        COUNT(DISTINCT ad_name) AS ad_count
+        FROM tiktok_ads_today WHERE user_id = $1 AND campaign_id = $2
+        GROUP BY adgroup_id, adgroup_name ORDER BY spend DESC`;
+    } else {
+      query = `SELECT adset_id, adset_name,
+        SUM(spend) AS spend, SUM(clicks) AS clicks, SUM(impressions) AS impressions,
+        COALESCE(SUM(conversions), 0) AS conversions, COALESCE(SUM(conversion_value), 0) AS conversion_value,
+        COUNT(DISTINCT ad_name) AS ad_count
+        FROM newsbreak_ads_today WHERE user_id = $1 AND campaign_id = $2
+        GROUP BY adset_id, adset_name ORDER BY spend DESC`;
+    }
+
+    const result = await pool.query(query, [userId, campaignId]);
+    res.json(result.rows.map(r => ({
+      adset_id: r.adset_id,
+      adset_name: r.adset_name,
+      spend: parseFloat(r.spend) || 0,
+      clicks: parseInt(r.clicks) || 0,
+      impressions: parseInt(r.impressions) || 0,
+      conversions: parseInt(r.conversions) || 0,
+      conversion_value: parseFloat(r.conversion_value) || 0,
+      ad_count: parseInt(r.ad_count) || 0,
+    })));
+  } catch (err) {
+    console.error('Error fetching live adsets:', err);
+    res.status(500).json({ error: 'Failed to fetch adsets' });
+  }
+});
+
+router.get('/live/:platform/:adsetId/ads', async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+    const { platform, adsetId } = req.params;
+
+    let query: string;
+    if (platform === 'meta') {
+      query = `SELECT ad_name, spend, clicks, impressions, landing_page_views,
+        0::numeric AS conversions, 0::numeric AS conversion_value
+        FROM fb_ads_today WHERE user_id = $1 AND ad_set_id = $2 ORDER BY spend DESC`;
+    } else if (platform === 'tiktok') {
+      query = `SELECT ad_name, spend, clicks, impressions, 0 AS landing_page_views,
+        COALESCE(conversions, 0) AS conversions, COALESCE(conversion_value, 0) AS conversion_value
+        FROM tiktok_ads_today WHERE user_id = $1 AND adgroup_id = $2 ORDER BY spend DESC`;
+    } else {
+      query = `SELECT ad_id, ad_name, spend, clicks, impressions, 0 AS landing_page_views,
+        COALESCE(conversions, 0) AS conversions, COALESCE(conversion_value, 0) AS conversion_value
+        FROM newsbreak_ads_today WHERE user_id = $1 AND adset_id = $2 ORDER BY spend DESC`;
+    }
+
+    const result = await pool.query(query, [userId, adsetId]);
+    res.json(result.rows.map(r => ({
+      ad_id: r.ad_id || null,
+      ad_name: r.ad_name,
+      spend: parseFloat(r.spend) || 0,
+      clicks: parseInt(r.clicks) || 0,
+      impressions: parseInt(r.impressions) || 0,
+      conversions: parseInt(r.conversions) || 0,
+      conversion_value: parseFloat(r.conversion_value) || 0,
+    })));
+  } catch (err) {
+    console.error('Error fetching live ads:', err);
+    res.status(500).json({ error: 'Failed to fetch ads' });
+  }
+});
+
+import {
+  updateNewsBreakCampaignStatus,
+  updateNewsBreakAdGroupStatus,
+  adjustNewsBreakBudget,
+} from '../services/newsbreak-api';
+
+router.post('/live/status', publishLimiter, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+    const { platform, entity_type, entity_id, status } = req.body;
+
+    if (!platform || !entity_type || !entity_id || !status) {
+      res.status(400).json({ error: 'Missing required fields: platform, entity_type, entity_id, status' });
+      return;
+    }
+
+    const enable = status === 'enable' || status === 'ENABLE' || status === 'ACTIVE';
+
+    if (platform === 'newsbreak') {
+      const nbStatus = enable ? 'ENABLE' : 'DISABLE';
+      if (entity_type === 'campaign') {
+        await updateNewsBreakCampaignStatus(entity_id, nbStatus, userId);
+      } else if (entity_type === 'adset') {
+        await updateNewsBreakAdGroupStatus(entity_id, nbStatus, userId);
+      }
+    }
+    // Meta and TikTok status updates can be added here
+
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error('Error updating live status:', err);
+    res.status(500).json({ error: err.message || 'Failed to update status' });
+  }
+});
+
+router.post('/live/budget', publishLimiter, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+    const { platform, entity_id, budget_dollars } = req.body;
+
+    if (!platform || !entity_id || budget_dollars === undefined) {
+      res.status(400).json({ error: 'Missing required fields: platform, entity_id, budget_dollars' });
+      return;
+    }
+
+    if (platform === 'newsbreak') {
+      await adjustNewsBreakBudget(entity_id, budget_dollars, userId);
+    }
+    // Meta and TikTok budget adjustments can be added here
+
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error('Error adjusting budget:', err);
+    res.status(500).json({ error: err.message || 'Failed to adjust budget' });
+  }
+});
+
 export default router;

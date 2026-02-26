@@ -173,7 +173,7 @@ export default function CreativeAnalyticsPage() {
         {tab === 'top' && (
           <>
             <select value={platform} onChange={e => setPlatform(e.target.value)} className="bg-ats-card border border-ats-border rounded-lg px-3 py-1.5 text-sm text-ats-text">
-              <option value="">All Platforms</option><option value="meta">Meta</option><option value="tiktok">TikTok</option><option value="youtube">YouTube</option>
+              <option value="">All Platforms</option><option value="meta">Meta</option><option value="tiktok">TikTok</option><option value="newsbreak">NewsBreak</option><option value="youtube">YouTube</option>
             </select>
             <select value={sortBy} onChange={e => setSortBy(e.target.value)} className="bg-ats-card border border-ats-border rounded-lg px-3 py-1.5 text-sm text-ats-text">
               {SORT_OPTIONS.map(s => <option key={s} value={s}>Sort: {s.toUpperCase()}</option>)}

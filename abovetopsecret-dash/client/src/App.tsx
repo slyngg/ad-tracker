@@ -75,10 +75,14 @@ const CreativeGeneratorPage = lazy(() => import('./pages/ai/CreativeGeneratorPag
 // Campaign Manager
 const CampaignListPage = lazy(() => import('./pages/campaigns/CampaignListPage'));
 const CampaignBuilderPage = lazy(() => import('./pages/campaigns/CampaignBuilderPage'));
+const LiveCampaignsPage = lazy(() => import('./pages/campaigns/LiveCampaignsPage'));
 
 // Creative Templates + Ad Library
 const CreativeTemplatesPage = lazy(() => import('./pages/creative/CreativeTemplatesPage'));
 const AdLibraryPage = lazy(() => import('./pages/creative/AdLibraryPage'));
+
+// Pixel Tracking
+const PixelPage = lazy(() => import('./pages/PixelPage'));
 
 // Error boundary
 interface ErrorBoundaryState {
@@ -239,10 +243,14 @@ export default function App() {
               {/* Campaign Manager */}
               <Route path="/campaigns" element={<CampaignListPage />} />
               <Route path="/campaigns/builder" element={<CampaignBuilderPage />} />
+              <Route path="/campaigns/live" element={<LiveCampaignsPage />} />
 
               {/* Creative Templates + Ad Library */}
               <Route path="/creative/templates" element={<CreativeTemplatesPage />} />
               <Route path="/creative/ad-library" element={<AdLibraryPage />} />
+
+              {/* Pixel Tracking */}
+              <Route path="/pixel" element={<PixelPage />} />
 
               {/* 404 */}
               <Route path="*" element={<NotFoundPage />} />

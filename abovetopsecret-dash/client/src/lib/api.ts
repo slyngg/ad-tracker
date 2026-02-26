@@ -322,6 +322,7 @@ export interface Account {
   name: string;
   platform: string;
   platform_account_id: string | null;
+  has_access_token?: boolean;
   currency: string;
   timezone: string;
   status: string;
@@ -949,6 +950,10 @@ export function deleteAccount(id: number): Promise<{ success: boolean }> {
   return request<{ success: boolean }>(`/accounts/${id}`, { method: 'DELETE' });
 }
 
+export function testAccountConnection(id: number): Promise<{ success: boolean; error?: string; message?: string }> {
+  return request(`/accounts/${id}/test`, { method: 'POST' });
+}
+
 export function fetchAccountSummary(): Promise<AccountSummary[]> {
   return request<AccountSummary[]>('/accounts/summary');
 }
@@ -1044,6 +1049,7 @@ export interface CampaignDraft {
   config: Record<string, any>;
   meta_campaign_id: string | null;
   tiktok_campaign_id: string | null;
+  newsbreak_campaign_id: string | null;
   last_error: string | null;
   account_name?: string;
   platform: string;
@@ -1083,6 +1089,7 @@ export interface CampaignAd {
   meta_ad_id: string | null;
   meta_creative_id: string | null;
   tiktok_ad_id: string | null;
+  newsbreak_ad_id: string | null;
   last_error: string | null;
   created_at: string;
   updated_at: string;
@@ -1119,8 +1126,10 @@ export interface MediaUpload {
 export interface PublishResult {
   success: boolean;
   meta_campaign_id?: string;
-  adsets: { local_id: number; meta_id?: string; error?: string }[];
-  ads: { local_id: number; meta_id?: string; error?: string }[];
+  tiktok_campaign_id?: string;
+  newsbreak_campaign_id?: string;
+  adsets: { local_id: number; meta_id?: string; tiktok_id?: string; newsbreak_id?: string; error?: string }[];
+  ads: { local_id: number; meta_id?: string; tiktok_id?: string; newsbreak_id?: string; error?: string }[];
   error?: string;
 }
 
@@ -1236,6 +1245,65 @@ export function updateCampaignTemplate(id: number, data: Partial<CampaignTemplat
 
 export function deleteCampaignTemplate(id: number): Promise<{ success: boolean }> {
   return request<{ success: boolean }>(`/campaigns/templates/${id}`, { method: 'DELETE' });
+}
+
+// --- Live Campaigns ---
+export interface LiveCampaign {
+  platform: 'meta' | 'tiktok' | 'newsbreak';
+  campaign_id: string;
+  campaign_name: string;
+  account_name: string;
+  spend: number;
+  clicks: number;
+  impressions: number;
+  conversions: number;
+  conversion_value: number;
+  roas: number;
+  cpa: number;
+  adset_count: number;
+  ad_count: number;
+}
+
+export interface LiveAdset {
+  adset_id: string;
+  adset_name: string;
+  spend: number;
+  clicks: number;
+  impressions: number;
+  conversions: number;
+  conversion_value: number;
+  ad_count: number;
+}
+
+export interface LiveAd {
+  ad_id: string | null;
+  ad_name: string;
+  spend: number;
+  clicks: number;
+  impressions: number;
+  conversions: number;
+  conversion_value: number;
+}
+
+export function fetchLiveCampaigns(platform?: string): Promise<LiveCampaign[]> {
+  const qs = platform && platform !== 'all' ? `?platform=${platform}` : '';
+  return request<LiveCampaign[]>(`/campaigns/live${qs}`);
+}
+
+export function fetchLiveAdsets(platform: string, campaignId: string): Promise<LiveAdset[]> {
+  return request<LiveAdset[]>(`/campaigns/live/${platform}/${encodeURIComponent(campaignId)}/adsets`);
+}
+
+export function fetchLiveAds(platform: string, adsetId: string): Promise<LiveAd[]> {
+  return request<LiveAd[]>(`/campaigns/live/${platform}/${encodeURIComponent(adsetId)}/ads`);
+}
+
+export function updateLiveEntityStatus(platform: string, entityType: string, entityId: string, status: string): Promise<{ success: boolean }> {
+  return request<{ success: boolean }>('/campaigns/live/status', { method: 'POST', body: JSON.stringify({ platform, entity_type: entityType, entity_id: entityId, status }) });
+}
+
+export function updateLiveEntityBudget(platform: string, entityId: string, budgetDollars: number): Promise<{ success: boolean }> {
+  return request<{ success: boolean }>('/campaigns/live/budget', { method: 'POST', body: JSON.stringify({ platform, entity_id: entityId, budget_dollars: budgetDollars }) });
 }
 
 // --- Creative Templates types (Phase 2) ---
