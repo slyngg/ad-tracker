@@ -527,6 +527,15 @@ export default function ConnectionsPage() {
                   {/* CheckoutChamp */}
                   {platform.manualFields === 'checkoutchamp' && (
                     <>
+                      <div className="p-2.5 rounded-lg bg-ats-accent/5 border border-ats-accent/20 mb-1">
+                        <p className="text-[11px] text-ats-text-muted leading-relaxed">
+                          To get your API credentials, go to <strong className="text-ats-text">Admin &gt; Users</strong> in your CheckoutChamp CRM and create an API user.{' '}
+                          <a href="https://help.checkoutchamp.com/crm/admin-setup/create-a-user/create-an-api-user" target="_blank" rel="noopener noreferrer"
+                            className="text-ats-accent hover:underline transition-colors font-medium">
+                            View setup guide &rarr;
+                          </a>
+                        </p>
+                      </div>
                       <div>
                         <label className={labelCls}>Webhook URL</label>
                         <div className="flex gap-1.5">
@@ -535,7 +544,13 @@ export default function ConnectionsPage() {
                         </div>
                       </div>
                       <div>
-                        <label className={labelCls}>API Login ID</label>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-[10px] text-ats-text-muted uppercase tracking-widest font-mono">API Login ID</label>
+                          <a href="https://help.checkoutchamp.com/crm/admin-setup/create-a-user/create-an-api-user" target="_blank" rel="noopener noreferrer"
+                            className="text-[10px] text-ats-accent hover:underline transition-colors">
+                            Find credentials &rarr;
+                          </a>
+                        </div>
                         <input type="password" value={ccLoginId} onChange={e => { setCcLoginId(e.target.value); autoSave({ cc_login_id: e.target.value }); }}
                           placeholder={settings.cc_login_id ? '••••••••' : 'Your CC API login ID'} className={inputCls} />
                       </div>
@@ -543,9 +558,16 @@ export default function ConnectionsPage() {
                         <label className={labelCls}>API Password</label>
                         <input type="password" value={ccPassword} onChange={e => { setCcPassword(e.target.value); autoSave({ cc_password: e.target.value }); }}
                           placeholder={settings.cc_password ? '••••••••' : 'Your CC API password'} className={inputCls} />
+                        <div className="text-[10px] text-ats-text-muted mt-0.5">Password must not contain &amp; characters</div>
                       </div>
                       <div>
-                        <label className={labelCls}>API Base URL</label>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-[10px] text-ats-text-muted uppercase tracking-widest font-mono">API Base URL</label>
+                          <a href="https://apidocs.checkoutchamp.com/" target="_blank" rel="noopener noreferrer"
+                            className="text-[10px] text-ats-accent hover:underline transition-colors">
+                            API docs &rarr;
+                          </a>
+                        </div>
                         <input type="text" value={ccApiUrl} onChange={e => { setCcApiUrl(e.target.value); autoSave({ cc_api_url: e.target.value }); }}
                           placeholder={settings.cc_api_url || 'https://api.checkoutchamp.com'} className={inputCls} />
                       </div>
