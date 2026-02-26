@@ -21,6 +21,7 @@ const STATUS_BADGE: Record<string, string> = {
 };
 
 const PLATFORM_BADGE: Record<string, { bg: string; text: string; label: string }> = {
+  all: { bg: '', text: '', label: 'All Platforms' },
   meta: { bg: 'bg-blue-500/15', text: 'text-blue-400', label: 'Meta' },
   tiktok: { bg: 'bg-pink-500/15', text: 'text-pink-400', label: 'TikTok' },
   newsbreak: { bg: 'bg-orange-500/15', text: 'text-orange-400', label: 'NewsBreak' },
@@ -183,7 +184,7 @@ export default function CampaignListPage() {
         <>
           {/* Platform filter */}
           <div className="flex items-center gap-2 mb-4">
-            {['all', 'meta', 'tiktok'].map((p) => (
+            {['all', 'meta', 'tiktok', 'newsbreak'].map((p) => (
               <button
                 key={p}
                 onClick={() => setPlatformFilter(p)}
@@ -193,7 +194,7 @@ export default function CampaignListPage() {
                     : 'bg-ats-card border-ats-border text-ats-text-muted hover:bg-ats-hover'
                 }`}
               >
-                {p === 'all' ? 'All Platforms' : p === 'meta' ? 'Meta' : 'TikTok'}
+                {PLATFORM_BADGE[p]?.label || 'All Platforms'}
               </button>
             ))}
           </div>
@@ -338,7 +339,7 @@ export default function CampaignListPage() {
                     </span>
                   </div>
 
-                  <div className="flex items-center gap-3 text-xs text-ats-text-muted mb-3">
+                  <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-xs text-ats-text-muted mb-3">
                     {(() => {
                       const p = PLATFORM_BADGE[draft.platform || 'meta'] || PLATFORM_BADGE.meta;
                       return (
@@ -355,36 +356,36 @@ export default function CampaignListPage() {
                     <p className="text-[11px] text-ats-red mb-3 line-clamp-2">{draft.last_error}</p>
                   )}
 
-                  <div className="flex items-center gap-1 border-t border-ats-border/50 pt-3">
+                  <div className="flex items-center gap-1 border-t border-ats-border/50 pt-3 -mx-1">
                     {busy ? (
-                      <Loader2 className="w-4 h-4 text-ats-text-muted animate-spin" />
+                      <Loader2 className="w-4 h-4 text-ats-text-muted animate-spin mx-1" />
                     ) : (
                       <>
                         <button
                           onClick={() => navigate(`/campaigns/builder?draft=${draft.id}`)}
-                          className="flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs text-ats-text-muted hover:bg-ats-hover hover:text-ats-text transition-colors"
+                          className="flex items-center gap-1 px-2.5 py-2 min-h-[44px] rounded-md text-xs text-ats-text-muted hover:bg-ats-hover hover:text-ats-text transition-colors"
                         >
-                          <Pencil className="w-3 h-3" /> Edit
+                          <Pencil className="w-3.5 h-3.5" /> Edit
                         </button>
                         <button
                           onClick={() => handleDuplicate(draft)}
-                          className="flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs text-ats-text-muted hover:bg-ats-hover hover:text-ats-text transition-colors"
+                          className="flex items-center gap-1 px-2.5 py-2 min-h-[44px] rounded-md text-xs text-ats-text-muted hover:bg-ats-hover hover:text-ats-text transition-colors"
                         >
-                          <Copy className="w-3 h-3" /> Duplicate
+                          <Copy className="w-3.5 h-3.5" /> Duplicate
                         </button>
                         {(draft.status === 'draft' || draft.status === 'failed') && (
                           <button
                             onClick={() => handlePublish(draft.id)}
-                            className="flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs text-emerald-400 hover:bg-emerald-500/20 transition-colors"
+                            className="flex items-center gap-1 px-2.5 py-2 min-h-[44px] rounded-md text-xs text-emerald-400 hover:bg-emerald-500/20 transition-colors"
                           >
-                            <Send className="w-3 h-3" /> Publish
+                            <Send className="w-3.5 h-3.5" /> Publish
                           </button>
                         )}
                         <button
                           onClick={() => handleDelete(draft.id)}
-                          className="flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs text-ats-text-muted hover:bg-red-500/20 hover:text-ats-red transition-colors ml-auto"
+                          className="flex items-center gap-1 px-2.5 py-2 min-h-[44px] rounded-md text-xs text-ats-text-muted hover:bg-red-500/20 hover:text-ats-red transition-colors ml-auto"
                         >
-                          <Trash2 className="w-3 h-3" /> Delete
+                          <Trash2 className="w-3.5 h-3.5" /> Delete
                         </button>
                       </>
                     )}

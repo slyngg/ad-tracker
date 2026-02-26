@@ -19,6 +19,12 @@ const apiKeyCache = new Map<string, { userId: number; keyId: number; expiresAt: 
 const API_KEY_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 export async function authMiddleware(req: Request, res: Response, next: NextFunction): Promise<void> {
+  // Creative webhook ingestion uses its own API key auth (Bearer wh_xxx) — skip session auth
+  if (req.method === 'POST' && req.path === '/creatives/webhook') {
+    next();
+    return;
+  }
+
   // Check for API key first (X-API-Key header)
   const apiKey = req.headers['x-api-key'] as string | undefined;
   if (apiKey) {

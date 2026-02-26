@@ -24,7 +24,7 @@ export default function AccountsOffersPage() {
   // Account modal state
   const [showAccountModal, setShowAccountModal] = useState(false);
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
-  const [acctForm, setAcctForm] = useState({ name: '', platform: 'meta', platform_account_id: '', color: '#3b82f6', timezone: 'UTC', currency: 'USD', notes: '', brand_config_id: '' });
+  const [acctForm, setAcctForm] = useState({ name: '', platform: 'meta', platform_account_id: '', access_token: '', color: '#3b82f6', timezone: 'UTC', currency: 'USD', notes: '', brand_config_id: '' });
 
   // Offer modal state
   const [showOfferModal, setShowOfferModal] = useState(false);
@@ -54,19 +54,21 @@ export default function AccountsOffersPage() {
   // --- Account handlers ---
   function openNewAccount() {
     setEditingAccount(null);
-    setAcctForm({ name: '', platform: 'meta', platform_account_id: '', color: '#3b82f6', timezone: 'UTC', currency: 'USD', notes: '', brand_config_id: '' });
+    setAcctForm({ name: '', platform: 'meta', platform_account_id: '', access_token: '', color: '#3b82f6', timezone: 'UTC', currency: 'USD', notes: '', brand_config_id: '' });
     setShowAccountModal(true);
   }
 
   function openEditAccount(a: Account) {
     setEditingAccount(a);
-    setAcctForm({ name: a.name, platform: a.platform, platform_account_id: a.platform_account_id || '', color: a.color, timezone: a.timezone, currency: a.currency, notes: a.notes || '', brand_config_id: a.brand_config_id ? String(a.brand_config_id) : '' });
+    setAcctForm({ name: a.name, platform: a.platform, platform_account_id: a.platform_account_id || '', access_token: '', color: a.color, timezone: a.timezone, currency: a.currency, notes: a.notes || '', brand_config_id: a.brand_config_id ? String(a.brand_config_id) : '' });
     setShowAccountModal(true);
   }
 
   async function saveAccount() {
     try {
       const payload: any = { ...acctForm, brand_config_id: acctForm.brand_config_id ? Number(acctForm.brand_config_id) : null };
+      // Only send access_token if provided (don't clear existing key when editing)
+      if (!payload.access_token) delete payload.access_token;
       if (editingAccount) {
         await updateAccount(editingAccount.id, payload);
       } else {
@@ -200,6 +202,12 @@ export default function AccountsOffersPage() {
                   <div className="text-xs text-ats-text-muted space-y-0.5">
                     <div>Platform: <span className="text-ats-text capitalize">{a.platform}</span></div>
                     {a.platform_account_id && <div>Account ID: <span className="text-ats-text font-mono">{a.platform_account_id}</span></div>}
+                    {a.platform === 'newsbreak' && (
+                      <div className="flex items-center gap-1">
+                        API Key: <span className={`w-1.5 h-1.5 rounded-full inline-block ${a.has_access_token ? 'bg-emerald-500' : 'bg-red-500'}`} />
+                        <span className={a.has_access_token ? 'text-emerald-400' : 'text-red-400'}>{a.has_access_token ? 'Configured' : 'Missing'}</span>
+                      </div>
+                    )}
                     <div>Currency: {a.currency} / TZ: {a.timezone}</div>
                   </div>
                 </div>
@@ -266,6 +274,9 @@ export default function AccountsOffersPage() {
                 </select>
               </div>
               <div><label className={labelCls}>Platform Account ID</label><input value={acctForm.platform_account_id} onChange={(e) => setAcctForm({ ...acctForm, platform_account_id: e.target.value })} className={inputCls} placeholder="e.g. act_123456789" /></div>
+              {acctForm.platform === 'newsbreak' && (
+                <div><label className={labelCls}>API Key {editingAccount?.has_access_token ? '(leave blank to keep current)' : ''}</label><input type="password" value={acctForm.access_token} onChange={(e) => setAcctForm({ ...acctForm, access_token: e.target.value })} className={inputCls} placeholder={editingAccount?.has_access_token ? '••••••••' : 'NewsBreak API key'} /></div>
+              )}
               <div className="grid grid-cols-2 gap-3">
                 <div><label className={labelCls}>Currency</label><input value={acctForm.currency} onChange={(e) => setAcctForm({ ...acctForm, currency: e.target.value })} className={inputCls} /></div>
                 <div><label className={labelCls}>Timezone</label><input value={acctForm.timezone} onChange={(e) => setAcctForm({ ...acctForm, timezone: e.target.value })} className={inputCls} /></div>

@@ -4,6 +4,7 @@ import pool from '../db';
 import { verifyCheckoutChamp, verifyShopify } from '../middleware/webhook-verify';
 import { getRealtime } from '../services/realtime';
 import { matchOffer } from '../services/offer-matcher';
+import { identifyVisitor, recordEvent, recordTouchpoint } from '../services/identity-graph';
 
 const router = Router();
 
@@ -206,6 +207,123 @@ async function logWebhookEvent(
   }
 }
 
+// ── Pixel Identity Linking ───────────────────────────────────────
+// Links webhook orders to anonymous pixel visitors via email/fbclid,
+// records Purchase events, and records ad touchpoints.
+
+async function linkOrderToPixel(
+  userId: number,
+  fields: ReturnType<typeof extractCommonFields>,
+  revenue: number,
+  orderId: string | null,
+): Promise<void> {
+  if (!userId || !orderId) return;
+
+  const email = fields.email || undefined;
+  const fbclid = fields.fbclid || undefined;
+
+  // If we have neither email nor fbclid, nothing to link
+  if (!email && !fbclid) return;
+
+  let visitorId: number | null = null;
+  let anonymousId: string | null = null;
+  let sessionId: string | null = null;
+
+  // 1. Try to find an existing pixel visitor by email
+  if (email) {
+    const byEmail = await pool.query(
+      `SELECT id, anonymous_id, COALESCE(canonical_id, id) AS vid
+       FROM pixel_visitors
+       WHERE user_id = $1 AND email = $2 AND canonical_id IS NULL
+       ORDER BY last_seen_at DESC LIMIT 1`,
+      [userId, email.toLowerCase()],
+    );
+    if (byEmail.rows.length > 0) {
+      visitorId = byEmail.rows[0].vid;
+      anonymousId = byEmail.rows[0].anonymous_id;
+    }
+  }
+
+  // 2. If not found by email, try by fbclid in pixel_sessions
+  if (!visitorId && fbclid) {
+    const byFbclid = await pool.query(
+      `SELECT s.visitor_id, s.session_id, v.anonymous_id
+       FROM pixel_sessions s
+       JOIN pixel_visitors v ON v.id = s.visitor_id AND v.user_id = $1
+       WHERE s.user_id = $1 AND s.fbclid = $2
+       ORDER BY s.started_at DESC LIMIT 1`,
+      [userId, fbclid],
+    );
+    if (byFbclid.rows.length > 0) {
+      visitorId = byFbclid.rows[0].visitor_id;
+      anonymousId = byFbclid.rows[0].anonymous_id;
+      sessionId = byFbclid.rows[0].session_id;
+    }
+  }
+
+  // 3. If still not found but we have an email, create a new visitor record
+  if (!visitorId && email) {
+    // Generate a deterministic anonymous ID from the webhook order
+    anonymousId = `webhook-${orderId}`;
+    const created = await pool.query(
+      `INSERT INTO pixel_visitors (user_id, site_id, anonymous_id, email, first_referrer)
+       VALUES ($1, 0, $2, $3, 'webhook')
+       ON CONFLICT (user_id, anonymous_id) DO UPDATE SET last_seen_at = NOW()
+       RETURNING id`,
+      [userId, anonymousId, email.toLowerCase()],
+    );
+    if (created.rows.length > 0) {
+      visitorId = created.rows[0].id;
+    }
+  }
+
+  if (!visitorId || !anonymousId) return;
+
+  // 4. If we found a visitor by fbclid (anonymous) and have an email, link them
+  if (email && fbclid) {
+    await identifyVisitor(userId, anonymousId, {
+      email: email.toLowerCase(),
+      customerId: fields.customerId || undefined,
+    });
+  }
+
+  // 5. Record a Purchase event
+  const webhookSessionId = sessionId || `webhook-session-${orderId}`;
+  await recordEvent(userId, visitorId, {
+    sessionId: webhookSessionId,
+    eventName: 'Purchase',
+    eventCategory: 'conversion',
+    orderId: orderId,
+    revenue: revenue,
+    currency: 'USD',
+    fbclid: fbclid,
+    eventId: `purchase-${orderId}`,
+    properties: {
+      source: 'webhook',
+      offerName: fields.offerName,
+      email: email,
+    },
+  });
+
+  // 6. Record/update touchpoint if we have attribution data
+  const hasAttribution = fbclid || fields.utmSource || fields.utmCampaign;
+  if (hasAttribution) {
+    await recordTouchpoint(
+      userId,
+      visitorId,
+      webhookSessionId,
+      { fbclid },
+      {
+        source: fields.utmSource || undefined,
+        medium: fields.utmMedium || undefined,
+        campaign: fields.utmCampaign || undefined,
+        content: fields.utmContent || undefined,
+        term: fields.utmTerm || undefined,
+      },
+    );
+  }
+}
+
 // ── Event Handlers ──────────────────────────────────────────────
 
 async function handleSaleEvent(
@@ -259,6 +377,15 @@ async function handleSaleEvent(
            offered = EXCLUDED.offered, accepted = EXCLUDED.accepted`,
         [fields.orderId, upsell.offered ?? true, upsell.accepted ?? false, upsell.offer_name || fields.offerName, userId, accountId],
       );
+    }
+  }
+
+  // Link order to pixel visitor identity graph (additive — errors don't break order processing)
+  if (userId && orderStatus === 'completed') {
+    try {
+      await linkOrderToPixel(userId, fields, rev.subtotal, fields.orderId);
+    } catch (err) {
+      console.error('[CC Webhook] Pixel identity linking failed (non-fatal):', err);
     }
   }
 
@@ -502,6 +629,34 @@ async function handleShopifyWebhook(req: Request, res: Response) {
          offer_id = EXCLUDED.offer_id`,
       [orderId, offerName, totalPrice, subtotalPrice, totalTax, orderStatus, newCustomer, utmCampaign, fbclid, quantity, utmSource, utmMedium, utmContent, utmTerm, userId, isTestOrder, accountId, offerId]
     );
+
+    // Link order to pixel visitor identity graph (additive — errors don't break order processing)
+    if (userId && orderStatus === 'completed') {
+      try {
+        const shopifyFields = {
+          orderId,
+          customerId: body.customer?.id ? String(body.customer.id) : null,
+          purchaseId: null,
+          campaignId: null,
+          campaignName: utmCampaign || null,
+          offerName,
+          email,
+          firstName: body.customer?.first_name || null,
+          lastName: body.customer?.last_name || null,
+          utmCampaign,
+          utmSource,
+          utmMedium,
+          utmContent,
+          utmTerm,
+          fbclid,
+          subscriptionId: null,
+          ipAddress: body.browser_ip || null,
+        };
+        await linkOrderToPixel(userId, shopifyFields, subtotalPrice, orderId);
+      } catch (err) {
+        console.error('[Shopify Webhook] Pixel identity linking failed (non-fatal):', err);
+      }
+    }
 
     // Emit real-time new order event
     getRealtime()?.emitNewOrder(userId, {

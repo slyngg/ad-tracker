@@ -14,12 +14,14 @@ import PageShell from '../../components/shared/PageShell';
 import { useVoiceInput } from '../../hooks/useVoiceInput';
 import { useVoiceOutput } from '../../hooks/useVoiceOutput';
 import { useWakeWord } from '../../hooks/useWakeWord';
+import InlineChatChart, { ChartSpec } from '../../components/operator/InlineChatChart';
 
 interface ChatMessage {
   id: number | string;
   role: string;
   content: string;
   created_at: string;
+  charts?: ChartSpec[];
 }
 
 interface ToolStatus {
@@ -177,7 +179,12 @@ export default function OperatorPage() {
     try {
       const detail = await fetchConversation(id);
       setActiveConvo(detail);
-      setMessages(detail.messages);
+      // Hydrate charts from metadata
+      const hydratedMessages = detail.messages.map((msg: any) => ({
+        ...msg,
+        charts: msg.metadata?.charts || undefined,
+      }));
+      setMessages(hydratedMessages);
       setError(null);
       // Close sidebar on mobile after selecting
       if (window.innerWidth < 1024) setSidebarOpen(false);
@@ -310,6 +317,16 @@ export default function OperatorPage() {
                     return copy;
                   }
                   return [...prev, updated];
+                });
+              } else if (parsed.type === 'chart' && parsed.chart) {
+                setMessages((prev) => {
+                  const updated = [...prev];
+                  const last = updated[updated.length - 1];
+                  if (last && last.role === 'assistant') {
+                    const charts = last.charts ? [...last.charts, parsed.chart] : [parsed.chart];
+                    updated[updated.length - 1] = { ...last, charts };
+                  }
+                  return updated;
                 });
               } else if (parsed.type === 'suggestions' && Array.isArray(parsed.suggestions)) {
                 setSuggestions(parsed.suggestions);
@@ -552,6 +569,9 @@ export default function OperatorPage() {
                         <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
                           {msg.content}
                         </ReactMarkdown>
+                        {msg.charts?.map((chart) => (
+                          <InlineChatChart key={chart.id} spec={chart} />
+                        ))}
                       </div>
                     ) : (
                       <div className="whitespace-pre-wrap">{msg.content}</div>

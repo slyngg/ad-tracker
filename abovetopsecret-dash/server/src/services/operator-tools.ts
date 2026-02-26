@@ -769,6 +769,65 @@ Available action_types:
   },
 
   // ═══════════════════════════════════════════════════════════════
+  // DATA VISUALIZATION
+  // ═══════════════════════════════════════════════════════════════
+  {
+    name: 'render_chart',
+    description: `Render an inline chart or KPI card in the chat for the user. Use AFTER fetching data with analytics tools to visualize results.
+- "kpi": summary stats (today's revenue, ROAS, conversions, CPA). Use kpis[] array.
+- "line" or "area": timeseries trends (performance over days/weeks). Use data[] with xKey and yKeys[].
+- "bar": comparing campaigns, adsets, offers, or creatives. Use data[] with xKey and yKeys[].
+- "pie": share/breakdown of spend or revenue by category. Use data[] with xKey and one yKey.
+Limit data to 50 points. Always also provide a brief text summary alongside the chart.`,
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        type: {
+          type: 'string',
+          enum: ['line', 'bar', 'area', 'kpi', 'pie'],
+          description: 'Chart type to render',
+        },
+        title: { type: 'string', description: 'Chart title displayed above the visualization' },
+        data: {
+          type: 'array',
+          items: { type: 'object' },
+          description: 'Array of data points (max 50). Each object has keys matching xKey and yKeys.',
+        },
+        xKey: { type: 'string', description: 'Key in data objects for the X axis (e.g. "date", "campaign_name")' },
+        yKeys: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              key: { type: 'string', description: 'Data key for this series' },
+              label: { type: 'string', description: 'Display label' },
+              color: { type: 'string', description: 'Hex color (e.g. "#22c55e")' },
+              format: { type: 'string', enum: ['currency', 'percent', 'number', 'ratio'], description: 'Value format' },
+            },
+            required: ['key'],
+          },
+          description: 'Y-axis series definitions',
+        },
+        kpis: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              label: { type: 'string', description: 'KPI label (e.g. "Revenue")' },
+              value: { type: ['number', 'string'], description: 'KPI value' },
+              format: { type: 'string', enum: ['currency', 'percent', 'number', 'ratio'], description: 'Value format' },
+              delta: { type: 'number', description: 'Percent change (positive = up, negative = down)' },
+            },
+            required: ['label', 'value'],
+          },
+          description: 'KPI cards array (for type "kpi" only)',
+        },
+      },
+      required: ['type', 'title'],
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════
   // ACTION CONFIRMATION (programmatic gate for write actions)
   // ═══════════════════════════════════════════════════════════════
   {
@@ -865,7 +924,7 @@ export async function executeTool(
   input: Record<string, any>,
   userId: number | null,
   _skipConfirmation?: boolean
-): Promise<{ result: any; summary: string }> {
+): Promise<{ result: any; summary: string; chartSpec?: any }> {
   // ── Confirmation gate: validate ID + require explicit user confirmation ──
   if (WRITE_ACTIONS.has(name) && !_skipConfirmation) {
     // Step 1: Validate the target entity exists — fuzzy suggest if not
@@ -1712,6 +1771,27 @@ export async function executeTool(
       return {
         result: { single_dimension_patterns: patterns, top_combinations: crossTab.rows, metric: metricCol },
         summary: `Winning patterns across 8 dimensions + top ${crossTab.rows.length} combinations (metric: ${metricCol})`,
+      };
+    }
+
+    // ── Data Visualization ──────────────────────────────────────
+    case 'render_chart': {
+      const chartId = randomUUID();
+      // Cap data to 50 points
+      const data = Array.isArray(input.data) ? input.data.slice(0, 50) : [];
+      const chartSpec = {
+        id: chartId,
+        type: input.type,
+        title: input.title,
+        data,
+        xKey: input.xKey,
+        yKeys: input.yKeys,
+        kpis: input.kpis,
+      };
+      return {
+        result: { rendered: true, chart_id: chartId },
+        summary: `📊 Chart rendered: ${input.title}`,
+        chartSpec,
       };
     }
 

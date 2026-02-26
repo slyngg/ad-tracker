@@ -10,8 +10,13 @@ import {
   revokeWebhookToken,
   getOAuthStatus,
   disconnectOAuth,
+  fetchAccounts,
+  createAccount,
+  deleteAccount,
+  testAccountConnection,
   WebhookToken,
   OAuthStatus,
+  Account,
 } from '../../lib/api';
 import PageShell from '../../components/shared/PageShell';
 import OAuthConnectButton from '../../components/shared/OAuthConnectButton';
@@ -57,6 +62,17 @@ export default function ConnectionsPage() {
   const [shopifySecret, setShopifySecret] = useState('');
   const [shopifyStoreUrl, setShopifyStoreUrl] = useState('');
 
+  // NewsBreak multi-account
+  const [nbAccounts, setNbAccounts] = useState<Account[]>([]);
+  const [nbShowAddForm, setNbShowAddForm] = useState(false);
+  const [nbNewName, setNbNewName] = useState('');
+  const [nbNewApiKey, setNbNewApiKey] = useState('');
+  const [nbNewAccountId, setNbNewAccountId] = useState('');
+  const [nbAddingAccount, setNbAddingAccount] = useState(false);
+  const [nbTestingAccounts, setNbTestingAccounts] = useState<Record<number, StatusType>>({});
+  const [nbTestMessages, setNbTestMessages] = useState<Record<number, string>>({});
+
+  // Legacy single-account (still shown as fallback if no accounts exist)
   const [nbApiKey, setNbApiKey] = useState('');
   const [nbAccountId, setNbAccountId] = useState('');
 
@@ -109,8 +125,14 @@ export default function ConnectionsPage() {
   const loadTokens = useCallback(async () => {
     try { setTokens(await fetchWebhookTokens()); } catch {}
   }, []);
+  const loadNbAccounts = useCallback(async () => {
+    try {
+      const all = await fetchAccounts();
+      setNbAccounts(all.filter(a => a.platform === 'newsbreak' && a.status !== 'archived'));
+    } catch {}
+  }, []);
 
-  useEffect(() => { loadSettings(); loadOAuthStatus(); loadTokens(); }, [loadSettings, loadOAuthStatus, loadTokens]);
+  useEffect(() => { loadSettings(); loadOAuthStatus(); loadTokens(); loadNbAccounts(); }, [loadSettings, loadOAuthStatus, loadTokens, loadNbAccounts]);
 
   // Helpers
   const oauthFor = (platform: string) => oauthStatuses.find(s => s.platform === platform);
@@ -127,7 +149,7 @@ export default function ConnectionsPage() {
     if (platform === 'google') return !!settings.ga4_property_id;
     if (platform === 'shopify') return !!settings.shopify_webhook_secret;
     if (platform === 'checkoutchamp') return !!(settings.cc_login_id && settings.cc_password);
-    if (platform === 'newsbreak') return !!(settings.newsbreak_api_key && settings.newsbreak_account_id);
+    if (platform === 'newsbreak') return nbAccounts.some(a => a.has_access_token && a.platform_account_id) || !!(settings.newsbreak_api_key && settings.newsbreak_account_id);
     return false;
   };
   const toggle = (key: string) => setExpanded(p => ({ ...p, [key]: !p[key] }));
@@ -183,7 +205,14 @@ export default function ConnectionsPage() {
       else if (platformKey === 'google') { setGa4PropertyId(''); setGa4CredentialsJson(''); }
       else if (platformKey === 'shopify') { setShopifySecret(''); setShopifyStoreUrl(''); }
       else if (platformKey === 'checkoutchamp') { setCcLoginId(''); setCcPassword(''); setCcApiUrl(''); setCcWebhookSecret(''); }
-      else if (platformKey === 'newsbreak') { setNbApiKey(''); setNbAccountId(''); }
+      else if (platformKey === 'newsbreak') {
+        setNbApiKey(''); setNbAccountId('');
+        // Also archive all multi-account entries
+        for (const acct of nbAccounts) {
+          try { await deleteAccount(acct.id); } catch {}
+        }
+        await loadNbAccounts();
+      }
       await loadSettings();
       setExpanded(p => ({ ...p, [platformKey]: false }));
       flash('Disconnected', 'success');
@@ -214,6 +243,49 @@ export default function ConnectionsPage() {
       setNbTestStatus(r.success ? 'success' : 'error');
       setNbTestMessage(r.success ? (r.message || 'Connected') : (r.error || 'Failed'));
     } catch { setNbTestStatus('error'); setNbTestMessage('Connection failed'); }
+  };
+
+  const handleAddNbAccount = async () => {
+    if (!nbNewName.trim() || !nbNewApiKey.trim() || !nbNewAccountId.trim()) return;
+    setNbAddingAccount(true);
+    try {
+      await createAccount({
+        name: nbNewName.trim(),
+        platform: 'newsbreak',
+        platform_account_id: nbNewAccountId.trim(),
+        access_token: nbNewApiKey.trim(),
+        color: '#e11d48',
+      } as any);
+      setNbNewName('');
+      setNbNewApiKey('');
+      setNbNewAccountId('');
+      setNbShowAddForm(false);
+      await loadNbAccounts();
+      flash('NewsBreak account added', 'success');
+    } catch { flash('Failed to add account', 'error'); }
+    finally { setNbAddingAccount(false); }
+  };
+
+  const handleTestNbAccount = async (id: number) => {
+    setNbTestingAccounts(p => ({ ...p, [id]: 'testing' }));
+    setNbTestMessages(p => ({ ...p, [id]: '' }));
+    try {
+      const r = await testAccountConnection(id);
+      setNbTestingAccounts(p => ({ ...p, [id]: r.success ? 'success' : 'error' }));
+      setNbTestMessages(p => ({ ...p, [id]: r.success ? (r.message || 'Connected') : (r.error || 'Failed') }));
+    } catch {
+      setNbTestingAccounts(p => ({ ...p, [id]: 'error' }));
+      setNbTestMessages(p => ({ ...p, [id]: 'Connection failed' }));
+    }
+  };
+
+  const handleRemoveNbAccount = async (id: number) => {
+    if (!confirm('Remove this NewsBreak account? Data already synced will be kept.')) return;
+    try {
+      await deleteAccount(id);
+      await loadNbAccounts();
+      flash('Account removed', 'success');
+    } catch { flash('Failed to remove account', 'error'); }
   };
 
   const handleCreateToken = async () => {
@@ -491,26 +563,92 @@ export default function ConnectionsPage() {
                     </>
                   )}
 
-                  {/* NewsBreak */}
+                  {/* NewsBreak — Multi-account */}
                   {platform.manualFields === 'newsbreak' && (
                     <>
-                      <div>
-                        <label className={labelCls}>API Key</label>
-                        <input type="password" value={nbApiKey} onChange={e => { setNbApiKey(e.target.value); autoSave({ newsbreak_api_key: e.target.value }); }}
-                          placeholder={settings.newsbreak_api_key ? '••••••••' : 'Enter your NewsBreak API key'} className={inputCls} />
-                        <div className="text-[10px] text-ats-text-muted mt-0.5">From Ad Manager &gt; Resources &gt; API Access Tokens</div>
-                      </div>
-                      <div>
-                        <label className={labelCls}>Account ID</label>
-                        <input type="text" value={nbAccountId} onChange={e => { setNbAccountId(e.target.value); autoSave({ newsbreak_account_id: e.target.value }); }}
-                          placeholder={settings.newsbreak_account_id || 'Your advertiser/account ID'} className={inputCls} />
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button onClick={handleTestNB} className={btnSecondary}>
-                          {nbTestStatus === 'testing' ? 'Testing...' : 'Test Connection'}
+                      {/* Connected accounts list */}
+                      {nbAccounts.length > 0 && (
+                        <div className="space-y-2">
+                          <div className="text-[10px] text-ats-text-muted uppercase tracking-widest font-mono mb-1">Connected Accounts ({nbAccounts.length})</div>
+                          {nbAccounts.map(acct => (
+                            <div key={acct.id} className="flex items-center gap-2 p-2 rounded-lg bg-ats-bg border border-ats-border">
+                              <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: acct.color || '#e11d48' }} />
+                              <div className="flex-1 min-w-0">
+                                <div className="text-xs font-medium text-ats-text truncate">{acct.name}</div>
+                                <div className="text-[10px] text-ats-text-muted font-mono">{acct.platform_account_id}</div>
+                              </div>
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                {nbTestMessages[acct.id] && (
+                                  <span className={`text-[10px] ${nbTestingAccounts[acct.id] === 'success' ? 'text-emerald-400' : 'text-red-400'}`}>
+                                    {nbTestMessages[acct.id]}
+                                  </span>
+                                )}
+                                {!nbTestMessages[acct.id] && acct.has_access_token && (
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" title="API key configured" />
+                                )}
+                                <button onClick={() => handleTestNbAccount(acct.id)} className="px-2 py-1 text-[10px] bg-ats-surface border border-ats-border rounded text-ats-text-muted hover:bg-ats-hover transition-colors">
+                                  {nbTestingAccounts[acct.id] === 'testing' ? '...' : 'Test'}
+                                </button>
+                                <button onClick={() => handleRemoveNbAccount(acct.id)} className="px-2 py-1 text-[10px] text-red-400 border border-red-900/40 rounded hover:bg-red-900/20 transition-colors">
+                                  Remove
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Add account form */}
+                      {nbShowAddForm ? (
+                        <div className="p-3 rounded-lg border border-ats-accent/30 bg-ats-accent/5 space-y-2">
+                          <div className="text-[10px] text-ats-text-muted uppercase tracking-widest font-mono">Add NewsBreak Account</div>
+                          <div>
+                            <label className={labelCls}>Account Name</label>
+                            <input type="text" value={nbNewName} onChange={e => setNbNewName(e.target.value)}
+                              placeholder="e.g. Brand X NewsBreak" className={inputCls} />
+                          </div>
+                          <div>
+                            <label className={labelCls}>API Key</label>
+                            <input type="password" value={nbNewApiKey} onChange={e => setNbNewApiKey(e.target.value)}
+                              placeholder="Enter your NewsBreak API key" className={inputCls} />
+                            <div className="text-[10px] text-ats-text-muted mt-0.5">From Ad Manager &gt; Resources &gt; API Access Tokens</div>
+                          </div>
+                          <div>
+                            <label className={labelCls}>Advertiser / Account ID</label>
+                            <input type="text" value={nbNewAccountId} onChange={e => setNbNewAccountId(e.target.value)}
+                              placeholder="Your advertiser/account ID" className={inputCls} />
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button onClick={handleAddNbAccount}
+                              disabled={nbAddingAccount || !nbNewName.trim() || !nbNewApiKey.trim() || !nbNewAccountId.trim()}
+                              className="px-3 py-1.5 bg-ats-accent text-white rounded-lg text-xs font-semibold hover:bg-blue-600 active:scale-[0.98] transition-all disabled:opacity-50">
+                              {nbAddingAccount ? 'Adding...' : 'Add Account'}
+                            </button>
+                            <button onClick={() => { setNbShowAddForm(false); setNbNewName(''); setNbNewApiKey(''); setNbNewAccountId(''); }}
+                              className="px-3 py-1.5 text-xs text-ats-text-muted hover:text-ats-text transition-colors">
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <button onClick={() => setNbShowAddForm(true)}
+                          className="w-full px-3 py-2 border border-dashed border-ats-border rounded-lg text-xs text-ats-text-muted hover:border-ats-accent hover:text-ats-accent transition-colors">
+                          + Add NewsBreak Account
                         </button>
-                        {nbTestMessage && <span className={`text-xs ${nbTestStatus === 'success' ? 'text-emerald-400' : 'text-red-400'}`}>{nbTestMessage}</span>}
-                      </div>
+                      )}
+
+                      {/* Legacy single-account fallback (show if no multi-accounts AND legacy settings exist) */}
+                      {nbAccounts.length === 0 && (settings.newsbreak_api_key || settings.newsbreak_account_id) && (
+                        <div className="border-t border-ats-border pt-2 mt-2">
+                          <div className="text-[10px] text-ats-text-muted mb-2">Legacy settings (migrate by adding as an account above)</div>
+                          <div className="flex items-center gap-2">
+                            <button onClick={handleTestNB} className={btnSecondary}>
+                              {nbTestStatus === 'testing' ? 'Testing...' : 'Test Legacy'}
+                            </button>
+                            {nbTestMessage && <span className={`text-xs ${nbTestStatus === 'success' ? 'text-emerald-400' : 'text-red-400'}`}>{nbTestMessage}</span>}
+                          </div>
+                        </div>
+                      )}
                     </>
                   )}
 

@@ -12,7 +12,7 @@ import { syncShopifyProducts, syncShopifyCustomers } from './shopify-sync';
 import { syncTikTokAds } from './tiktok-sync';
 import { syncAllKlaviyoData } from './klaviyo-sync';
 import { syncAllCCData } from './cc-sync';
-import { syncNewsBreakAds } from './newsbreak-sync';
+import { syncAllNewsBreakForUser } from './newsbreak-sync';
 import { getRealtime } from './realtime';
 import { evaluateRules } from './rules-engine';
 import { tagUntaggedCreatives } from './creative-tagger';
@@ -167,12 +167,12 @@ async function runPlatformSync(
       }
 
       case 'newsbreak': {
-        const result = await syncNewsBreakAds(userId);
+        const result = await syncAllNewsBreakForUser(userId);
         if (!result.skipped && result.synced > 0) {
           await evaluateRules(userId);
         }
         emitPlatformDone(userId, platform);
-        return { success: !result.skipped, detail: `${result.synced} ad rows synced` };
+        return { success: !result.skipped, detail: `${result.synced} ad rows synced across ${result.accounts} account(s)` };
       }
 
       default:

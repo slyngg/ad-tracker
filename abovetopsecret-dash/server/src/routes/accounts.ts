@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import https from 'https';
 import { z } from 'zod';
 import pool from '../db';
 import { validateBody } from '../middleware/validate';
@@ -7,6 +8,7 @@ const createAccountSchema = z.object({
   name: z.string().min(1, 'name is required').max(200),
   platform: z.enum(['meta', 'google', 'tiktok', 'newsbreak', 'shopify', 'klaviyo', 'checkoutchamp']).default('meta'),
   platform_account_id: z.string().max(200).nullish(),
+  access_token: z.string().max(500).nullish(),
   currency: z.string().length(3).default('USD'),
   timezone: z.string().max(100).default('America/New_York'),
   color: z.string().max(20).default('#3b82f6'),
@@ -44,7 +46,9 @@ router.get('/', async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
     const result = await pool.query(
-      `SELECT id, name, platform, platform_account_id, currency, timezone, status, color, icon, notes, brand_config_id, created_at, updated_at
+      `SELECT id, name, platform, platform_account_id,
+              (access_token_encrypted IS NOT NULL AND access_token_encrypted != '') AS has_access_token,
+              currency, timezone, status, color, icon, notes, brand_config_id, created_at, updated_at
        FROM accounts
        WHERE user_id = $1
        ORDER BY created_at ASC`,
@@ -113,17 +117,20 @@ router.get('/summary', async (req: Request, res: Response) => {
 router.post('/', validateBody(createAccountSchema), async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
-    const { name, platform, platform_account_id, currency, timezone, color, icon, notes, brand_config_id } = req.body;
+    const { name, platform, platform_account_id, access_token, currency, timezone, color, icon, notes, brand_config_id } = req.body;
 
     const result = await pool.query(
-      `INSERT INTO accounts (user_id, name, platform, platform_account_id, currency, timezone, color, icon, notes, brand_config_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-       RETURNING *`,
+      `INSERT INTO accounts (user_id, name, platform, platform_account_id, access_token_encrypted, currency, timezone, color, icon, notes, brand_config_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+       RETURNING id, name, platform, platform_account_id,
+                 (access_token_encrypted IS NOT NULL AND access_token_encrypted != '') AS has_access_token,
+                 currency, timezone, status, color, icon, notes, brand_config_id, created_at, updated_at`,
       [
         userId,
         name,
         platform || 'meta',
         platform_account_id || null,
+        access_token || null,
         currency || 'USD',
         timezone || 'America/New_York',
         color || '#3b82f6',
@@ -145,24 +152,39 @@ router.put('/:id', async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
     const { id } = req.params;
-    const { name, platform, platform_account_id, currency, timezone, status, color, icon, notes, brand_config_id } = req.body;
+    const { name, platform, platform_account_id, access_token, currency, timezone, status, color, icon, notes, brand_config_id } = req.body;
+
+    // Build update — only update access_token_encrypted if explicitly provided
+    const setClauses = [
+      'name = COALESCE($1, name)',
+      'platform = COALESCE($2, platform)',
+      'platform_account_id = COALESCE($3, platform_account_id)',
+      'currency = COALESCE($4, currency)',
+      'timezone = COALESCE($5, timezone)',
+      'status = COALESCE($6, status)',
+      'color = COALESCE($7, color)',
+      'icon = $8',
+      'notes = $9',
+      'brand_config_id = $10',
+    ];
+    const params: any[] = [name, platform, platform_account_id, currency, timezone, status, color, icon ?? null, notes ?? null, brand_config_id ?? null];
+
+    if (access_token !== undefined) {
+      setClauses.push(`access_token_encrypted = $${params.length + 1}`);
+      params.push(access_token || null);
+    }
+
+    setClauses.push('updated_at = NOW()');
+    params.push(id, userId);
 
     const result = await pool.query(
       `UPDATE accounts
-       SET name = COALESCE($1, name),
-           platform = COALESCE($2, platform),
-           platform_account_id = COALESCE($3, platform_account_id),
-           currency = COALESCE($4, currency),
-           timezone = COALESCE($5, timezone),
-           status = COALESCE($6, status),
-           color = COALESCE($7, color),
-           icon = $8,
-           notes = $9,
-           brand_config_id = $10,
-           updated_at = NOW()
-       WHERE id = $11 AND user_id = $12
-       RETURNING *`,
-      [name, platform, platform_account_id, currency, timezone, status, color, icon ?? null, notes ?? null, brand_config_id ?? null, id, userId]
+       SET ${setClauses.join(', ')}
+       WHERE id = $${params.length - 1} AND user_id = $${params.length}
+       RETURNING id, name, platform, platform_account_id,
+                 (access_token_encrypted IS NOT NULL AND access_token_encrypted != '') AS has_access_token,
+                 currency, timezone, status, color, icon, notes, brand_config_id, created_at, updated_at`,
+      params
     );
 
     if (result.rows.length === 0) {
@@ -233,8 +255,55 @@ router.post('/:id/test', async (req: Request, res: Response) => {
       return;
     }
 
-    // For now, return success if account ID is set
-    // Full platform-specific testing can be added later
+    // NewsBreak: test API connectivity with a minimal report
+    if (account.platform === 'newsbreak' && account.access_token_encrypted) {
+      const today = new Date().toISOString().split('T')[0];
+      const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+      const postData = JSON.stringify({
+        name: 'connection_test',
+        dateRange: 'FIXED',
+        startDate: yesterday,
+        endDate: today,
+        dimensions: ['DATE'],
+        metrics: ['COST'],
+      });
+
+      const apiResult = await new Promise<any>((resolve, reject) => {
+        const options = {
+          hostname: 'business.newsbreak.com',
+          path: '/business-api/v1/reports/getIntegratedReport',
+          method: 'POST',
+          headers: {
+            'Access-Token': account.access_token_encrypted,
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(postData),
+            'Accept': 'application/json',
+          },
+        };
+        const request = https.request(options, (response) => {
+          let data = '';
+          response.on('data', (chunk: string) => (data += chunk));
+          response.on('end', () => {
+            try { resolve(JSON.parse(data)); } catch (e) { reject(e); }
+          });
+          response.on('error', reject);
+        });
+        request.setTimeout(15_000, () => request.destroy(new Error('Request timeout')));
+        request.on('error', reject);
+        request.write(postData);
+        request.end();
+      });
+
+      if (apiResult.code === 0) {
+        const spend = ((apiResult.data?.aggregateData?.[0]?.costDecimal || 0) / 100).toFixed(2);
+        res.json({ success: true, message: `Connected — recent spend: $${spend}` });
+      } else {
+        res.json({ success: false, error: apiResult.errMsg || 'API returned an error' });
+      }
+      return;
+    }
+
+    // Other platforms: return success if account ID is set
     res.json({ success: true, platform: account.platform, account_id: account.platform_account_id });
   } catch (err) {
     console.error('Error testing account connection:', err);

@@ -69,8 +69,8 @@ export default function CreativeLibraryPicker({ open, onClose, onSelect, platfor
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" style={{ backgroundColor: 'var(--overlay-bg)' }}>
-      <div className="bg-ats-card border border-ats-border rounded-t-xl sm:rounded-xl w-full sm:max-w-2xl max-h-[85vh] flex flex-col shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ backgroundColor: 'var(--overlay-bg)' }}>
+      <div className="bg-ats-card border border-ats-border rounded-t-xl sm:rounded-xl w-full sm:max-w-2xl max-h-[80vh] sm:max-h-[85vh] flex flex-col shadow-2xl">
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-ats-border shrink-0">
           <h3 className="text-sm font-bold text-ats-text">Pick from Creative Library</h3>

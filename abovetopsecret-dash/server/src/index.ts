@@ -45,7 +45,11 @@ import clientsRouter from './routes/clients';
 import campaignsRouter from './routes/campaigns';
 import templatesRouter from './routes/templates';
 import adLibraryRouter from './routes/ad-library';
+import capiRelayRouter from './routes/capi-relay';
+import tiktokRelayRouter from './routes/tiktok-relay';
 import healthRouter from './routes/health';
+import trackingRouter from './routes/tracking';
+import pixelSitesRouter from './routes/pixel-sites';
 import { authMiddleware } from './middleware/auth';
 import { startScheduler } from './services/scheduler';
 import { initJobQueue, shutdownJobQueue, registerRepeatableJobs, startSyncWorker } from './services/job-queue';
@@ -88,15 +92,33 @@ const webhookLimiter = rateLimit({
   message: { error: 'Too many webhook requests' },
 });
 
-const authLimiter = rateLimit({
+// Tight limit on login/register (brute-force protection)
+const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 15,
   message: { error: 'Too many login attempts' },
 });
 
+// /auth/me is called on every page load/tab switch — needs a generous limit
+const authReadLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  message: { error: 'Too many requests' },
+});
+
+const trackingLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 600,
+  message: { error: 'Too many tracking requests' },
+});
+
 // Apply rate limiters before routes
+app.use('/t', trackingLimiter);
 app.use('/api/webhooks', webhookLimiter);
-app.use('/api/auth', authLimiter);
+app.use('/api/creatives/webhook', webhookLimiter);
+app.use('/api/auth/login', loginLimiter);
+app.use('/api/auth/register', loginLimiter);
+app.use('/api/auth', authReadLimiter);
 app.use('/api', apiLimiter);
 
 // Health check (no auth for basic, auth for data checks)
@@ -110,6 +132,9 @@ app.use('/api/webhooks', webhooksRouter);
 
 // OAuth routes handle auth per-endpoint (callback is public, others require JWT)
 app.use('/api/oauth', oauthRouter);
+
+// Tracking pixel routes (public — called from customer websites, no JWT needed)
+app.use('/t', trackingRouter);
 
 // Public snapshot endpoint (no auth required — uses token-based access)
 app.get('/api/creatives/public/snapshot/:token', async (req, res) => {
@@ -154,6 +179,7 @@ app.use('/api/keys', apiKeysRouter);
 app.use('/api/upload', uploadRouter);
 app.use('/api/webhook-tokens', webhookTokensRouter);
 app.use('/api/pixel-configs', pixelConfigsRouter);
+app.use('/api/pixel-sites', pixelSitesRouter);
 app.use('/api/ga4', ga4Router);
 app.use('/api/favorites', favoritesRouter);
 app.use('/api/attribution-models', attributionModelsRouter);
@@ -179,6 +205,8 @@ app.use('/api/clients', clientsRouter);
 app.use('/api/campaigns', campaignsRouter);
 app.use('/api/templates', templatesRouter);
 app.use('/api/ad-library', adLibraryRouter);
+app.use('/api/capi-relay', capiRelayRouter);
+app.use('/api/tiktok-relay', tiktokRelayRouter);
 
 const httpServer = createServer(app);
 

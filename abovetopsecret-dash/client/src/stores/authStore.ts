@@ -88,6 +88,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   logout: () => {
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
+    // Clear account/filter state to prevent cross-user data leakage
+    localStorage.removeItem('optic_selected_accounts');
+    localStorage.removeItem('optic_selected_offers');
+    localStorage.removeItem('optic_selected_client');
+    localStorage.removeItem('optic_selected_brand');
     set({ token: null, user: null, isAuthenticated: false, error: null });
   },
 
@@ -169,25 +174,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       set({ token: null, user: null, isAuthenticated: false, checking: false });
       return;
     }
-    // No token — check if dev mode (no auth required)
-    try {
-      const res = await fetch('/api/health');
-      if (res.ok) {
-        const metricsRes = await fetch('/api/metrics/summary');
-        if (metricsRes.ok) {
-          set({ isAuthenticated: true, checking: false });
-          return;
-        }
-      }
-    } catch {
-      // Server not reachable
-    }
+    // No token — require login (no dev-mode auto-auth to prevent unscoped data access)
     set({ checking: false });
   },
 
   handleUnauthorized: () => {
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
+    localStorage.removeItem('optic_selected_accounts');
+    localStorage.removeItem('optic_selected_offers');
+    localStorage.removeItem('optic_selected_client');
+    localStorage.removeItem('optic_selected_brand');
     set({ token: null, user: null, isAuthenticated: false });
   },
 

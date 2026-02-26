@@ -5,9 +5,10 @@ import { syncAllCCData } from './cc-sync';
 import { syncGA4Data } from './ga4-sync';
 import { syncShopifyProducts, syncShopifyCustomers } from './shopify-sync';
 import { syncTikTokAds } from './tiktok-sync';
-import { syncNewsBreakAds } from './newsbreak-sync';
+import { syncAllNewsBreakForUser } from './newsbreak-sync';
 import { syncAllKlaviyoData } from './klaviyo-sync';
 import { syncFollowedBrands } from './ad-library';
+import { processUnsentEvents } from './meta-capi';
 import { getSetting } from './settings';
 import { evaluateRules } from './rules-engine';
 import { checkThresholds } from './notifications';
@@ -416,9 +417,9 @@ export function startScheduler(): void {
         const userIds = await getActiveUserIds();
         for (const userId of userIds) {
           try {
-            const result = await syncNewsBreakAds(userId);
+            const result = await syncAllNewsBreakForUser(userId);
             if (!result.skipped && result.synced > 0) {
-              console.log(`[Scheduler] NewsBreak sync for user ${userId}: ${result.synced} ad rows`);
+              console.log(`[Scheduler] NewsBreak sync for user ${userId}: ${result.synced} ad rows across ${result.accounts} account(s)`);
               await evaluateRules(userId);
               getRealtime()?.emitMetricsUpdate(userId);
             }
@@ -481,5 +482,20 @@ export function startScheduler(): void {
     });
   });
 
-  console.log('[Scheduler] Cron jobs registered: Meta Ads (*/2), CC poll (* * *), GA4 (3,18,33,48), CC full sync (0 */4), Creative (5,35), Daily reset (0 *), OAuth refresh (0 *), Shopify (30 */6), TikTok (*/2), NewsBreak (1/2), Klaviyo (15 */2), Ad Library (45 */2)');
+  // Meta CAPI relay every 2 minutes (offset by 1 min from Meta Ads sync)
+  const LOCK_CAPI_RELAY = 100013;
+  cron.schedule('1-59/2 * * * *', async () => {
+    await withAdvisoryLock(LOCK_CAPI_RELAY, 'Meta CAPI relay', async () => {
+      try {
+        const result = await processUnsentEvents();
+        if (result.sent > 0 || result.failed > 0) {
+          console.log(`[Scheduler] CAPI relay: ${result.sent} sent, ${result.failed} failed across ${result.configs} configs`);
+        }
+      } catch (err) {
+        console.error('[Scheduler] Meta CAPI relay failed:', err);
+      }
+    });
+  });
+
+  console.log('[Scheduler] Cron jobs registered: Meta Ads (*/2), CC poll (* * *), GA4 (3,18,33,48), CC full sync (0 */4), Creative (5,35), Daily reset (0 *), OAuth refresh (0 *), Shopify (30 */6), TikTok (*/2), NewsBreak (1/2), Klaviyo (15 */2), Ad Library (45 */2), CAPI relay (1/2)');
 }

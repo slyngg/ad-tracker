@@ -68,6 +68,15 @@ When creating automation rules, use appropriate cooldowns: 60 min for notificati
 
 Be concise, data-focused, and proactive with recommendations. Format responses with markdown tables when presenting data.
 
+**Data Visualization:**
+After fetching data with analytics tools, use render_chart to visualize results inline.
+- "kpi" type: summary stats (today's revenue, ROAS, conversions, CPA)
+- "line" or "area" type: timeseries trends (performance over days/weeks)
+- "bar" type: comparing campaigns, adsets, offers, or creatives
+- "pie" type: share/breakdown of spend or revenue by category
+Always also provide a brief text summary alongside the chart.
+In voice mode, skip render_chart and describe data verbally.
+
 When the user is using voice input (indicated by the conversation context), keep responses concise and conversational. Prefer short sentences. Avoid markdown tables in voice mode — use natural language instead.`;
 
 // Helper: fetch user's current metrics summary for context
@@ -355,6 +364,7 @@ router.post('/chat', async (req: Request, res: Response) => {
     const client = new Anthropic({ apiKey });
     let currentMessages = [...messages];
     let aborted = false;
+    const collectedCharts: any[] = [];
 
     req.on('close', () => {
       aborted = true;
@@ -385,13 +395,19 @@ router.post('/chat', async (req: Request, res: Response) => {
         res.write(`data: ${JSON.stringify({ type: 'tool_status', tool: toolBlock.name, status: 'running' })}\n\n`);
 
         try {
-          const { result, summary } = await executeTool(toolBlock.name, toolBlock.input, userId ?? null);
+          const { result, summary, chartSpec } = await executeTool(toolBlock.name, toolBlock.input, userId ?? null);
 
           toolResults.push({
             type: 'tool_result',
             tool_use_id: toolBlock.id,
             content: JSON.stringify(result),
           });
+
+          // Emit chart SSE event if present
+          if (chartSpec) {
+            collectedCharts.push(chartSpec);
+            res.write(`data: ${JSON.stringify({ type: 'chart', chart: chartSpec })}\n\n`);
+          }
 
           // Send tool_status done event
           res.write(`data: ${JSON.stringify({ type: 'tool_status', tool: toolBlock.name, status: 'done', summary })}\n\n`);
@@ -454,10 +470,11 @@ router.post('/chat', async (req: Request, res: Response) => {
     // Store assistant response
     if (fullResponse) {
       try {
+        const metadata = collectedCharts.length > 0 ? JSON.stringify({ charts: collectedCharts }) : null;
         await pool.query(
-          `INSERT INTO operator_memories (user_id, conversation_id, role, content)
-           VALUES ($1, $2, $3, $4)`,
-          [userId, convId, 'assistant', fullResponse]
+          `INSERT INTO operator_memories (user_id, conversation_id, role, content, metadata)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [userId, convId, 'assistant', fullResponse, metadata]
         );
 
         // Maybe extract long-term memories
@@ -542,7 +559,7 @@ router.get('/conversations/:id', async (req: Request, res: Response) => {
     }
 
     const messagesResult = await pool.query(
-      `SELECT id, role, content, created_at
+      `SELECT id, role, content, metadata, created_at
        FROM operator_memories
        WHERE conversation_id = $1 AND user_id = $2
        ORDER BY created_at ASC`,

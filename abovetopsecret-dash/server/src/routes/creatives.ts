@@ -20,7 +20,8 @@ async function authenticateWebhookKey(req: Request, res: Response): Promise<numb
 
   const result = await pool.query(
     `UPDATE webhook_api_keys SET last_used_at = NOW()
-     WHERE key_hash = $1 RETURNING user_id`,
+     WHERE key_hash = $1 AND 'creatives.write' = ANY(scopes)
+     RETURNING user_id`,
     [keyHash]
   );
   if (result.rows.length === 0) {

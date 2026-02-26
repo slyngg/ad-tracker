@@ -59,14 +59,25 @@ const TIKTOK_OBJECTIVES = [
   { value: 'APP_INSTALLS', label: 'App Installs' },
 ];
 
+const NEWSBREAK_OBJECTIVES = [
+  { value: 'CONVERSIONS', label: 'Conversions' },
+  { value: 'TRAFFIC', label: 'Traffic' },
+  { value: 'AWARENESS', label: 'Awareness' },
+  { value: 'ENGAGEMENT', label: 'Engagement' },
+  { value: 'APP_INSTALLS', label: 'App Installs' },
+  { value: 'LEAD_GENERATION', label: 'Lead Generation' },
+];
+
 const PLATFORM_OPTIONS = [
   { value: 'meta', label: 'Meta', desc: 'Facebook & Instagram Ads' },
   { value: 'tiktok', label: 'TikTok', desc: 'TikTok for Business Ads' },
+  { value: 'newsbreak', label: 'NewsBreak', desc: 'NewsBreak Native Ads' },
 ];
 
 function getObjectivesForPlatform(platform: string) {
   switch (platform) {
     case 'tiktok': return TIKTOK_OBJECTIVES;
+    case 'newsbreak': return NEWSBREAK_OBJECTIVES;
     default: return META_OBJECTIVES;
   }
 }
@@ -111,9 +122,9 @@ const selectCls =
   'w-full bg-ats-bg border border-ats-border rounded-lg px-3 py-2 text-sm text-ats-text focus:outline-none focus:border-ats-accent transition-colors appearance-none';
 const labelCls = 'text-[10px] text-ats-text-muted uppercase tracking-widest font-mono mb-1 block';
 const btnPrimary =
-  'px-5 py-2.5 bg-ats-accent text-white rounded-lg text-sm font-semibold hover:bg-blue-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2';
+  'px-4 sm:px-5 py-2.5 bg-ats-accent text-white rounded-lg text-sm font-semibold hover:bg-blue-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2';
 const btnSecondary =
-  'px-5 py-2.5 bg-ats-card border border-ats-border text-ats-text rounded-lg text-sm font-semibold hover:bg-ats-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2';
+  'px-4 sm:px-5 py-2.5 bg-ats-card border border-ats-border text-ats-text rounded-lg text-sm font-semibold hover:bg-ats-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2';
 const btnDanger =
   'px-3 py-2 min-h-[44px] text-ats-red hover:bg-red-900/30 rounded-lg text-xs transition-colors flex items-center gap-1';
 
@@ -203,7 +214,7 @@ function StepIndicator({ step }: { step: number }) {
           <div key={i} className="flex items-center">
             <div className="flex flex-col items-center">
               <div
-                className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${
+                className={`w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center text-[11px] sm:text-xs font-bold transition-colors ${
                   isActive
                     ? 'bg-ats-accent text-white'
                     : isCompleted
@@ -211,7 +222,7 @@ function StepIndicator({ step }: { step: number }) {
                     : 'bg-ats-card border border-ats-border text-ats-text-muted'
                 }`}
               >
-                {isCompleted ? <Check className="w-4 h-4" /> : stepNum}
+                {isCompleted ? <Check className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> : stepNum}
               </div>
               <span
                 className={`hidden sm:block text-[10px] mt-1 font-mono whitespace-nowrap ${
@@ -223,7 +234,7 @@ function StepIndicator({ step }: { step: number }) {
             </div>
             {i < STEP_LABELS.length - 1 && (
               <div
-                className={`w-4 sm:w-12 h-px mx-1 mb-4 ${
+                className={`w-6 sm:w-12 h-px mx-0.5 sm:mx-1 mb-3 sm:mb-4 ${
                   stepNum < step ? 'bg-emerald-600' : 'bg-ats-border'
                 }`}
               />
@@ -493,7 +504,7 @@ function PublishResultsPanel({
             <div>
               <h3 className="text-lg font-bold text-ats-text">Published Successfully</h3>
               <p className="text-xs text-ats-text-muted">
-                Campaign created as PAUSED. Campaign ID: {result.meta_campaign_id}
+                Campaign created as PAUSED. Campaign ID: {result.meta_campaign_id || result.tiktok_campaign_id || result.newsbreak_campaign_id}
               </p>
             </div>
           </>
@@ -516,12 +527,12 @@ function PublishResultsPanel({
         {result.adsets.map((as, i) => (
           <div
             key={i}
-            className={`flex items-center justify-between px-3 py-2 rounded-lg text-xs ${
+            className={`flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-xs ${
               as.error ? 'bg-red-900/20 text-ats-red' : 'bg-emerald-900/20 text-emerald-400'
             }`}
           >
-            <span>Ad Set #{as.local_id}</span>
-            <span>{as.error || `Meta ID: ${as.meta_id}`}</span>
+            <span className="shrink-0">Ad Set #{as.local_id}</span>
+            <span className="truncate text-right">{as.error || `ID: ${as.meta_id || as.tiktok_id || as.newsbreak_id}`}</span>
           </div>
         ))}
 
@@ -529,12 +540,12 @@ function PublishResultsPanel({
         {result.ads.map((ad, i) => (
           <div
             key={i}
-            className={`flex items-center justify-between px-3 py-2 rounded-lg text-xs ${
+            className={`flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-xs ${
               ad.error ? 'bg-red-900/20 text-ats-red' : 'bg-emerald-900/20 text-emerald-400'
             }`}
           >
-            <span>Ad #{ad.local_id}</span>
-            <span>{ad.error || `Meta ID: ${ad.meta_id}`}</span>
+            <span className="shrink-0">Ad #{ad.local_id}</span>
+            <span className="truncate text-right">{ad.error || `ID: ${ad.meta_id || ad.tiktok_id || ad.newsbreak_id}`}</span>
           </div>
         ))}
       </div>
@@ -607,7 +618,7 @@ function Step1CampaignSetup({
         {/* Platform picker */}
         <div className="mb-4">
           <label className={labelCls}>Platform</label>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 min-[400px]:grid-cols-3 gap-3">
             {PLATFORM_OPTIONS.map((p) => (
               <button
                 key={p.value}
@@ -619,7 +630,7 @@ function Step1CampaignSetup({
                   const newObjectives = getObjectivesForPlatform(p.value);
                   setObjective(newObjectives[0].value);
                 }}
-                className={`flex flex-col items-center justify-center px-4 py-4 rounded-xl border-2 transition-all ${
+                className={`flex flex-col items-center justify-center px-3 py-4 rounded-xl border-2 transition-all ${
                   platform === p.value
                     ? 'border-ats-accent bg-ats-accent/10'
                     : 'border-ats-border bg-ats-bg hover:bg-ats-hover'
@@ -642,7 +653,7 @@ function Step1CampaignSetup({
             onChange={(e) => setAccountId(e.target.value ? Number(e.target.value) : null)}
             className={selectCls}
           >
-            <option value="">Select a {platform === 'tiktok' ? 'TikTok' : 'Meta'} account...</option>
+            <option value="">Select a {platform === 'tiktok' ? 'TikTok' : platform === 'newsbreak' ? 'NewsBreak' : 'Meta'} account...</option>
             {filteredAccounts.map((a) => (
               <option key={a.id} value={a.id}>
                 {a.name} ({a.platform_account_id || a.platform})
@@ -670,7 +681,7 @@ function Step1CampaignSetup({
         {/* Objective selector */}
         <div className="mb-4">
           <label className={labelCls}>Campaign Objective</label>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             {objectives.map((obj) => (
               <button
                 key={obj.value}
@@ -778,15 +789,15 @@ function Step2AdSets({
             className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-ats-hover transition-colors"
             onClick={() => setEditingAdSet(editingAdSet === i ? null : i)}
           >
-            <div className="flex items-center gap-3">
-              <div className="w-6 h-6 bg-ats-accent/20 rounded flex items-center justify-center text-ats-accent text-xs font-bold">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-6 h-6 shrink-0 bg-ats-accent/20 rounded flex items-center justify-center text-ats-accent text-xs font-bold">
                 {i + 1}
               </div>
-              <div>
-                <span className="text-sm font-semibold text-ats-text">
+              <div className="min-w-0">
+                <span className="text-sm font-semibold text-ats-text block truncate">
                   {adSet.name || `Ad Set ${i + 1}`}
                 </span>
-                <span className="text-xs text-ats-text-muted ml-2">
+                <span className="text-xs text-ats-text-muted block truncate">
                   {adSet.budget_type === 'daily' ? 'Daily' : 'Lifetime'}{' '}
                   ${adSet.budget_amount || '0'} | {adSet.targeting.geo_locations.countries.join(', ') || 'No geo'}
                 </span>
@@ -1183,7 +1194,7 @@ function Step3Ads({
                   {/* Media upload + Library picker */}
                   <div>
                     <label className={labelCls}>Media</label>
-                    <div className="flex items-center gap-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
                       <label className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-ats-bg border border-dashed border-ats-border rounded-lg cursor-pointer hover:border-ats-accent transition-colors text-xs text-ats-text-muted">
                         {uploadingIndex === globalIndex ? (
                           <Loader2 className="w-4 h-4 animate-spin" />
@@ -1205,26 +1216,28 @@ function Step3Ads({
                           }}
                         />
                       </label>
-                      <button
-                        type="button"
-                        onClick={() => setLibraryPickerIndex(globalIndex)}
-                        className="shrink-0 flex items-center gap-1.5 px-3 py-3 bg-ats-accent/10 border border-ats-accent/30 rounded-lg text-ats-accent text-xs font-semibold hover:bg-ats-accent/20 transition-colors"
-                      >
-                        <Library className="w-4 h-4" />
-                        Pick from Library
-                      </button>
-                      {ad.media_upload_id && (
-                        <span className="text-emerald-400 text-xs flex items-center gap-1">
-                          <Check className="w-3 h-3" />
-                          Uploaded
-                        </span>
-                      )}
-                      {ad.library_creative_id && !ad.media_upload_id && (
-                        <span className="text-ats-accent text-xs flex items-center gap-1">
-                          <Check className="w-3 h-3" />
-                          Library
-                        </span>
-                      )}
+                      <div className="flex items-center gap-2 sm:gap-3">
+                        <button
+                          type="button"
+                          onClick={() => setLibraryPickerIndex(globalIndex)}
+                          className="shrink-0 flex items-center gap-1.5 px-3 py-3 bg-ats-accent/10 border border-ats-accent/30 rounded-lg text-ats-accent text-xs font-semibold hover:bg-ats-accent/20 transition-colors"
+                        >
+                          <Library className="w-4 h-4" />
+                          Pick from Library
+                        </button>
+                        {ad.media_upload_id && (
+                          <span className="text-emerald-400 text-xs flex items-center gap-1 whitespace-nowrap py-3">
+                            <Check className="w-3 h-3" />
+                            Uploaded
+                          </span>
+                        )}
+                        {ad.library_creative_id && !ad.media_upload_id && (
+                          <span className="text-ats-accent text-xs flex items-center gap-1 whitespace-nowrap py-3">
+                            <Check className="w-3 h-3" />
+                            Library
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1282,6 +1295,10 @@ function Step4Review({
         <h3 className="text-sm font-bold text-ats-text mb-3">Campaign Summary</h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-xs">
           <div>
+            <span className="text-ats-text-muted">Platform:</span>
+            <span className="text-ats-text ml-2 capitalize">{platform}</span>
+          </div>
+          <div>
             <span className="text-ats-text-muted">Account:</span>
             <span className="text-ats-text ml-2">{account?.name || 'None selected'}</span>
           </div>
@@ -1293,12 +1310,14 @@ function Step4Review({
             <span className="text-ats-text-muted">Objective:</span>
             <span className="text-ats-text ml-2">{objectiveLabel}</span>
           </div>
-          <div>
-            <span className="text-ats-text-muted">Special Categories:</span>
-            <span className="text-ats-text ml-2">
-              {specialAdCategories.length > 0 ? specialAdCategories.join(', ') : 'None'}
-            </span>
-          </div>
+          {platform === 'meta' && (
+            <div>
+              <span className="text-ats-text-muted">Special Categories:</span>
+              <span className="text-ats-text ml-2">
+                {specialAdCategories.length > 0 ? specialAdCategories.join(', ') : 'None'}
+              </span>
+            </div>
+          )}
           <div>
             <span className="text-ats-text-muted">Ad Sets:</span>
             <span className="text-ats-text ml-2">{adSets.length}</span>
@@ -1318,7 +1337,7 @@ function Step4Review({
             <h4 className="text-xs font-bold text-ats-text mb-2">
               Ad Set: {adSet.name || `Ad Set ${i + 1}`}
             </h4>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1 text-[11px] mb-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-3 sm:gap-x-4 gap-y-2 sm:gap-y-1 text-[11px] mb-3">
               <div>
                 <span className="text-ats-text-muted">Budget: </span>
                 <span className="text-ats-text">
@@ -1380,11 +1399,11 @@ function Step4Review({
                 {adSetAds.map((ad, j) => (
                   <div key={j} className="bg-ats-bg rounded-lg p-3 text-[11px]">
                     <div className="font-semibold text-ats-text mb-1">{ad.name || `Ad ${j + 1}`}</div>
-                    <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-ats-text-muted">
-                      <div>Headline: <span className="text-ats-text">{ad.headline || '--'}</span></div>
-                      <div>CTA: <span className="text-ats-text">{CTA_OPTIONS.find((c) => c.value === ad.cta)?.label || ad.cta}</span></div>
-                      <div>Link: <span className="text-ats-text">{ad.link_url || '--'}</span></div>
-                      <div>Media: <span className="text-ats-text">{ad.media_filename || 'None'}</span></div>
+                    <div className="grid grid-cols-1 min-[400px]:grid-cols-2 gap-x-4 gap-y-1 text-ats-text-muted">
+                      <div className="truncate">Headline: <span className="text-ats-text">{ad.headline || '--'}</span></div>
+                      <div className="truncate">CTA: <span className="text-ats-text">{CTA_OPTIONS.find((c) => c.value === ad.cta)?.label || ad.cta}</span></div>
+                      <div className="truncate">Link: <span className="text-ats-text">{ad.link_url || '--'}</span></div>
+                      <div className="truncate">Media: <span className="text-ats-text">{ad.media_filename || 'None'}</span></div>
                     </div>
                     {ad.primary_text && (
                       <div className="mt-1 text-ats-text-muted">
@@ -1808,7 +1827,7 @@ export default function CampaignBuilderPage() {
           </div>
         </div>
         <p className="text-xs text-ats-text-muted mb-6">
-          Build and publish {platform === 'tiktok' ? 'TikTok' : 'Meta'} ad campaigns. All campaigns are published as PAUSED.
+          Build and publish {platform === 'tiktok' ? 'TikTok' : platform === 'newsbreak' ? 'NewsBreak' : 'Meta'} ad campaigns. All campaigns are published as PAUSED.
         </p>
 
         {/* Error banner */}
@@ -1922,7 +1941,7 @@ export default function CampaignBuilderPage() {
       <ConfirmModal
         open={showConfirmModal}
         title="Publish Campaign"
-        message={`This will create the campaign "${campaignName}" on ${platform === 'tiktok' ? 'TikTok' : 'Meta'} with all ${adSets.length} ad set(s) and ${ads.length} ad(s). The campaign will be published as PAUSED -- you can activate it afterwards.`}
+        message={`This will create the campaign "${campaignName}" on ${platform === 'tiktok' ? 'TikTok' : platform === 'newsbreak' ? 'NewsBreak' : 'Meta'} with all ${adSets.length} ad set(s) and ${ads.length} ad(s). The campaign will be published as PAUSED -- you can activate it afterwards.`}
         onConfirm={handlePublish}
         onCancel={() => setShowConfirmModal(false)}
         loading={publishing}

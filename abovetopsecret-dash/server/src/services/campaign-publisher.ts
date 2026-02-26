@@ -13,6 +13,11 @@ import {
   activateTikTokCampaign,
   validateTikTokDraft,
 } from './tiktok-publisher';
+import {
+  publishNewsBreakCampaignDraft,
+  activateNewsBreakCampaign,
+  validateNewsBreakDraft,
+} from './newsbreak-publisher';
 
 async function getAccessToken(userId: number): Promise<string> {
   const result = await pool.query(
@@ -309,13 +314,22 @@ export async function publishDraft(draftId: number, userId: number): Promise<Pub
       return publishCampaignDraft(draftId, userId);
     case 'tiktok': {
       const ttResult = await publishTikTokCampaignDraft(draftId, userId);
-      // Normalize to PublishResult interface
       return {
         success: ttResult.success,
         meta_campaign_id: ttResult.tiktok_campaign_id,
         adsets: ttResult.adsets.map(a => ({ local_id: a.local_id, meta_id: a.tiktok_id, error: a.error })),
         ads: ttResult.ads.map(a => ({ local_id: a.local_id, meta_id: a.tiktok_id, error: a.error })),
         error: ttResult.error,
+      };
+    }
+    case 'newsbreak': {
+      const nbResult = await publishNewsBreakCampaignDraft(draftId, userId);
+      return {
+        success: nbResult.success,
+        meta_campaign_id: nbResult.newsbreak_campaign_id,
+        adsets: nbResult.adsets.map(a => ({ local_id: a.local_id, meta_id: a.newsbreak_id, error: a.error })),
+        ads: nbResult.ads.map(a => ({ local_id: a.local_id, meta_id: a.newsbreak_id, error: a.error })),
+        error: nbResult.error,
       };
     }
     default:
@@ -330,6 +344,8 @@ export async function activateDraftCampaign(draftId: number, userId: number): Pr
       return activateCampaign(draftId, userId);
     case 'tiktok':
       return activateTikTokCampaign(draftId, userId);
+    case 'newsbreak':
+      return activateNewsBreakCampaign(draftId, userId);
     default:
       throw new Error(`Activation not yet supported for ${platform}`);
   }
@@ -342,6 +358,8 @@ export async function validateDraftCampaign(draftId: number, userId: number): Pr
       return validateDraft(draftId, userId);
     case 'tiktok':
       return validateTikTokDraft(draftId, userId);
+    case 'newsbreak':
+      return validateNewsBreakDraft(draftId, userId);
     default:
       throw new Error(`Validation not yet supported for ${platform}`);
   }
