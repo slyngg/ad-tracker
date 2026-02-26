@@ -129,11 +129,7 @@ export const NAV_SECTIONS: NavSectionConfig[] = [
   {
     label: 'Campaign Manager',
     icon: Megaphone,
-    children: [
-      { label: 'Live Campaigns', path: ROUTES.LIVE_CAMPAIGNS, icon: Radio },
-      { label: 'Campaigns', path: ROUTES.CAMPAIGN_LIST, icon: Send },
-      { label: 'Builder', path: ROUTES.CAMPAIGN_BUILDER, icon: Wand2 },
-    ],
+    path: ROUTES.LIVE_CAMPAIGNS,
   },
   {
     label: 'Creative',
