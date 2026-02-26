@@ -2387,7 +2387,7 @@ export default function LiveCampaignsPage() {
 
       {/* Filters */}
       <div className="flex items-center gap-2 mb-4 flex-wrap">
-        {['all', 'meta', 'tiktok', 'newsbreak'].map(p => (
+        {['all', ...Array.from(new Set(accounts.filter(a => a.status === 'active').map(a => a.platform)))].map(p => (
           <button
             key={p}
             onClick={() => setPlatformFilter(p)}

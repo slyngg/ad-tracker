@@ -5,8 +5,10 @@ import {
   deleteCampaignDraft,
   publishCampaignDraft,
   createCampaignDraft,
+  fetchAccounts,
   CampaignDraft,
   PublishResult,
+  Account,
 } from '../../lib/api';
 import { Plus, Pencil, Copy, Trash2, Send, Loader2, Megaphone, Filter } from 'lucide-react';
 import PageShell from '../../components/shared/PageShell';
@@ -34,9 +36,11 @@ export default function CampaignListPage() {
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<Record<number, string>>({});
   const [platformFilter, setPlatformFilter] = useState<string>('all');
+  const [accounts, setAccounts] = useState<Account[]>([]);
 
   useEffect(() => {
     loadDrafts();
+    fetchAccounts().then(setAccounts).catch(() => {});
   }, []);
 
   async function loadDrafts() {
@@ -184,7 +188,7 @@ export default function CampaignListPage() {
         <>
           {/* Platform filter */}
           <div className="flex items-center gap-2 mb-4">
-            {['all', 'meta', 'tiktok', 'newsbreak'].map((p) => (
+            {['all', ...Array.from(new Set(accounts.filter(a => a.status === 'active').map(a => a.platform)))].map((p) => (
               <button
                 key={p}
                 onClick={() => setPlatformFilter(p)}

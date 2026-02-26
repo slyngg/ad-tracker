@@ -229,7 +229,10 @@ export default function CreativeAnalyticsPage() {
             {tab === 'top' && (
               <>
                 <select value={platform} onChange={e => setPlatform(e.target.value)} className={filterInputCls}>
-                  <option value="">All Platforms</option><option value="meta">Meta</option><option value="tiktok">TikTok</option><option value="newsbreak">NewsBreak</option><option value="youtube">YouTube</option>
+                  <option value="">All Platforms</option>
+                  {Array.from(new Set(accounts.filter(a => a.status === 'active').map(a => a.platform))).map(p => (
+                    <option key={p} value={p}>{({meta:'Meta',tiktok:'TikTok',newsbreak:'NewsBreak',google:'Google',youtube:'YouTube'} as Record<string,string>)[p] || p}</option>
+                  ))}
                 </select>
                 <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search ads..." className={filterInputCls} />
               </>
@@ -264,7 +267,10 @@ export default function CreativeAnalyticsPage() {
         {tab === 'top' && (
           <>
             <select value={platform} onChange={e => setPlatform(e.target.value)} className="bg-ats-card border border-ats-border rounded-lg px-3 py-1.5 text-sm text-ats-text">
-              <option value="">All Platforms</option><option value="meta">Meta</option><option value="tiktok">TikTok</option><option value="newsbreak">NewsBreak</option><option value="youtube">YouTube</option>
+              <option value="">All Platforms</option>
+              {Array.from(new Set(accounts.filter(a => a.status === 'active').map(a => a.platform))).map(p => (
+                <option key={p} value={p}>{({meta:'Meta',tiktok:'TikTok',newsbreak:'NewsBreak',google:'Google',youtube:'YouTube'} as Record<string,string>)[p] || p}</option>
+              ))}
             </select>
             <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search ads..." className="bg-ats-card border border-ats-border rounded-lg px-3 py-1.5 text-sm text-ats-text" />
           </>

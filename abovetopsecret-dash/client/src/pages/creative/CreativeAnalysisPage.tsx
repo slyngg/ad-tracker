@@ -4,6 +4,7 @@ import { SlidersHorizontal, ChevronDown, ChevronUp } from 'lucide-react';
 import PageShell from '../../components/shared/PageShell';
 import { getAuthToken } from '../../stores/authStore';
 import { useLiveRefresh } from '../../hooks/useLiveRefresh';
+import { fetchAccounts, Account } from '../../lib/api';
 
 async function apiFetch<T>(path: string): Promise<T> {
   const token = getAuthToken();
@@ -29,6 +30,8 @@ export default function CreativeAnalysisPage() {
   const [search, setSearch] = useState('');
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [expandedCard, setExpandedCard] = useState<string | null>(null);
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  useEffect(() => { fetchAccounts().then(setAccounts).catch(() => {}); }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -91,7 +94,10 @@ export default function CreativeAnalysisPage() {
       {filtersOpen && (
         <div className="lg:hidden mb-4 space-y-2 bg-ats-card rounded-xl p-3 border border-ats-border animate-in slide-in-from-top-2">
           <select value={platform} onChange={e => setPlatform(e.target.value)} className={selectCls}>
-            <option value="all">All Platforms</option><option value="facebook">Meta</option><option value="google">Google</option><option value="tiktok">TikTok</option><option value="newsbreak">NewsBreak</option>
+            <option value="all">All Platforms</option>
+            {Array.from(new Set(accounts.filter(a => a.status === 'active').map(a => a.platform))).map(p => (
+              <option key={p} value={p === 'meta' ? 'facebook' : p}>{({meta:'Meta',tiktok:'TikTok',newsbreak:'NewsBreak',google:'Google'} as Record<string,string>)[p] || p}</option>
+            ))}
           </select>
           <select value={type} onChange={e => setType(e.target.value)} className={selectCls}>
             <option value="all">All Types</option><option value="image">Image</option><option value="video">Video</option><option value="carousel">Carousel</option>
@@ -106,7 +112,10 @@ export default function CreativeAnalysisPage() {
       <div className="hidden lg:flex flex-wrap gap-2 mb-4">
         <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search..." className="bg-ats-surface border border-ats-border rounded-lg px-3 py-1.5 text-sm text-ats-text" />
         <select value={platform} onChange={e => setPlatform(e.target.value)} className="bg-ats-surface border border-ats-border rounded-lg px-3 py-1.5 text-sm text-ats-text">
-          <option value="all">All Platforms</option><option value="facebook">Meta</option><option value="google">Google</option><option value="tiktok">TikTok</option><option value="newsbreak">NewsBreak</option>
+          <option value="all">All Platforms</option>
+          {Array.from(new Set(accounts.filter(a => a.status === 'active').map(a => a.platform))).map(p => (
+            <option key={p} value={p === 'meta' ? 'facebook' : p}>{({meta:'Meta',tiktok:'TikTok',newsbreak:'NewsBreak',google:'Google'} as Record<string,string>)[p] || p}</option>
+          ))}
         </select>
         <select value={type} onChange={e => setType(e.target.value)} className="bg-ats-surface border border-ats-border rounded-lg px-3 py-1.5 text-sm text-ats-text">
           <option value="all">All Types</option><option value="image">Image</option><option value="video">Video</option><option value="carousel">Carousel</option>
