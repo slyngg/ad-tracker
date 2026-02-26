@@ -616,7 +616,7 @@ export async function backfillFacebook(userId?: number, days = 90): Promise<{ ba
 
     for (const { accountId, token, dbAccountId } of perAccountTokens) {
       try {
-        const url = `https://graph.facebook.com/v21.0/${accountId}/insights?fields=account_name,campaign_name,campaign_id,adset_name,adset_id,ad_name,spend,clicks,impressions,actions&time_range={"since":"${date}","until":"${date}"}&level=ad&limit=500&access_token=${token}`;
+        const url = `https://graph.facebook.com/v21.0/${accountId}/insights?fields=account_name,campaign_name,campaign_id,adset_name,adset_id,ad_name,spend,clicks,impressions,actions,action_values&time_range={"since":"${date}","until":"${date}"}&level=ad&limit=500&access_token=${token}`;
 
         const rows = await fetchAllPages(url);
         if (rows.length === 0) continue;
@@ -625,6 +625,12 @@ export async function backfillFacebook(userId?: number, days = 90): Promise<{ ba
           const lpViews = row.actions?.find(
             (a) => a.action_type === 'landing_page_view'
           )?.value || '0';
+          const purchases = parseInt(row.actions?.find(
+            (a: any) => a.action_type === 'purchase' || a.action_type === 'omni_purchase'
+          )?.value || '0') || 0;
+          const purchaseValue = parseFloat(row.action_values?.find(
+            (a: any) => a.action_type === 'purchase' || a.action_type === 'omni_purchase'
+          )?.value || '0') || 0;
 
           const adData = {
             account_name: row.account_name,
@@ -637,6 +643,8 @@ export async function backfillFacebook(userId?: number, days = 90): Promise<{ ba
             clicks: parseInt(row.clicks) || 0,
             impressions: parseInt(row.impressions) || 0,
             landing_page_views: parseInt(lpViews) || 0,
+            conversions: purchases,
+            conversion_value: purchaseValue,
           };
 
           try {

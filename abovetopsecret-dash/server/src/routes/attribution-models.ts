@@ -245,8 +245,11 @@ router.get('/ads', async (req: Request, res: Response) => {
           (ad_data->>'clicks')::NUMERIC AS clicks,
           CASE WHEN (ad_data->>'clicks')::NUMERIC > 0 THEN (ad_data->>'spend')::NUMERIC / (ad_data->>'clicks')::NUMERIC ELSE 0 END AS cpc,
           CASE WHEN (ad_data->>'impressions')::NUMERIC > 0 THEN (ad_data->>'clicks')::NUMERIC / (ad_data->>'impressions')::NUMERIC ELSE 0 END AS ctr,
-          0 AS conversions, 0 AS cpa, 0 AS cvr,
-          0 AS total_conversion_value, 0 AS value_per_conversion,
+          COALESCE((ad_data->>'conversions')::NUMERIC, 0) AS conversions,
+          CASE WHEN COALESCE((ad_data->>'conversions')::NUMERIC, 0) > 0 THEN (ad_data->>'spend')::NUMERIC / (ad_data->>'conversions')::NUMERIC ELSE 0 END AS cpa,
+          CASE WHEN (ad_data->>'clicks')::NUMERIC > 0 THEN COALESCE((ad_data->>'conversions')::NUMERIC, 0) / (ad_data->>'clicks')::NUMERIC ELSE 0 END AS cvr,
+          COALESCE((ad_data->>'conversion_value')::NUMERIC, 0) AS total_conversion_value,
+          CASE WHEN COALESCE((ad_data->>'conversions')::NUMERIC, 0) > 0 THEN COALESCE((ad_data->>'conversion_value')::NUMERIC, 0) / (ad_data->>'conversions')::NUMERIC ELSE 0 END AS value_per_conversion,
           archived_at AS synced_at,
           ad_data->>'account_name' AS account_name
         FROM fb_ads_archive WHERE user_id = $1 AND archived_date BETWEEN $2 AND $3
@@ -296,8 +299,11 @@ router.get('/ads', async (req: Request, res: Response) => {
           clicks,
           CASE WHEN clicks > 0 THEN spend / clicks ELSE 0 END AS cpc,
           CASE WHEN impressions > 0 THEN clicks::NUMERIC / impressions ELSE 0 END AS ctr,
-          0 AS conversions, 0 AS cpa, 0 AS cvr,
-          0 AS total_conversion_value, 0 AS value_per_conversion,
+          COALESCE(conversions, 0) AS conversions,
+          CASE WHEN COALESCE(conversions, 0) > 0 THEN spend / conversions ELSE 0 END AS cpa,
+          CASE WHEN clicks > 0 THEN COALESCE(conversions, 0)::NUMERIC / clicks ELSE 0 END AS cvr,
+          COALESCE(conversion_value, 0) AS total_conversion_value,
+          CASE WHEN COALESCE(conversions, 0) > 0 THEN COALESCE(conversion_value, 0) / conversions ELSE 0 END AS value_per_conversion,
           synced_at,
           account_name
         FROM fb_ads_today ${uf}
