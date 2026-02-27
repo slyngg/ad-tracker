@@ -760,12 +760,17 @@ export class CheckoutChampClient {
   /**
    * Test the connection by querying transactions with limit 1.
    */
-  async testConnection(): Promise<{ success: boolean; error?: string }> {
+  async testConnection(): Promise<{ success: boolean; error?: string; message?: string }> {
     try {
       await this.get('/transactions/query/', { resultsPerPage: 1, startDate: formatCCDate(new Date()), endDate: formatCCDate(new Date()) });
       return { success: true };
     } catch (err: any) {
-      return { success: false, error: err.message };
+      const msg = err.message || '';
+      // "No orders/results found" means auth succeeded, just no data for today
+      if (msg.toLowerCase().includes('no ') && (msg.toLowerCase().includes('found') || msg.toLowerCase().includes('matching'))) {
+        return { success: true, message: 'Connected (no orders today)' };
+      }
+      return { success: false, error: msg };
     }
   }
 
