@@ -208,13 +208,13 @@ export default function ConnectionsPage() {
       if (platformKey === 'meta') { data.fb_access_token = ''; data.fb_ad_account_ids = ''; }
       else if (platformKey === 'google') { data.ga4_property_id = ''; data.ga4_credentials_json = ''; }
       else if (platformKey === 'shopify') { data.shopify_webhook_secret = ''; data.shopify_store_url = ''; }
-      else if (platformKey === 'checkoutchamp') { data.cc_login_id = ''; data.cc_password = ''; data.cc_api_url = ''; data.cc_webhook_secret = ''; }
+      else if (platformKey === 'checkoutchamp') { data.cc_login_id = ''; data.cc_password = ''; data.cc_api_url = ''; }
       else if (platformKey === 'newsbreak') { data.newsbreak_api_key = ''; data.newsbreak_account_id = ''; }
       await updateSettings(data);
       if (platformKey === 'meta') { setFbToken(''); setFbAccountIds(''); }
       else if (platformKey === 'google') { setGa4PropertyId(''); setGa4CredentialsJson(''); }
       else if (platformKey === 'shopify') { setShopifySecret(''); setShopifyStoreUrl(''); }
-      else if (platformKey === 'checkoutchamp') { setCcLoginId(''); setCcPassword(''); setCcApiUrl(''); setCcWebhookSecret(''); }
+      else if (platformKey === 'checkoutchamp') { setCcLoginId(''); setCcPassword(''); setCcApiUrl(''); }
       else if (platformKey === 'newsbreak') {
         setNbApiKey(''); setNbAccountId('');
         // Also archive all multi-account entries
