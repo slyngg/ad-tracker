@@ -2,8 +2,9 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   Target, RefreshCw, TrendingUp, TrendingDown, DollarSign,
   ChevronDown, Save, X, ArrowUpRight, ArrowDownRight,
-  Activity, BarChart3, Percent, ShoppingCart,
+  Activity, BarChart3, Percent, ShoppingCart, Zap, Sparkles,
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import PageShell from '../components/shared/PageShell';
 import { getAuthToken } from '../stores/authStore';
 
@@ -241,17 +242,25 @@ export default function BenchmarksPage() {
   const [computing, setComputing] = useState(false);
   const [filterSignal, setFilterSignal] = useState<string>('');
   const [filterPlatform, setFilterPlatform] = useState<string>('');
+  const [stoplightRules, setStoplightRules] = useState<any[]>([]);
+  const [togglingAutoManage, setTogglingAutoManage] = useState(false);
+  const navigate = useNavigate();
+
+  const hasAutoManage = stoplightRules.some((r: any) => r.enabled);
 
   const fetchData = useCallback(async () => {
     try {
-      const [benchRes, stoplightRes, summaryRes] = await Promise.all([
+      const [benchRes, stoplightRes, summaryRes, rulesRes] = await Promise.all([
         apiFetch<{ benchmarks: Benchmark[] }>('/benchmarks'),
         apiFetch<{ stoplights: Stoplight[] }>('/benchmarks/stoplights'),
         apiFetch<{ summary: StoplightSummary }>('/benchmarks/stoplights/summary'),
+        apiFetch<any[]>('/rules').catch(() => []),
       ]);
       setBenchmarks(benchRes.benchmarks);
       setStoplights(stoplightRes.stoplights);
       setSummary(summaryRes.summary);
+      // Filter to just stoplight-triggered rules
+      setStoplightRules(Array.isArray(rulesRes) ? rulesRes.filter((r: any) => r.trigger_type === 'stoplight') : []);
     } catch (err) {
       console.error('Failed to load benchmarks:', err);
     } finally {
@@ -284,6 +293,58 @@ export default function BenchmarksPage() {
       await fetchData();
     } catch (err) {
       console.error('Failed to update benchmark:', err);
+    }
+  };
+
+  const handleToggleAutoManage = async () => {
+    setTogglingAutoManage(true);
+    try {
+      if (hasAutoManage) {
+        // Disable all stoplight rules
+        for (const rule of stoplightRules) {
+          if (rule.enabled) {
+            await apiFetch(`/rules/${rule.id}/toggle`, { method: 'POST' });
+          }
+        }
+      } else if (stoplightRules.length > 0) {
+        // Re-enable existing stoplight rules
+        for (const rule of stoplightRules) {
+          if (!rule.enabled) {
+            await apiFetch(`/rules/${rule.id}/toggle`, { method: 'POST' });
+          }
+        }
+      } else {
+        // Create default stoplight rules: pause cut campaigns, increase scale budgets
+        await apiFetch('/rules', {
+          method: 'POST',
+          body: JSON.stringify({
+            name: 'Auto-pause Cut campaigns',
+            description: 'Automatically pause campaigns below benchmark thresholds',
+            trigger_type: 'stoplight',
+            trigger_config: { signal: 'cut' },
+            action_type: 'notification',
+            action_config: { message: 'Campaign flagged for cut — below profit benchmarks' },
+            cooldown_minutes: 1440, // once per day
+          }),
+        });
+        await apiFetch('/rules', {
+          method: 'POST',
+          body: JSON.stringify({
+            name: 'Alert on Scale campaigns',
+            description: 'Notify when campaigns exceed benchmark thresholds — consider increasing budget',
+            trigger_type: 'stoplight',
+            trigger_config: { signal: 'scale' },
+            action_type: 'notification',
+            action_config: { message: 'Campaign performing above benchmarks — consider scaling budget' },
+            cooldown_minutes: 1440,
+          }),
+        });
+      }
+      await fetchData();
+    } catch (err) {
+      console.error('Failed to toggle auto-manage:', err);
+    } finally {
+      setTogglingAutoManage(false);
     }
   };
 
@@ -460,6 +521,64 @@ export default function BenchmarksPage() {
                 })}
               </tbody>
             </table>
+          </div>
+        )}
+      </div>
+
+      {/* Jarvis Auto-Manage */}
+      <div className="bg-ats-card border border-ats-border rounded-2xl p-5">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-purple-500/10 flex items-center justify-center">
+              <Sparkles size={20} className="text-purple-400" />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-ats-text">Jarvis Auto-Manage Stoplights</h3>
+              <p className="text-xs text-ats-text-muted mt-0.5">
+                {hasAutoManage
+                  ? `${stoplightRules.filter((r: any) => r.enabled).length} active rules — Jarvis is managing your campaigns`
+                  : 'Enable to let Jarvis notify you when campaigns hit Cut or Scale signals'}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => navigate('/rules')}
+              className="text-xs text-ats-accent hover:text-blue-400 flex items-center gap-1"
+            >
+              <Zap size={12} />
+              View Rules
+            </button>
+            <button
+              onClick={handleToggleAutoManage}
+              disabled={togglingAutoManage}
+              className={`relative w-11 h-6 rounded-full transition-colors ${
+                hasAutoManage ? 'bg-purple-500' : 'bg-ats-border'
+              } ${togglingAutoManage ? 'opacity-50' : ''}`}
+            >
+              <span
+                className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${
+                  hasAutoManage ? 'translate-x-5' : 'translate-x-0'
+                }`}
+              />
+            </button>
+          </div>
+        </div>
+        {stoplightRules.length > 0 && (
+          <div className="mt-3 pt-3 border-t border-ats-border/50 space-y-1.5">
+            {stoplightRules.map((rule: any) => (
+              <div key={rule.id} className="flex items-center justify-between text-xs">
+                <div className="flex items-center gap-2">
+                  <Zap size={12} className={rule.enabled ? 'text-purple-400' : 'text-ats-text-muted'} />
+                  <span className={rule.enabled ? 'text-ats-text' : 'text-ats-text-muted'}>{rule.name}</span>
+                </div>
+                <span className={`px-1.5 py-0.5 rounded text-xs ${
+                  rule.enabled ? 'bg-purple-500/10 text-purple-400' : 'bg-ats-border/50 text-ats-text-muted'
+                }`}>
+                  {rule.enabled ? 'Active' : 'Paused'}
+                </span>
+              </div>
+            ))}
           </div>
         )}
       </div>

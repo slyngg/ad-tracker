@@ -592,6 +592,13 @@ export default function RulesEnginePage() {
 
     const campaignLabel = tc.campaign_name ? ` for "${tc.campaign_name}"` : '';
 
+    if (rule.trigger_type === 'stoplight') {
+      const signalLabels: Record<string, string> = { scale: 'Scale (green)', watch: 'Watch (amber)', cut: 'Cut (red)' };
+      const signalLabel = signalLabels[tc.signal] || tc.signal || 'any';
+      const plat = tc.platform ? ` on ${PLATFORMS.find((p) => p.value === tc.platform)?.label || tc.platform}` : '';
+      return `Stoplight signal = ${signalLabel}${plat}`;
+    }
+
     if (rule.trigger_type === 'compound' && tc.conditions?.length) {
       const parts = tc.conditions.map((c: any) => {
         const metricLabel = METRICS.find((m) => m.value === c.metric)?.label || c.metric;

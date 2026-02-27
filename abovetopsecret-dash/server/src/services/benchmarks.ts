@@ -8,6 +8,7 @@
 import pool from '../db';
 import { createLogger } from '../lib/logger';
 import { getSetting } from './settings';
+import { evaluateStoplightRules } from './rules-engine';
 
 const log = createLogger('Benchmarks');
 
@@ -390,6 +391,13 @@ export async function computeCampaignStoplights(userId: number): Promise<void> {
   }
 
   log.info({ userId, campaigns: campaigns.rows.length }, 'Campaign stoplights computed');
+
+  // Fire stoplight-triggered automation rules
+  try {
+    await evaluateStoplightRules(userId);
+  } catch (err) {
+    log.error({ userId, err }, 'Failed to evaluate stoplight rules');
+  }
 }
 
 // ── Read operations ──────────────────────────────────────────────

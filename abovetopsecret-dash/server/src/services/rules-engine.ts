@@ -309,6 +309,11 @@ function evaluateCondition(rule: Rule, metrics: FullMetrics): boolean {
     return evaluateSingleCondition(config, metrics);
   }
 
+  // Stoplight rules are evaluated separately via evaluateStoplightRules()
+  if (rule.trigger_type === 'stoplight') {
+    return false;
+  }
+
   if (rule.trigger_type === 'compound') {
     const logic: 'AND' | 'OR' = config.logic || 'AND';
     const conditions: any[] = config.conditions || [];
@@ -715,6 +720,128 @@ async function sendSlackNotification(
 
   if (!response.ok) {
     throw new Error(`Slack webhook failed: ${response.status}`);
+  }
+}
+
+// ── Stoplight-triggered rules ─────────────────────────────────
+
+/**
+ * Evaluate automation rules triggered by campaign stoplights.
+ *
+ * Rules with trigger_type = 'stoplight' have trigger_config like:
+ *   { signal: 'cut' }        — fires for all campaigns with "cut" signal
+ *   { signal: 'scale' }      — fires for all campaigns with "scale" signal
+ *   { signal: 'cut', platform: 'meta' } — only Meta campaigns
+ *
+ * The rule's action_config should specify what to do per-campaign.
+ * The action_meta gets populated with the campaign context at fire time.
+ */
+export async function evaluateStoplightRules(userId: number): Promise<void> {
+  try {
+    const rulesResult = await pool.query(
+      `SELECT * FROM automation_rules
+       WHERE user_id = $1 AND enabled = true AND trigger_type = 'stoplight'`,
+      [userId],
+    );
+
+    const rules: Rule[] = rulesResult.rows;
+    if (rules.length === 0) return;
+
+    // Load current stoplights
+    const stoplightsResult = await pool.query(
+      `SELECT platform, campaign_id, campaign_name, signal, roas, cpa, spend, revenue
+       FROM campaign_stoplights WHERE user_id = $1`,
+      [userId],
+    );
+
+    for (const rule of rules) {
+      try {
+        // Cooldown check
+        if (rule.cooldown_minutes > 0 && rule.last_fired_at) {
+          const lastFired = new Date(rule.last_fired_at).getTime();
+          if (Date.now() - lastFired < rule.cooldown_minutes * 60 * 1000) continue;
+        }
+
+        const targetSignal = rule.trigger_config?.signal;
+        if (!targetSignal) continue;
+
+        const platformFilter = rule.trigger_config?.platform;
+
+        // Find matching campaigns
+        const matching = stoplightsResult.rows.filter((s: any) => {
+          if (s.signal !== targetSignal) return false;
+          if (platformFilter && s.platform !== platformFilter) return false;
+          return true;
+        });
+
+        if (matching.length === 0) continue;
+
+        // Execute action for each matching campaign
+        for (const campaign of matching) {
+          const metrics: FullMetrics = {
+            spend: parseFloat(campaign.spend || '0'),
+            revenue: parseFloat(campaign.revenue || '0'),
+            roas: parseFloat(campaign.roas || '0'),
+            cpa: parseFloat(campaign.cpa || '0'),
+            conversions: 0,
+            clicks: 0,
+            impressions: 0,
+            ctr: 0,
+            cvr: 0,
+            aov: 0,
+            profit: parseFloat(campaign.revenue || '0') - parseFloat(campaign.spend || '0'),
+            profit_margin: 0,
+          };
+
+          // Inject campaign context into rule.action_meta so actions know which campaign to target
+          const ruleWithCampaign: Rule = {
+            ...rule,
+            action_meta: {
+              ...rule.action_meta,
+              campaign_id: campaign.campaign_id,
+              campaign_name: campaign.campaign_name,
+              platform: campaign.platform,
+              signal: campaign.signal,
+            },
+          };
+
+          const actionDetail = await executeAction(ruleWithCampaign, metrics, userId);
+
+          await pool.query(
+            'UPDATE automation_rules SET last_fired_at = NOW() WHERE id = $1',
+            [rule.id],
+          );
+
+          await pool.query(
+            `INSERT INTO rule_execution_log (rule_id, trigger_data, action_result, action_detail, status, user_id)
+             VALUES ($1, $2, $3, $4, 'success', $5)`,
+            [
+              rule.id,
+              JSON.stringify({ signal: campaign.signal, campaign: campaign.campaign_name, platform: campaign.platform, metrics }),
+              JSON.stringify({ action: rule.action_type }),
+              JSON.stringify(actionDetail),
+              userId,
+            ],
+          );
+
+          getRealtime()?.emitRuleExecution(userId, {
+            ruleId: rule.id,
+            ruleName: rule.name,
+            action: rule.action_type,
+            detail: actionDetail,
+          });
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Unknown error';
+        await pool.query(
+          `INSERT INTO rule_execution_log (rule_id, trigger_data, status, error_message, action_detail, user_id)
+           VALUES ($1, $2, 'failure', $3, $4, $5)`,
+          [rule.id, JSON.stringify({ trigger: 'stoplight' }), message, JSON.stringify({ error: message }), userId],
+        );
+      }
+    }
+  } catch (err) {
+    console.error(`[Rules Engine] Error evaluating stoplight rules for user ${userId}:`, err);
   }
 }
 

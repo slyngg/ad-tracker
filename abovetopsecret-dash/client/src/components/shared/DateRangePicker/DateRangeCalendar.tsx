@@ -42,6 +42,7 @@ export default function DateRangeCalendar({ range, onSelect, isMobile }: DateRan
         month={month}
         onMonthChange={setMonth}
         captionLayout="dropdown"
+        hideNavigation
         disabled={{ after: today }}
         today={today}
         startMonth={new Date(today.getFullYear() - 2, 0)}
@@ -50,15 +51,14 @@ export default function DateRangeCalendar({ range, onSelect, isMobile }: DateRan
           root: 'text-ats-text text-sm',
           months: 'flex gap-4',
           month_caption: 'flex justify-center items-center mb-2',
-          caption_label: 'hidden',
+          // Inside dropdowns, caption_label is the visible overlay (text + chevron).
+          // The <select> sits on top invisibly to capture clicks.
+          caption_label: 'text-sm font-semibold text-ats-text flex items-center gap-0.5',
           dropdowns: 'flex items-center gap-2',
-          dropdown: 'bg-transparent text-ats-text text-sm font-semibold border-none outline-none cursor-pointer',
-          dropdown_root: 'relative',
-          nav: 'flex items-center justify-between absolute top-3 left-3 right-3',
-          button_previous:
-            'p-1 rounded hover:bg-white/10 text-ats-text-muted hover:text-ats-text transition-colors',
-          button_next:
-            'p-1 rounded hover:bg-white/10 text-ats-text-muted hover:text-ats-text transition-colors',
+          // The actual <select> — invisible but covers the overlay for click capture
+          dropdown: 'absolute inset-0 w-full opacity-0 cursor-pointer z-10',
+          dropdown_root: 'relative inline-flex items-center',
+          chevron: 'w-3.5 h-3.5 text-ats-text-muted',
           weekdays: 'flex',
           weekday: 'w-9 text-center text-[10px] font-medium text-ats-text-muted uppercase',
           week: 'flex',
