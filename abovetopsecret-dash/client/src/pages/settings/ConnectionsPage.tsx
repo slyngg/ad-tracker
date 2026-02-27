@@ -131,22 +131,25 @@ export default function ConnectionsPage() {
     try {
       const all = await fetchWebhookTokens();
       setTokens(all);
-      // Find or auto-generate a CC webhook token
-      const ccToken = all.find(t => t.source === 'checkout_champ' && t.active);
-      if (ccToken?.token) {
-        setCcWebhookUrl(`${window.location.origin}/api/webhooks/checkout-champ/${ccToken.token}`);
-      } else {
-        // Auto-generate one
+      // Check if a CC webhook URL is already saved in settings
+      const savedUrl = settings.cc_webhook_url;
+      const hasCcToken = all.some(t => t.source === 'checkout_champ' && t.active);
+      if (savedUrl && hasCcToken) {
+        setCcWebhookUrl(savedUrl);
+      } else if (!hasCcToken) {
+        // No CC token exists — auto-generate one and save the URL
         try {
           const newToken = await createWebhookToken('checkout_champ', 'Auto-generated');
           if (newToken?.token) {
-            setCcWebhookUrl(`${window.location.origin}/api/webhooks/checkout-champ/${newToken.token}`);
+            const url = `${window.location.origin}/api/webhooks/checkout-champ/${newToken.token}`;
+            setCcWebhookUrl(url);
+            await updateSettings({ cc_webhook_url: url });
             setTokens(await fetchWebhookTokens());
           }
         } catch {}
       }
     } catch {}
-  }, []);
+  }, [settings.cc_webhook_url]);
   const loadNbAccounts = useCallback(async () => {
     try {
       const all = await fetchAccounts();
