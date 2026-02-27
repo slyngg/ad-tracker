@@ -2404,53 +2404,25 @@ export default function LiveCampaignsPage() {
           </button>
         ))}
 
-        {/* Account pills — show as clickable buttons, only connected accounts */}
+        {/* Account selector — only show connected accounts */}
         {(() => {
           const accts = platformFilter === 'all'
             ? accounts.filter(a => a.status === 'active' && a.platform_account_id && a.has_access_token)
             : accounts.filter(a => a.platform === platformFilter && a.status === 'active' && a.platform_account_id && a.has_access_token);
-          if (accts.length <= 1) return null;
-          const badge = (a: Account) => PLATFORM_BADGE[a.platform] || { bg: 'bg-gray-500/15', text: 'text-gray-400', label: a.platform };
+          if (accts.length === 0) return null;
           return (
-            <>
-              <div className="w-px h-5 bg-ats-border mx-0.5" />
-              <button
-                onClick={() => setAccountFilter('all')}
-                className={`px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border transition-colors ${
-                  accountFilter === 'all'
-                    ? 'bg-ats-accent/20 border-ats-accent text-ats-accent'
-                    : 'bg-ats-card border-ats-border text-ats-text-muted hover:bg-ats-hover'
-                }`}
-              >
-                All
-              </button>
-              {accts.map(a => {
-                const b = badge(a);
-                const isActive = accountFilter === String(a.id);
-                const label = a.platform_account_id
-                  ? `${a.name}` + (platformFilter === 'all' ? '' : '')
-                  : a.name;
-                return (
-                  <button
-                    key={a.id}
-                    onClick={() => setAccountFilter(String(a.id))}
-                    className={`px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border transition-colors flex items-center gap-1.5 ${
-                      isActive
-                        ? `${b.bg} border-current ${b.text}`
-                        : 'bg-ats-card border-ats-border text-ats-text-muted hover:bg-ats-hover'
-                    }`}
-                  >
-                    {platformFilter === 'all' && (
-                      <span className={`w-1.5 h-1.5 rounded-full ${b.bg.replace('/15', '')} ${isActive ? '' : 'opacity-60'}`} style={{ backgroundColor: a.color || undefined }} />
-                    )}
-                    {label}
-                    {a.platform_account_id && (
-                      <span className="opacity-50 font-normal">{a.platform_account_id.replace(/^act_/, '').slice(0, 6)}</span>
-                    )}
-                  </button>
-                );
-              })}
-            </>
+            <select
+              value={accountFilter}
+              onChange={(e) => setAccountFilter(e.target.value)}
+              className="px-3 py-1.5 rounded-lg text-xs font-semibold border bg-ats-card border-ats-border text-ats-text hover:bg-ats-hover transition-colors focus:outline-none focus:border-ats-accent ml-1"
+            >
+              <option value="all">All Accounts</option>
+              {accts.map(a => (
+                <option key={a.id} value={a.id}>
+                  {a.name}{a.platform_account_id ? ` (${a.platform_account_id})` : ''}{platformFilter === 'all' ? ` — ${PLATFORM_BADGE[a.platform]?.label || a.platform}` : ''}
+                </option>
+              ))}
+            </select>
           );
         })()}
 

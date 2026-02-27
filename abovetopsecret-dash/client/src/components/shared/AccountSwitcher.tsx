@@ -20,8 +20,9 @@ export default function AccountSwitcher() {
     return () => document.removeEventListener('mousedown', handleClick);
   }, [open]);
 
-  // Scope visible accounts to selected brand or client
+  // Scope visible accounts to selected brand or client, only show connected accounts
   const visibleAccounts = accounts.filter((acct) => {
+    if (!acct.platform_account_id || !acct.has_access_token) return false;
     if (selectedBrandId) return acct.brand_config_id === selectedBrandId;
     if (selectedClientId) {
       const clientBrandIds = brands.filter((b) => b.client_id === selectedClientId).map((b) => b.id);
@@ -95,7 +96,7 @@ export default function AccountSwitcher() {
                 </span>
                 <div className="flex-1 min-w-0">
                   <div className="text-xs font-medium text-ats-text truncate">{acct.name}</div>
-                  <div className="text-[10px] text-ats-text-muted">{acct.platform}</div>
+                  <div className="text-[10px] text-ats-text-muted">{acct.platform}{acct.platform_account_id ? ` · ${acct.platform_account_id}` : ''}</div>
                 </div>
               </button>
             );

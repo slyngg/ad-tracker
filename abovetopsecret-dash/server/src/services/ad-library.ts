@@ -85,8 +85,8 @@ async function searchAndCacheMeta(
 
   // Log search
   await pool.query(
-    `INSERT INTO ad_library_searches (user_id, search_type, search_terms, page_id, country, filters, results_count, platform)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, 'meta')`,
+    `INSERT INTO ad_library_searches (user_id, search_type, search_terms, page_id, country, filters, results_count)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
     [
       userId,
       params.page_id ? 'page' : 'keyword',
@@ -106,9 +106,9 @@ async function searchAndCacheMeta(
 
     try {
       const upsertRes = await pool.query(
-        `INSERT INTO ad_library_cache (user_id, platform, meta_ad_id, page_id, page_name, ad_creative_bodies, ad_creative_link_titles, ad_creative_link_descriptions, ad_creative_link_captions, ad_snapshot_url, impressions_lower, impressions_upper, spend_lower, spend_upper, currency, ad_delivery_start, ad_delivery_stop, ad_creation_time, publisher_platforms, bylines, raw_data)
-         VALUES ($1, 'meta', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
-         ON CONFLICT (user_id, platform, meta_ad_id) DO UPDATE SET
+        `INSERT INTO ad_library_cache (user_id, meta_ad_id, page_id, page_name, ad_creative_bodies, ad_creative_link_titles, ad_creative_link_descriptions, ad_creative_link_captions, ad_snapshot_url, impressions_lower, impressions_upper, spend_lower, spend_upper, currency, ad_delivery_start, ad_delivery_stop, ad_creation_time, publisher_platforms, bylines, raw_data)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+         ON CONFLICT (user_id, meta_ad_id) DO UPDATE SET
            ad_creative_bodies = EXCLUDED.ad_creative_bodies,
            ad_creative_link_titles = EXCLUDED.ad_creative_link_titles,
            impressions_lower = COALESCE(EXCLUDED.impressions_lower, ad_library_cache.impressions_lower),

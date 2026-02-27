@@ -221,8 +221,8 @@ export default function CreativeAnalyticsPage() {
             {accounts.length > 1 && (
               <select value={accountId} onChange={e => setAccountId(e.target.value)} className={filterInputCls}>
                 <option value="">All Accounts</option>
-                {accounts.filter(a => a.status === 'active').map(a => (
-                  <option key={a.id} value={a.id}>{a.name}</option>
+                {accounts.filter(a => a.status === 'active' && a.platform_account_id && a.has_access_token).map(a => (
+                  <option key={a.id} value={a.id}>{a.name}{a.platform_account_id ? ` (${a.platform_account_id})` : ''}</option>
                 ))}
               </select>
             )}
@@ -230,7 +230,7 @@ export default function CreativeAnalyticsPage() {
               <>
                 <select value={platform} onChange={e => setPlatform(e.target.value)} className={filterInputCls}>
                   <option value="">All Platforms</option>
-                  {Array.from(new Set(accounts.filter(a => a.status === 'active').map(a => a.platform))).map(p => (
+                  {Array.from(new Set(accounts.filter(a => a.status === 'active' && a.platform_account_id && a.has_access_token).map(a => a.platform))).map(p => (
                     <option key={p} value={p}>{({meta:'Meta',tiktok:'TikTok',newsbreak:'NewsBreak',google:'Google',youtube:'YouTube'} as Record<string,string>)[p] || p}</option>
                   ))}
                 </select>
@@ -268,7 +268,7 @@ export default function CreativeAnalyticsPage() {
           <>
             <select value={platform} onChange={e => setPlatform(e.target.value)} className="bg-ats-card border border-ats-border rounded-lg px-3 py-1.5 text-sm text-ats-text">
               <option value="">All Platforms</option>
-              {Array.from(new Set(accounts.filter(a => a.status === 'active').map(a => a.platform))).map(p => (
+              {Array.from(new Set(accounts.filter(a => a.status === 'active' && a.platform_account_id && a.has_access_token).map(a => a.platform))).map(p => (
                 <option key={p} value={p}>{({meta:'Meta',tiktok:'TikTok',newsbreak:'NewsBreak',google:'Google',youtube:'YouTube'} as Record<string,string>)[p] || p}</option>
               ))}
             </select>

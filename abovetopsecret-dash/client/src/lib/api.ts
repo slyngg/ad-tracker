@@ -1613,6 +1613,10 @@ export interface AdLibraryTrend {
   themes: string[];
 }
 
+export function fetchFeaturedAds(): Promise<AdLibraryResult[]> {
+  return request<AdLibraryResult[]>('/ad-library/featured');
+}
+
 export function searchAdLibrary(params: AdLibrarySearchParams): Promise<{ data: AdLibraryResult[]; paging?: { after?: string } }> {
   return request('/ad-library/search', { method: 'POST', body: JSON.stringify(params) });
 }

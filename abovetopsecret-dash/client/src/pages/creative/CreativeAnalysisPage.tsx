@@ -95,7 +95,7 @@ export default function CreativeAnalysisPage() {
         <div className="lg:hidden mb-4 space-y-2 bg-ats-card rounded-xl p-3 border border-ats-border animate-in slide-in-from-top-2">
           <select value={platform} onChange={e => setPlatform(e.target.value)} className={selectCls}>
             <option value="all">All Platforms</option>
-            {Array.from(new Set(accounts.filter(a => a.status === 'active').map(a => a.platform))).map(p => (
+            {Array.from(new Set(accounts.filter(a => a.status === 'active' && a.platform_account_id && a.has_access_token).map(a => a.platform))).map(p => (
               <option key={p} value={p === 'meta' ? 'facebook' : p}>{({meta:'Meta',tiktok:'TikTok',newsbreak:'NewsBreak',google:'Google'} as Record<string,string>)[p] || p}</option>
             ))}
           </select>
@@ -113,7 +113,7 @@ export default function CreativeAnalysisPage() {
         <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search..." className="bg-ats-surface border border-ats-border rounded-lg px-3 py-1.5 text-sm text-ats-text" />
         <select value={platform} onChange={e => setPlatform(e.target.value)} className="bg-ats-surface border border-ats-border rounded-lg px-3 py-1.5 text-sm text-ats-text">
           <option value="all">All Platforms</option>
-          {Array.from(new Set(accounts.filter(a => a.status === 'active').map(a => a.platform))).map(p => (
+          {Array.from(new Set(accounts.filter(a => a.status === 'active' && a.platform_account_id && a.has_access_token).map(a => a.platform))).map(p => (
             <option key={p} value={p === 'meta' ? 'facebook' : p}>{({meta:'Meta',tiktok:'TikTok',newsbreak:'NewsBreak',google:'Google'} as Record<string,string>)[p] || p}</option>
           ))}
         </select>

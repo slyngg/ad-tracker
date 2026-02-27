@@ -606,6 +606,8 @@ function Step1CampaignSetup({
 
   // Filter accounts by selected platform
   const filteredAccounts = accounts.filter((a) => {
+    if (!a.status || a.status !== 'active') return false;
+    if (!a.platform_account_id || !a.has_access_token) return false;
     if (platform === 'meta') return a.platform === 'meta' || a.platform === 'facebook';
     return a.platform === platform;
   });

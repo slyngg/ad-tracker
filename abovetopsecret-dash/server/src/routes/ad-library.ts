@@ -41,6 +41,31 @@ const analyzeSchema = z.object({
   page_id: z.string().min(1).max(100),
 });
 
+// Featured / recently cached ads (shown on page load)
+router.get('/featured', async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+
+    // Return recently cached ads with the best data (have impressions or spend), most recent first
+    const result = await pool.query(
+      `SELECT * FROM ad_library_cache
+       WHERE user_id = $1
+         AND ad_creative_bodies IS NOT NULL
+         AND ad_creative_bodies::TEXT != '[]'
+       ORDER BY
+         CASE WHEN impressions_upper IS NOT NULL THEN impressions_upper ELSE 0 END DESC,
+         created_at DESC
+       LIMIT 24`,
+      [userId]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error fetching featured ads:', err);
+    res.status(500).json({ error: 'Failed to fetch featured ads' });
+  }
+});
+
 // Search Ad Library
 router.post('/search', validateBody(searchSchema), async (req: Request, res: Response) => {
   try {

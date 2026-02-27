@@ -188,7 +188,7 @@ export default function CampaignListPage() {
         <>
           {/* Platform filter */}
           <div className="flex items-center gap-2 mb-4">
-            {['all', ...Array.from(new Set(accounts.filter(a => a.status === 'active').map(a => a.platform)))].map((p) => (
+            {['all', ...Array.from(new Set(accounts.filter(a => a.status === 'active' && a.platform_account_id && a.has_access_token).map(a => a.platform)))].map((p) => (
               <button
                 key={p}
                 onClick={() => setPlatformFilter(p)}
