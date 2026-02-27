@@ -386,8 +386,8 @@ export default function BudgetForecastPage() {
                               color: ct.tooltipText,
                               fontSize: 12,
                             }}
-                            formatter={(value: number) => [fmtDec(value), 'Predicted Revenue']}
-                            labelFormatter={(label: number) => `Spend: ${fmtDec(label)}`}
+                            formatter={(value: any) => [fmtDec(Number(value)), 'Predicted Revenue']}
+                            labelFormatter={(label: any) => `Spend: ${fmtDec(Number(label))}`}
                           />
                           <Line
                             type="monotone"
