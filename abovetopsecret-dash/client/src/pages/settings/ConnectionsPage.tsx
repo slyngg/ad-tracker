@@ -83,6 +83,7 @@ export default function ConnectionsPage() {
   const [ccTestStatus, setCcTestStatus] = useState<StatusType>('idle');
   const [ccTestMessage, setCcTestMessage] = useState('');
   const [ccVerified, setCcVerified] = useState<boolean | null>(null);
+  const [ccWebhookUrl, setCcWebhookUrl] = useState('');
   const [nbTestStatus, setNbTestStatus] = useState<StatusType>('idle');
   const [nbTestMessage, setNbTestMessage] = useState('');
 
@@ -127,7 +128,24 @@ export default function ConnectionsPage() {
     } catch {}
   }, []);
   const loadTokens = useCallback(async () => {
-    try { setTokens(await fetchWebhookTokens()); } catch {}
+    try {
+      const all = await fetchWebhookTokens();
+      setTokens(all);
+      // Find or auto-generate a CC webhook token
+      const ccToken = all.find(t => t.source === 'checkout_champ' && t.active);
+      if (ccToken?.token) {
+        setCcWebhookUrl(`${window.location.origin}/api/webhooks/checkout-champ/${ccToken.token}`);
+      } else {
+        // Auto-generate one
+        try {
+          const newToken = await createWebhookToken('checkout_champ', 'Auto-generated');
+          if (newToken?.token) {
+            setCcWebhookUrl(`${window.location.origin}/api/webhooks/checkout-champ/${newToken.token}`);
+            setTokens(await fetchWebhookTokens());
+          }
+        } catch {}
+      }
+    } catch {}
   }, []);
   const loadNbAccounts = useCallback(async () => {
     try {
@@ -653,10 +671,10 @@ export default function ConnectionsPage() {
                           </a>
                         </div>
                         <div className="flex gap-1.5">
-                          <input readOnly value={`${webhookBaseUrl}/api/webhooks/checkout-champ`} className={`${inputCls} text-ats-text-muted flex-1 min-w-0`} />
-                          <button onClick={() => copy(`${webhookBaseUrl}/api/webhooks/checkout-champ`)} className={`${btnSecondary} shrink-0`}>Copy</button>
+                          <input readOnly value={ccWebhookUrl || 'Generating...'} className={`${inputCls} text-ats-text-muted flex-1 min-w-0 font-mono text-[10px]`} />
+                          <button onClick={() => copy(ccWebhookUrl)} disabled={!ccWebhookUrl} className={`${btnSecondary} shrink-0`}>Copy</button>
                         </div>
-                        <div className="text-[10px] text-ats-text-muted mt-0.5">Copy this URL and add it as a Postback export in CC under <strong>Admin &gt; Exports</strong></div>
+                        <div className="text-[10px] text-ats-text-muted mt-0.5">Copy this URL and paste it as the Postback URL in CC under <strong>Admin &gt; Exports</strong>. Only <code className="bg-white/5 px-1 rounded">orderId[orderId]</code> is needed in field mapping — we fetch the rest automatically.</div>
                       </div>
                       <div>
                         <div className="flex items-center justify-between mb-1">
