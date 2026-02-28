@@ -1,6 +1,6 @@
 import pool from '../db';
 import https from 'https';
-import { getAllNewsBreakAuth, getNewsBreakAuth, getNewsBreakCampaignList, NewsBreakAuth } from './newsbreak-api';
+import { getAllNewsBreakAuth, getNewsBreakAuth, NewsBreakAuth } from './newsbreak-api';
 import { createLogger } from '../lib/logger';
 
 const log = createLogger('NewsBreakSync');
@@ -70,47 +70,78 @@ export async function syncAllNewsBreakForUser(userId: number): Promise<{ synced:
 }
 
 /**
- * Auto-discover which campaigns belong to which NB advertiser account.
- * Calls getCampaignList for each known advertiser ID in the user's accounts table,
- * then populates nb_campaign_account_map so data can be properly separated.
+ * Auto-map any unmapped campaigns to NB accounts using campaign name matching.
+ * NB reports API doesn't distinguish campaigns by advertiser, so we match by account name keywords.
+ * Already-mapped campaigns are never overridden — only new/unmapped ones get auto-assigned.
  */
-async function discoverCampaignAccountMapping(userId: number, accessToken: string): Promise<void> {
+async function discoverCampaignAccountMapping(userId: number, _accessToken: string): Promise<void> {
   try {
-    // Get all NB accounts with known advertiser IDs
+    // Get all NB accounts for this user
     const acctRes = await pool.query(
-      `SELECT id, platform_account_id, access_token_encrypted FROM accounts
+      `SELECT id, name, platform_account_id FROM accounts
        WHERE user_id = $1 AND platform = 'newsbreak' AND status = 'active'
-         AND platform_account_id IS NOT NULL AND platform_account_id != 'default'`,
+         AND platform_account_id IS NOT NULL AND platform_account_id != 'default'
+       ORDER BY id`,
       [userId]
     );
-    if (acctRes.rows.length === 0) return;
+    if (acctRes.rows.length < 2) return; // need ≥2 accounts to map between
 
+    // Get unmapped campaigns
+    const unmappedRes = await pool.query(
+      `SELECT DISTINCT n.campaign_id, n.campaign_name
+       FROM newsbreak_ads_today n
+       WHERE n.user_id = $1
+         AND n.campaign_id NOT IN (SELECT campaign_id FROM nb_campaign_account_map WHERE user_id = $1)`,
+      [userId]
+    );
+    if (unmappedRes.rows.length === 0) return;
+
+    // Build keyword→account mapping from account names
+    // e.g. account "NewsBreak Slot Trick" → keywords ["slot", "trick"]
+    const keywordMap: { accountId: number; keywords: string[] }[] = [];
     for (const acct of acctRes.rows) {
-      const advertiserId = acct.platform_account_id;
-      // Use the account's own API key if available, otherwise the shared one
-      const token = acct.access_token_encrypted || accessToken;
-
-      try {
-        const campaigns = await getNewsBreakCampaignList(advertiserId, token);
-        let mapped = 0;
-        for (const campaign of campaigns) {
-          const campaignId = String(campaign.campaign_id || campaign.id);
-          if (!campaignId) continue;
-          await pool.query(
-            `INSERT INTO nb_campaign_account_map (user_id, campaign_id, account_id)
-             VALUES ($1, $2, $3)
-             ON CONFLICT (user_id, campaign_id) DO UPDATE SET account_id = EXCLUDED.account_id`,
-            [userId, campaignId, acct.id]
-          );
-          mapped++;
-        }
-        log.info({ userId, advertiserId, mapped }, 'Discovered campaign→advertiser mapping');
-      } catch (err) {
-        log.error({ err, advertiserId }, 'Failed to discover campaigns for advertiser');
+      // Extract meaningful words from account name (skip generic words)
+      const words = (acct.name || '').toLowerCase().split(/[\s\-_]+/)
+        .filter((w: string) => w.length > 2 && !['news', 'break', 'newsbreak', 'account', 'acct', 'acc'].includes(w));
+      if (words.length > 0) {
+        keywordMap.push({ accountId: acct.id, keywords: words });
       }
     }
+    if (keywordMap.length === 0) return;
+
+    let autoMapped = 0;
+    const defaultAccount = acctRes.rows[0].id; // fallback to first account
+
+    for (const { campaign_id, campaign_name } of unmappedRes.rows) {
+      const nameLower = (campaign_name || '').toLowerCase();
+
+      // Find best matching account by keyword overlap
+      let bestMatch = defaultAccount;
+      let bestScore = 0;
+      for (const { accountId, keywords } of keywordMap) {
+        const score = keywords.filter(kw => nameLower.includes(kw)).length;
+        if (score > bestScore) {
+          bestScore = score;
+          bestMatch = accountId;
+        }
+      }
+
+      try {
+        await pool.query(
+          `INSERT INTO nb_campaign_account_map (user_id, campaign_id, account_id)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (user_id, campaign_id) DO NOTHING`,
+          [userId, campaign_id, bestMatch]
+        );
+        autoMapped++;
+      } catch { /* ignore duplicates */ }
+    }
+
+    if (autoMapped > 0) {
+      log.info({ userId, autoMapped }, 'Auto-mapped unmapped campaigns by name keywords');
+    }
   } catch (err) {
-    log.error({ err }, 'Failed to run campaign account mapping discovery');
+    log.error({ err }, 'Failed to auto-map campaign accounts');
   }
 }
 
