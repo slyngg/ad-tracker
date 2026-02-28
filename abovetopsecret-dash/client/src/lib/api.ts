@@ -1320,6 +1320,8 @@ export interface LiveCampaign {
   cpa: number;
   adset_count: number;
   ad_count: number;
+  status: 'ACTIVE' | 'PAUSED' | 'UNKNOWN';
+  daily_budget: number | null;
 }
 
 export interface LiveAdset {

@@ -173,15 +173,17 @@ export default function ConnectionsPage() {
     return s?.status === 'connected' && s.connectionMethod === 'oauth';
   };
   const isExpired = (platform: string) => oauthFor(platform)?.status === 'expired';
+  // Check if a setting is a real user-configured value (not from env fallback)
+  const isUserSetting = (key: string) => !!settings[key] && settings[`${key}_source`] !== 'env';
   const isAnyConnected = (platform: string) => {
     const oauth = oauthFor(platform);
     if (oauth?.status === 'connected') return true;
     if (oauth?.status === 'expired') return false;
-    if (platform === 'meta') return !!(settings.fb_access_token && settings.fb_ad_account_ids);
-    if (platform === 'google') return !!settings.ga4_property_id;
-    if (platform === 'shopify') return !!settings.shopify_webhook_secret;
+    if (platform === 'meta') return isUserSetting('fb_access_token') && isUserSetting('fb_ad_account_ids');
+    if (platform === 'google') return isUserSetting('ga4_property_id');
+    if (platform === 'shopify') return isUserSetting('shopify_webhook_secret');
     if (platform === 'checkoutchamp') return ccVerified === true;
-    if (platform === 'newsbreak') return nbAccounts.some(a => a.has_access_token && a.platform_account_id) || !!(settings.newsbreak_api_key && settings.newsbreak_account_id);
+    if (platform === 'newsbreak') return nbAccounts.some(a => a.has_access_token && a.platform_account_id) || (isUserSetting('newsbreak_api_key') && isUserSetting('newsbreak_account_id'));
     return false;
   };
   const toggle = (key: string) => setExpanded(p => ({ ...p, [key]: !p[key] }));

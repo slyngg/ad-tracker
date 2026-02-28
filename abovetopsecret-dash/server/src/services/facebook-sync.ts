@@ -145,6 +145,45 @@ async function discoverAdAccounts(accessToken: string): Promise<string[]> {
   return accounts;
 }
 
+async function updateMetaCampaignStatuses(accountId: string, accessToken: string, userId: number) {
+  try {
+    // Fetch campaign statuses
+    const campaignUrl = `https://graph.facebook.com/v21.0/${accountId}/campaigns?fields=id,effective_status&limit=500&access_token=${accessToken}`;
+    const campResp = await fetch(campaignUrl);
+    const campData: any = await campResp.json();
+    if (campData.data) {
+      for (const camp of campData.data) {
+        await pool.query(
+          `UPDATE fb_ads_today SET campaign_status = $1 WHERE campaign_id = $2 AND user_id = $3`,
+          [camp.effective_status || 'UNKNOWN', camp.id, userId]
+        );
+      }
+    }
+    // Fetch adset budgets
+    const adsetUrl = `https://graph.facebook.com/v21.0/${accountId}/adsets?fields=id,daily_budget,effective_status&limit=500&access_token=${accessToken}`;
+    const adsetResp = await fetch(adsetUrl);
+    const adsetData: any = await adsetResp.json();
+    if (adsetData.data) {
+      for (const adset of adsetData.data) {
+        const budgetDollars = adset.daily_budget ? parseFloat(adset.daily_budget) / 100 : null;
+        await pool.query(
+          `UPDATE fb_ads_today SET adset_daily_budget = $1 WHERE ad_set_id = $2 AND user_id = $3`,
+          [budgetDollars, adset.id, userId]
+        );
+        // Also update campaign_status from adset's campaign
+        if (adset.effective_status) {
+          await pool.query(
+            `UPDATE fb_ads_today SET campaign_status = COALESCE(campaign_status, 'ACTIVE') WHERE ad_set_id = $1 AND user_id = $2`,
+            [adset.id, userId]
+          );
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[FB Sync] Failed to update campaign statuses/budgets:', err);
+  }
+}
+
 export async function syncFacebook(userId?: number): Promise<{ synced: number; accounts: number; skipped: boolean }> {
   const accessToken = await getAccessToken(userId);
 
@@ -199,8 +238,8 @@ export async function syncFacebook(userId?: number): Promise<{ synced: number; a
 
             await dbClient.query('SAVEPOINT row_insert');
             await dbClient.query(
-              `INSERT INTO fb_ads_today (account_name, campaign_name, campaign_id, ad_set_name, ad_set_id, ad_name, spend, clicks, impressions, landing_page_views, conversions, conversion_value, synced_at, user_id)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), $13)
+              `INSERT INTO fb_ads_today (account_name, campaign_name, campaign_id, ad_set_name, ad_set_id, ad_name, spend, clicks, impressions, landing_page_views, conversions, conversion_value, synced_at, user_id, campaign_status, adset_daily_budget)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), $13, $14, $15)
                ON CONFLICT (user_id, ad_set_id, ad_name) DO UPDATE SET
                  spend = EXCLUDED.spend,
                  clicks = EXCLUDED.clicks,
@@ -209,6 +248,8 @@ export async function syncFacebook(userId?: number): Promise<{ synced: number; a
                  conversions = EXCLUDED.conversions,
                  conversion_value = EXCLUDED.conversion_value,
                  campaign_id = COALESCE(EXCLUDED.campaign_id, fb_ads_today.campaign_id),
+                 campaign_status = COALESCE(EXCLUDED.campaign_status, fb_ads_today.campaign_status),
+                 adset_daily_budget = COALESCE(EXCLUDED.adset_daily_budget, fb_ads_today.adset_daily_budget),
                  synced_at = NOW()`,
               [
                 row.account_name,
@@ -224,6 +265,8 @@ export async function syncFacebook(userId?: number): Promise<{ synced: number; a
                 purchases,
                 purchaseValue,
                 userId || null,
+                null,
+                null,
               ]
             );
             await dbClient.query('RELEASE SAVEPOINT row_insert');
@@ -243,6 +286,11 @@ export async function syncFacebook(userId?: number): Promise<{ synced: number; a
       }
 
       console.log(`[Meta Sync] Synced ${rows.length} rows from ${accountId}`);
+
+      // Fetch and update campaign statuses and adset budgets
+      if (userId) {
+        await updateMetaCampaignStatuses(accountId, accessToken, userId);
+      }
     } catch (err) {
       console.error(`[Meta Sync] Error syncing account ${accountId}:`, err);
     }

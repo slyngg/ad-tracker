@@ -32,6 +32,9 @@ router.post('/', async (req: Request, res: Response) => {
       }
       if (typeof value === 'string' && value.trim()) {
         await setSetting(key, value.trim(), 'admin', userId);
+      } else if (typeof value === 'string' && !value.trim()) {
+        // Empty string means delete the setting
+        await deleteSetting(key, userId);
       }
     }
     const settings = await getAllSettings(userId);

@@ -135,8 +135,8 @@ export async function syncTikTokAds(userId?: number): Promise<{ synced: number; 
 
           await dbClient.query('SAVEPOINT row_insert');
           await dbClient.query(
-            `INSERT INTO tiktok_ads_today (user_id, advertiser_id, campaign_id, campaign_name, adgroup_id, adgroup_name, ad_id, ad_name, spend, impressions, clicks, conversions, conversion_value, ctr, cpc, cpm, cpa, roas, video_views, video_watched_2s, video_watched_6s, video_watched_100pct, synced_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, NOW())
+            `INSERT INTO tiktok_ads_today (user_id, advertiser_id, campaign_id, campaign_name, adgroup_id, adgroup_name, ad_id, ad_name, spend, impressions, clicks, conversions, conversion_value, ctr, cpc, cpm, cpa, roas, video_views, video_watched_2s, video_watched_6s, video_watched_100pct, synced_at, campaign_status, adset_daily_budget)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, NOW(), $23, $24)
              ON CONFLICT (user_id, ad_id) DO UPDATE SET
                advertiser_id = EXCLUDED.advertiser_id, campaign_id = EXCLUDED.campaign_id,
                campaign_name = EXCLUDED.campaign_name, adgroup_id = EXCLUDED.adgroup_id,
@@ -146,7 +146,10 @@ export async function syncTikTokAds(userId?: number): Promise<{ synced: number; 
                ctr = EXCLUDED.ctr, cpc = EXCLUDED.cpc, cpm = EXCLUDED.cpm, cpa = EXCLUDED.cpa,
                roas = EXCLUDED.roas, video_views = EXCLUDED.video_views,
                video_watched_2s = EXCLUDED.video_watched_2s, video_watched_6s = EXCLUDED.video_watched_6s,
-               video_watched_100pct = EXCLUDED.video_watched_100pct, synced_at = NOW()`,
+               video_watched_100pct = EXCLUDED.video_watched_100pct,
+               campaign_status = EXCLUDED.campaign_status,
+               adset_daily_budget = EXCLUDED.adset_daily_budget,
+               synced_at = NOW()`,
             [
               userId || null, advertiserId,
               m.campaign_id || null, m.campaign_name || null,
@@ -155,6 +158,7 @@ export async function syncTikTokAds(userId?: number): Promise<{ synced: number; 
               spend, impressions, clicks, conversions, conversionValue,
               ctr, cpc, cpm, cpa, roas,
               videoViews, videoWatched2s, videoWatched6s, videoWatched100pct,
+              null, null,
             ]
           );
           await dbClient.query('RELEASE SAVEPOINT row_insert');

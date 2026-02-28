@@ -4,19 +4,27 @@ import pool from '../db';
 import { searchAdLibrary as metaSearchAdLibrary } from './meta-api';
 import { searchTikTokAdLibrary, getTikTokResearchAuth } from './tiktok-api';
 import { decrypt } from './oauth-providers';
+import { getSetting } from './settings';
 
 const anthropic = new Anthropic();
 
 async function getMetaAccessToken(userId: number): Promise<string> {
+  // Try OAuth first
   const result = await pool.query(
     `SELECT credentials FROM integration_configs
      WHERE user_id = $1 AND platform = 'meta' AND status = 'connected' AND connection_method = 'oauth'`,
     [userId]
   );
-  if (result.rows.length === 0) throw new Error('No connected Meta account');
-  const creds = result.rows[0].credentials;
-  if (!creds?.access_token_encrypted) throw new Error('No access token');
-  return decrypt(creds.access_token_encrypted);
+  if (result.rows.length > 0) {
+    const creds = result.rows[0].credentials;
+    if (creds?.access_token_encrypted) return decrypt(creds.access_token_encrypted);
+  }
+
+  // Fall back to manual token from settings
+  const manualToken = await getSetting('fb_access_token', userId);
+  if (manualToken) return manualToken;
+
+  throw new Error('No connected Meta account. Connect via OAuth or enter an access token in Settings > Connections.');
 }
 
 function parseImpressionRange(impressions: any): { lower: number | null; upper: number | null } {

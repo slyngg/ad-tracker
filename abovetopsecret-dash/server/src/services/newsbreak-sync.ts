@@ -1,6 +1,6 @@
 import pool from '../db';
 import https from 'https';
-import { getAllNewsBreakAuth, getNewsBreakAuth, NewsBreakAuth } from './newsbreak-api';
+import { getAllNewsBreakAuth, getNewsBreakAuth, getNewsBreakCampaignList, NewsBreakAuth } from './newsbreak-api';
 import { createLogger } from '../lib/logger';
 
 const log = createLogger('NewsBreakSync');
@@ -58,12 +58,60 @@ export async function syncAllNewsBreakForUser(userId: number): Promise<{ synced:
   // So we sync once and then apply the campaign→account mapping from nb_campaign_account_map.
   const result = await syncNewsBreakAds(userId, auth);
 
+  // Auto-discover campaign→advertiser mapping from user's NB account entries
+  await discoverCampaignAccountMapping(userId, auth.accessToken);
+
   // Apply campaign→account mapping so account_id reflects user's assignment
   if (userId) {
     await applyCampaignAccountMap(userId);
   }
 
   return { synced: result.synced, skipped: false, accounts: 1 };
+}
+
+/**
+ * Auto-discover which campaigns belong to which NB advertiser account.
+ * Calls getCampaignList for each known advertiser ID in the user's accounts table,
+ * then populates nb_campaign_account_map so data can be properly separated.
+ */
+async function discoverCampaignAccountMapping(userId: number, accessToken: string): Promise<void> {
+  try {
+    // Get all NB accounts with known advertiser IDs
+    const acctRes = await pool.query(
+      `SELECT id, platform_account_id, access_token_encrypted FROM accounts
+       WHERE user_id = $1 AND platform = 'newsbreak' AND status = 'active'
+         AND platform_account_id IS NOT NULL AND platform_account_id != 'default'`,
+      [userId]
+    );
+    if (acctRes.rows.length === 0) return;
+
+    for (const acct of acctRes.rows) {
+      const advertiserId = acct.platform_account_id;
+      // Use the account's own API key if available, otherwise the shared one
+      const token = acct.access_token_encrypted || accessToken;
+
+      try {
+        const campaigns = await getNewsBreakCampaignList(advertiserId, token);
+        let mapped = 0;
+        for (const campaign of campaigns) {
+          const campaignId = String(campaign.campaign_id || campaign.id);
+          if (!campaignId) continue;
+          await pool.query(
+            `INSERT INTO nb_campaign_account_map (user_id, campaign_id, account_id)
+             VALUES ($1, $2, $3)
+             ON CONFLICT (user_id, campaign_id) DO UPDATE SET account_id = EXCLUDED.account_id`,
+            [userId, campaignId, acct.id]
+          );
+          mapped++;
+        }
+        log.info({ userId, advertiserId, mapped }, 'Discovered campaign→advertiser mapping');
+      } catch (err) {
+        log.error({ err, advertiserId }, 'Failed to discover campaigns for advertiser');
+      }
+    }
+  } catch (err) {
+    log.error({ err }, 'Failed to run campaign account mapping discovery');
+  }
 }
 
 /**
@@ -189,8 +237,8 @@ export async function syncNewsBreakAds(userId?: number, authOverride?: NewsBreak
 
         await dbClient.query('SAVEPOINT row_insert');
         await dbClient.query(
-          `INSERT INTO newsbreak_ads_today (user_id, account_id, campaign_id, campaign_name, adset_id, adset_name, ad_id, ad_name, spend, impressions, clicks, conversions, conversion_value, ctr, cpc, cpm, cpa, roas, cvr, synced_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, NOW())
+          `INSERT INTO newsbreak_ads_today (user_id, account_id, campaign_id, campaign_name, adset_id, adset_name, ad_id, ad_name, spend, impressions, clicks, conversions, conversion_value, ctr, cpc, cpm, cpa, roas, cvr, synced_at, campaign_status, adset_daily_budget)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, NOW(), $20, $21)
            ON CONFLICT (COALESCE(user_id, -1), ad_id) DO UPDATE SET
              account_id = EXCLUDED.account_id, campaign_id = EXCLUDED.campaign_id,
              campaign_name = EXCLUDED.campaign_name, adset_id = EXCLUDED.adset_id,
@@ -198,7 +246,10 @@ export async function syncNewsBreakAds(userId?: number, authOverride?: NewsBreak
              spend = EXCLUDED.spend, impressions = EXCLUDED.impressions, clicks = EXCLUDED.clicks,
              conversions = EXCLUDED.conversions, conversion_value = EXCLUDED.conversion_value,
              ctr = EXCLUDED.ctr, cpc = EXCLUDED.cpc, cpm = EXCLUDED.cpm, cpa = EXCLUDED.cpa,
-             roas = EXCLUDED.roas, cvr = EXCLUDED.cvr, synced_at = NOW()`,
+             roas = EXCLUDED.roas, cvr = EXCLUDED.cvr,
+             campaign_status = COALESCE(EXCLUDED.campaign_status, newsbreak_ads_today.campaign_status),
+             adset_daily_budget = COALESCE(EXCLUDED.adset_daily_budget, newsbreak_ads_today.adset_daily_budget),
+             synced_at = NOW()`,
           [
             userId || null, rowAccountId,
             row.campaignId || null, row.campaign || null,
@@ -206,6 +257,8 @@ export async function syncNewsBreakAds(userId?: number, authOverride?: NewsBreak
             adId, row.ad || null,
             spend, impressions, clicks, conversions, conversionValue,
             ctr, cpc, cpm, cpa, roas, cvr,
+            row.campaignStatus || null,
+            row.dailyBudget ? parseFloat(row.dailyBudget) / 100 : null,
           ]
         );
         await dbClient.query('RELEASE SAVEPOINT row_insert');

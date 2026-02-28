@@ -81,9 +81,15 @@ router.post('/search', validateBody(searchSchema), async (req: Request, res: Res
 
     const result = await searchAndCacheAdLibrary(userId, req.body);
     res.json(result);
-  } catch (err) {
+  } catch (err: any) {
     console.error('Error searching ad library:', err);
-    res.status(500).json({ error: 'Failed to search ad library' });
+    const msg = err?.message || '';
+    // Surface connection errors clearly so the user knows to connect their account
+    if (msg.includes('No connected') || msg.includes('No access token') || msg.includes('No TikTok')) {
+      res.status(400).json({ error: msg });
+    } else {
+      res.status(500).json({ error: msg || 'Failed to search ad library' });
+    }
   }
 });
 

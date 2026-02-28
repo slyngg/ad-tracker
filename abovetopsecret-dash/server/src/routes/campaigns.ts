@@ -766,7 +766,8 @@ router.get('/live', async (req: Request, res: Response) => {
             SUM((ad_data->>'impressions')::numeric) AS impressions,
             COALESCE(SUM((ad_data->>'conversions')::numeric), 0) AS conversions, COALESCE(SUM((ad_data->>'conversion_value')::numeric), 0) AS conversion_value,
             COUNT(DISTINCT ad_data->>'ad_set_id') AS adset_count,
-            COUNT(DISTINCT ad_data->>'ad_name') AS ad_count
+            COUNT(DISTINCT ad_data->>'ad_name') AS ad_count,
+            NULL AS status, NULL AS daily_budget
           FROM fb_ads_archive WHERE user_id = $1 AND archived_date BETWEEN $2 AND $3${metaAccountFilter}
           GROUP BY ad_data->>'campaign_id', ad_data->>'campaign_name', ad_data->>'account_name'
           UNION ALL
@@ -776,7 +777,8 @@ router.get('/live', async (req: Request, res: Response) => {
             COALESCE(a.name, 'TikTok') AS account_name,
             SUM((ad_data->>'spend')::numeric), SUM((ad_data->>'clicks')::numeric), SUM((ad_data->>'impressions')::numeric),
             COALESCE(SUM((ad_data->>'conversions')::numeric), 0), COALESCE(SUM((ad_data->>'conversion_value')::numeric), 0),
-            COUNT(DISTINCT ad_data->>'adgroup_id'), COUNT(DISTINCT ad_data->>'ad_name')
+            COUNT(DISTINCT ad_data->>'adgroup_id'), COUNT(DISTINCT ad_data->>'ad_name'),
+            NULL AS status, NULL AS daily_budget
           FROM tiktok_ads_archive t LEFT JOIN accounts a ON a.id = t.account_id
           WHERE t.user_id = $1 AND t.archived_date BETWEEN $2 AND $3${tiktokAccountFilter}
           GROUP BY ad_data->>'campaign_id', ad_data->>'campaign_name', a.name
@@ -787,7 +789,8 @@ router.get('/live', async (req: Request, res: Response) => {
             COALESCE(a.name, 'NewsBreak') AS account_name,
             SUM((ad_data->>'spend')::numeric), SUM((ad_data->>'clicks')::numeric), SUM((ad_data->>'impressions')::numeric),
             COALESCE(SUM((ad_data->>'conversions')::numeric), 0), COALESCE(SUM((ad_data->>'conversion_value')::numeric), 0),
-            COUNT(DISTINCT ad_data->>'adset_id'), COUNT(DISTINCT ad_data->>'ad_name')
+            COUNT(DISTINCT ad_data->>'adset_id'), COUNT(DISTINCT ad_data->>'ad_name'),
+            NULL AS status, NULL AS daily_budget
           FROM newsbreak_ads_archive n LEFT JOIN accounts a ON a.platform = 'newsbreak' AND a.platform_account_id = n.account_id AND a.user_id = n.user_id
           WHERE n.user_id = $1 AND n.archived_date BETWEEN $2 AND $3${newsbreakAccountFilter}
           GROUP BY ad_data->>'campaign_id', ad_data->>'campaign_name', a.name
@@ -802,14 +805,18 @@ router.get('/live', async (req: Request, res: Response) => {
           SELECT 'meta' AS platform, campaign_id, campaign_name, account_name,
             SUM(spend) AS spend, SUM(clicks) AS clicks, SUM(impressions) AS impressions,
             COALESCE(SUM(conversions), 0) AS conversions, COALESCE(SUM(conversion_value), 0) AS conversion_value,
-            COUNT(DISTINCT ad_set_id) AS adset_count, COUNT(DISTINCT ad_name) AS ad_count
+            COUNT(DISTINCT ad_set_id) AS adset_count, COUNT(DISTINCT ad_name) AS ad_count,
+            MAX(campaign_status) AS status,
+            SUM(DISTINCT adset_daily_budget) AS daily_budget
           FROM fb_ads_today WHERE user_id = $1${metaAccountFilter}
           GROUP BY campaign_id, campaign_name, account_name
           UNION ALL
           SELECT 'tiktok' AS platform, campaign_id, campaign_name, COALESCE(a.name, 'TikTok') AS account_name,
             SUM(t.spend), SUM(t.clicks), SUM(t.impressions),
             COALESCE(SUM(t.conversions), 0), COALESCE(SUM(t.conversion_value), 0),
-            COUNT(DISTINCT t.adgroup_id), COUNT(DISTINCT t.ad_name)
+            COUNT(DISTINCT t.adgroup_id), COUNT(DISTINCT t.ad_name),
+            MAX(t.campaign_status) AS status,
+            SUM(DISTINCT t.adset_daily_budget) AS daily_budget
           FROM tiktok_ads_today t LEFT JOIN accounts a ON a.id = t.account_id
           WHERE t.user_id = $1${tiktokAccountFilter}
           GROUP BY t.campaign_id, t.campaign_name, a.name
@@ -817,7 +824,9 @@ router.get('/live', async (req: Request, res: Response) => {
           SELECT 'newsbreak' AS platform, campaign_id, campaign_name, COALESCE(a.name, 'NewsBreak') AS account_name,
             SUM(n.spend), SUM(n.clicks), SUM(n.impressions),
             COALESCE(SUM(n.conversions), 0), COALESCE(SUM(n.conversion_value), 0),
-            COUNT(DISTINCT n.adset_id), COUNT(DISTINCT n.ad_name)
+            COUNT(DISTINCT n.adset_id), COUNT(DISTINCT n.ad_name),
+            MAX(n.campaign_status) AS status,
+            SUM(DISTINCT n.adset_daily_budget) AS daily_budget
           FROM newsbreak_ads_today n LEFT JOIN accounts a ON a.platform = 'newsbreak' AND a.platform_account_id = n.account_id AND a.user_id = n.user_id
           WHERE n.user_id = $1${newsbreakAccountFilter}
           GROUP BY n.campaign_id, n.campaign_name, a.name
@@ -841,6 +850,8 @@ router.get('/live', async (req: Request, res: Response) => {
       cpa: parseInt(r.conversions) > 0 ? (parseFloat(r.spend) || 0) / parseInt(r.conversions) : 0,
       adset_count: parseInt(r.adset_count) || 0,
       ad_count: parseInt(r.ad_count) || 0,
+      status: r.status || 'UNKNOWN',
+      daily_budget: parseFloat(r.daily_budget) || null,
     })));
   } catch (err) {
     console.error('Error fetching live campaigns:', err);
@@ -1022,6 +1033,11 @@ import {
   createNewsBreakLookalikeAudience,
   deleteNewsBreakAudience,
 } from '../services/newsbreak-api';
+import {
+  updateTikTokCampaignStatus,
+  updateTikTokAdGroupStatus,
+  pauseTikTokAdGroup,
+} from '../services/tiktok-api';
 
 // ── NewsBreak Audience Management ─────────────────────────────
 
@@ -1126,8 +1142,30 @@ router.post('/live/status', publishLimiter, async (req: Request, res: Response) 
       } else if (entity_type === 'ad') {
         await updateNewsBreakAdStatus(entity_id, nbStatus, userId);
       }
+    } else if (platform === 'meta') {
+      const accessToken = await getAccessToken(userId);
+      const graphStatus = enable ? 'ACTIVE' : 'PAUSED';
+      const entityUrl = `https://graph.facebook.com/v21.0/${entity_id}`;
+      const resp = await fetch(entityUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: graphStatus, access_token: accessToken }),
+      });
+      if (!resp.ok) {
+        const errData: any = await resp.json().catch(() => ({}));
+        throw new Error(errData.error?.message || `Meta API error ${resp.status}`);
+      }
+    } else if (platform === 'tiktok') {
+      if (entity_type === 'campaign') {
+        await updateTikTokCampaignStatus(entity_id, enable ? 'ENABLE' : 'DISABLE', userId);
+      } else if (entity_type === 'adset') {
+        if (enable) {
+          await updateTikTokAdGroupStatus(entity_id, 'ENABLE', userId);
+        } else {
+          await pauseTikTokAdGroup(entity_id, userId);
+        }
+      }
     }
-    // Meta and TikTok status updates can be added here
 
     // Log pause/resume to activity log
     try {

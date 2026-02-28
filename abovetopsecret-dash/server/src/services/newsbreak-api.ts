@@ -15,6 +15,7 @@ export interface NewsBreakAuth {
 // ── Auth resolution ────────────────────────────────────────────
 
 export async function getNewsBreakAuth(userId: number): Promise<NewsBreakAuth | null> {
+  // 1. Check integration_configs (OAuth-style connections)
   try {
     const result = await pool.query(
       `SELECT credentials, config FROM integration_configs
@@ -30,9 +31,26 @@ export async function getNewsBreakAuth(userId: number): Promise<NewsBreakAuth | 
       }
     }
   } catch {
-    // Fall through to getSetting
+    // Fall through
   }
 
+  // 2. Check accounts table (multi-account connections page)
+  try {
+    const result = await pool.query(
+      `SELECT id, access_token_encrypted, platform_account_id FROM accounts
+       WHERE user_id = $1 AND platform = 'newsbreak' AND status = 'active' AND access_token_encrypted IS NOT NULL
+       ORDER BY id LIMIT 1`,
+      [userId]
+    );
+    if (result.rows.length > 0) {
+      const row = result.rows[0];
+      return { accessToken: row.access_token_encrypted, accountId: row.platform_account_id || 'default', dbAccountId: row.id };
+    }
+  } catch {
+    // Fall through
+  }
+
+  // 3. Fallback to app_settings (legacy global key)
   const accessToken = await getSetting('newsbreak_api_key', userId);
   const accountId = await getSetting('newsbreak_account_id', userId);
   if (accessToken) {
@@ -61,7 +79,20 @@ export async function getAllNewsBreakAuth(userId: number): Promise<NewsBreakAuth
     }
   } catch { /* ignore */ }
 
-  // From app_settings (legacy)
+  // From accounts table (multi-account connections page)
+  try {
+    const result = await pool.query(
+      `SELECT id, access_token_encrypted, platform_account_id FROM accounts
+       WHERE user_id = $1 AND platform = 'newsbreak' AND status = 'active' AND access_token_encrypted IS NOT NULL
+       ORDER BY id`,
+      [userId]
+    );
+    for (const row of result.rows) {
+      auths.push({ accessToken: row.access_token_encrypted, accountId: row.platform_account_id || 'default', dbAccountId: row.id });
+    }
+  } catch { /* ignore */ }
+
+  // From app_settings (legacy) — only if nothing else found
   if (auths.length === 0) {
     const accessToken = await getSetting('newsbreak_api_key', userId);
     const accountId = await getSetting('newsbreak_account_id', userId);
@@ -243,10 +274,10 @@ export async function updateNewsBreakCampaignStatus(
 ): Promise<void> {
   const auth = await getNewsBreakAuth(userId);
   if (!auth) throw new Error('No NewsBreak credentials');
-  await newsbreakRequest('POST', '/business-api/v1/campaign/updateCampaignStatus', auth.accessToken, {
+  await newsbreakRequest('POST', '/business-api/v1/campaign/updateCampaign', auth.accessToken, {
     advertiser_id: auth.accountId,
     campaign_id: campaignId,
-    status,
+    opt_status: status,
   });
 }
 
@@ -257,10 +288,10 @@ export async function updateNewsBreakAdSetStatus(
 ): Promise<void> {
   const auth = await getNewsBreakAuth(userId);
   if (!auth) throw new Error('No NewsBreak credentials');
-  await newsbreakRequest('POST', '/business-api/v1/adSet/updateAdSetStatus', auth.accessToken, {
+  await newsbreakRequest('POST', '/business-api/v1/adSet/updateAdSet', auth.accessToken, {
     advertiser_id: auth.accountId,
     adset_id: adSetId,
-    status,
+    opt_status: status,
   });
 }
 
@@ -271,10 +302,10 @@ export async function updateNewsBreakAdStatus(
 ): Promise<void> {
   const auth = await getNewsBreakAuth(userId);
   if (!auth) throw new Error('No NewsBreak credentials');
-  await newsbreakRequest('POST', '/business-api/v1/ad/updateAdStatus', auth.accessToken, {
+  await newsbreakRequest('POST', '/business-api/v1/ad/updateAd', auth.accessToken, {
     advertiser_id: auth.accountId,
     ad_id: adId,
-    status,
+    opt_status: status,
   });
 }
 
