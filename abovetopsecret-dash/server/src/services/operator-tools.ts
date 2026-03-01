@@ -16,6 +16,7 @@ import {
   updateNewsBreakAdSetStatus,
   updateNewsBreakAdStatus,
   adjustNewsBreakBudget,
+  adjustNewsBreakBidCap,
 } from './newsbreak-api';
 import { getRealtime } from '../services/realtime';
 
@@ -33,7 +34,7 @@ const WRITE_ACTIONS = new Set([
   'pause_newsbreak_campaign', 'enable_newsbreak_campaign',
   'pause_newsbreak_adset', 'enable_newsbreak_adset',
   'pause_newsbreak_ad', 'enable_newsbreak_ad',
-  'adjust_newsbreak_budget',
+  'adjust_newsbreak_budget', 'adjust_newsbreak_bid',
   'pause_cc_subscription', 'cancel_cc_subscription',
 ]);
 
@@ -90,7 +91,7 @@ function getEntityLookup(toolName: string): EntityLookup | null {
   const TT_ADGROUP_TOOLS = ['pause_tiktok_adgroup', 'enable_tiktok_adgroup', 'adjust_tiktok_budget'];
   const TT_CAMPAIGN_TOOLS = ['pause_tiktok_campaign', 'enable_tiktok_campaign'];
   const NB_AD_TOOLS = ['pause_newsbreak_ad', 'enable_newsbreak_ad'];
-  const NB_ADSET_TOOLS = ['pause_newsbreak_adset', 'enable_newsbreak_adset', 'adjust_newsbreak_budget'];
+  const NB_ADSET_TOOLS = ['pause_newsbreak_adset', 'enable_newsbreak_adset', 'adjust_newsbreak_budget', 'adjust_newsbreak_bid'];
   const NB_CAMPAIGN_TOOLS = ['pause_newsbreak_campaign', 'enable_newsbreak_campaign'];
 
   if (META_ADSET_TOOLS.includes(toolName))
@@ -293,6 +294,8 @@ function buildActionDescription(name: string, input: Record<string, any>, entity
       return `Enable NewsBreak ad ${input.ad_id}${tag}`;
     case 'adjust_newsbreak_budget':
       return `Set NewsBreak adset ${input.adset_id}${tag} daily budget to $${input.daily_budget}`;
+    case 'adjust_newsbreak_bid':
+      return `Set NewsBreak adset ${input.adset_id}${tag} bid cap to $${input.bid_amount}`;
     case 'pause_cc_subscription':
       return `Pause Checkout Champ subscription ${input.purchase_id}`;
     case 'cancel_cc_subscription':
@@ -606,6 +609,19 @@ export const operatorTools = [
         adset_id: { type: 'string', description: 'The NewsBreak adset ID (if known)' },
         name: { type: 'string', description: 'The adset name to search for' },
         daily_budget: { type: 'number', description: 'New daily budget in dollars (min $5)' },
+      },
+      required: [] as string[],
+    },
+  },
+  {
+    name: 'adjust_newsbreak_bid',
+    description: 'Change the bid cap (bidRate) of a NewsBreak adset. Provide the adset_id OR name, plus the new bid_amount in dollars. The bid type must be CPM, CPC, or TARGET_CPA for this to apply.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        adset_id: { type: 'string', description: 'The NewsBreak adset ID (if known)' },
+        name: { type: 'string', description: 'The adset name to search for' },
+        bid_amount: { type: 'number', description: 'New bid cap in dollars (e.g. 2.50 for $2.50)' },
       },
       required: [] as string[],
     },
@@ -1421,6 +1437,12 @@ export async function executeTool(
       if (!userId) return { result: { error: 'No user context' }, summary: 'Failed: no user' };
       await adjustNewsBreakBudget(input.adset_id, input.daily_budget, userId);
       return { result: { success: true }, summary: `NewsBreak ad set ${input.adset_id} budget set to $${input.daily_budget}/day` };
+    }
+
+    case 'adjust_newsbreak_bid': {
+      if (!userId) return { result: { error: 'No user context' }, summary: 'Failed: no user' };
+      await adjustNewsBreakBidCap(input.adset_id, input.bid_amount, userId);
+      return { result: { success: true }, summary: `NewsBreak ad set ${input.adset_id} bid cap set to $${input.bid_amount}` };
     }
 
     // ── Checkout Champ Actions ─────────────────────────────────

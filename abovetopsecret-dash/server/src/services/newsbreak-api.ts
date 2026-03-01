@@ -306,7 +306,20 @@ export async function updateNewsBreakAdStatus(
   });
 }
 
-// ── Budget management ──────────────────────────────────────────
+// ── Budget & Bid management ────────────────────────────────────
+
+export async function adjustNewsBreakBidCap(
+  adSetId: string,
+  bidDollars: number,
+  userId: number
+): Promise<void> {
+  const auth = await getNewsBreakAuth(userId);
+  if (!auth) throw new Error('No NewsBreak credentials');
+  // NB API expects bidRate in cents
+  await newsbreakRequest('PUT', `/business-api/v1/ad-set/update/${adSetId}`, auth.accessToken, {
+    bidRate: Math.round(bidDollars * 100),
+  });
+}
 
 export async function adjustNewsBreakBudget(
   adSetId: string,
