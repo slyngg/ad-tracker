@@ -18,6 +18,7 @@ interface AdsetTableRowProps {
   expandedAds: Record<string, LiveAd[] | 'loading'>;
   adsetBudgets: Record<string, number>;
   adsetBidRates: Record<string, number>;
+  adsetBidTypes: Record<string, string>;
   actionLoading: Record<string, boolean>;
   statusOverrides: Record<string, boolean>;
   onToggleAdset: () => void;
@@ -26,7 +27,7 @@ interface AdsetTableRowProps {
   onBudgetClick: (platform: string, entityId: string, currentBudget?: number, currentBidRate?: number) => void;
 }
 
-function getAdsetCellValue(as: LiveAdset, key: string, budget?: number): string {
+function getAdsetCellValue(as: LiveAdset, key: string, budget?: number, bidRate?: number, bidType?: string): string {
   switch (key) {
     case 'spend': return fmt$(as.spend);
     case 'clicks': return fmtNum(as.clicks);
@@ -40,6 +41,8 @@ function getAdsetCellValue(as: LiveAdset, key: string, budget?: number): string 
     case 'cpc': return fmt$(as.clicks > 0 ? as.spend / as.clicks : 0);
     case 'cpm': return fmt$(as.impressions > 0 ? (as.spend / as.impressions) * 1000 : 0);
     case 'daily_budget': return budget !== undefined ? `${fmt$(budget)}/day` : '—';
+    case 'bid_type': return bidType || '—';
+    case 'bid_rate': return bidRate != null ? fmt$(bidRate / 100) : '—';
     default: return '—';
   }
 }
@@ -51,6 +54,7 @@ export default function AdsetTableRow({
   expandedAds,
   adsetBudgets,
   adsetBidRates,
+  adsetBidTypes,
   actionLoading,
   statusOverrides,
   onToggleAdset,
@@ -63,6 +67,7 @@ export default function AdsetTableRow({
   const adsOpen = ads && ads !== 'loading';
   const currentBudget = adsetBudgets[as.adset_id];
   const currentBidRate = adsetBidRates[as.adset_id];
+  const currentBidType = adsetBidTypes[as.adset_id];
 
   return (
     <Fragment>
@@ -98,9 +103,11 @@ export default function AdsetTableRow({
             col.key === 'spend' ? 'font-mono text-ats-text' :
             col.key === 'net_profit' ? `font-mono ${(as.conversion_value - as.spend) >= 0 ? 'text-emerald-400' : 'text-red-400'}` :
             col.key === 'daily_budget' ? 'font-mono text-emerald-400/70' :
+            col.key === 'bid_rate' ? 'font-mono text-blue-400/70' :
+            col.key === 'bid_type' ? 'text-ats-text-muted text-[10px]' :
             'text-ats-text-muted'
           }`}>
-            {getAdsetCellValue(as, col.key, currentBudget)}
+            {getAdsetCellValue(as, col.key, currentBudget, currentBidRate, currentBidType)}
           </td>
         ))}
         <td className="px-4 py-2.5 text-right" onClick={e => e.stopPropagation()}>

@@ -181,6 +181,7 @@ export default function LiveCampaignsPage() {
             expandedAds={data.expandedAds}
             adsetBudgets={data.adsetBudgets}
             adsetBidRates={data.adsetBidRates}
+            adsetBidTypes={data.adsetBidTypes}
             actionLoading={data.actionLoading}
             statusOverrides={data.statusOverrides}
             selectedCampaigns={selectedCampaigns}

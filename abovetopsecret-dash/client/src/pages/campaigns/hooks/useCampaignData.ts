@@ -33,6 +33,7 @@ export default function useCampaignData() {
   const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({});
   const [adsetBudgets, setAdsetBudgets] = useState<Record<string, number>>({});
   const [adsetBidRates, setAdsetBidRates] = useState<Record<string, number>>({});
+  const [adsetBidTypes, setAdsetBidTypes] = useState<Record<string, string>>({});
   const [statusOverrides, setStatusOverrides] = useState<Record<string, boolean>>({});
   const [campaignAccountMap, setCampaignAccountMap] = useState<Record<string, number>>({});
   const [assigningCampaign, setAssigningCampaign] = useState<string | null>(null);
@@ -168,6 +169,13 @@ export default function useCampaignData() {
           const next = { ...prev };
           for (const b of budgets) {
             if (b.bid_rate != null) next[b.adgroup_id] = b.bid_rate;
+          }
+          return next;
+        });
+        setAdsetBidTypes(prev => {
+          const next = { ...prev };
+          for (const b of budgets) {
+            if (b.bid_type) next[b.adgroup_id] = b.bid_type;
           }
           return next;
         });
@@ -316,6 +324,7 @@ export default function useCampaignData() {
     expandedAds,
     adsetBudgets,
     adsetBidRates,
+    adsetBidTypes,
     actionLoading,
     statusOverrides,
     campaignAccountMap,

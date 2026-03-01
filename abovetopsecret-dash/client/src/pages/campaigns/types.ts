@@ -28,6 +28,8 @@ export const ALL_COLUMNS: ColumnDef[] = [
   { key: 'cpc', label: 'CPC', align: 'right', sortable: false },
   { key: 'cpm', label: 'CPM', align: 'right', sortable: false },
   { key: 'daily_budget', label: 'Budget', align: 'right', sortable: true },
+  { key: 'bid_type', label: 'Bid Type', align: 'right', sortable: false },
+  { key: 'bid_rate', label: 'Bid Rate', align: 'right', sortable: false },
 ];
 
 export interface CreatorState {
