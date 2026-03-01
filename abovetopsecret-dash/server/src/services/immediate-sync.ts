@@ -117,23 +117,14 @@ async function runPlatformSync(
           })
           .catch(() => {});
 
-        // Auto-backfill if this looks like a new/reconnected account
-        // (token works but no or very little archive data)
+        // Auto-backfill: always run after an immediate sync trigger
+        // (only happens on new token save or OAuth connect, not scheduled syncs)
+        // Deduplicates via ON CONFLICT DO NOTHING so safe to re-run
         if (!result.skipped) {
-          try {
-            const archiveCount = await pool.query(
-              'SELECT COUNT(*)::int as cnt FROM fb_ads_archive WHERE user_id = $1',
-              [userId]
-            );
-            const cnt = archiveCount.rows[0]?.cnt || 0;
-            if (cnt < 30) {
-              log.info({ userId, archiveRows: cnt }, 'New Meta connection detected — auto-backfilling 90 days');
-              // Fire-and-forget backfill (deduplicates via ON CONFLICT DO NOTHING)
-              backfillFacebook(userId, 90)
-                .then(bf => log.info({ userId, backfilled: bf.backfilled }, 'Auto-backfill complete'))
-                .catch(err => log.error({ err, userId }, 'Auto-backfill failed'));
-            }
-          } catch { /* ignore */ }
+          log.info({ userId }, 'Meta connection sync complete — triggering 90-day backfill with dedup');
+          backfillFacebook(userId, 90)
+            .then(bf => log.info({ userId, backfilled: bf.backfilled }, 'Auto-backfill complete'))
+            .catch(err => log.error({ err, userId }, 'Auto-backfill failed'));
         }
 
         emitPlatformDone(userId, platform);
