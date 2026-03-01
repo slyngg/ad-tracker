@@ -9,6 +9,7 @@ interface AdTableRowProps {
   adsetId: string;
   columns: ColumnDef[];
   actionLoading: Record<string, boolean>;
+  statusOverrides: Record<string, boolean>;
   onStatusChange: (platform: string, entityType: string, entityId: string, enable: boolean) => Promise<void>;
   onDuplicate: (platform: string, entityType: string, entityId: string, parentId?: string) => void;
 }
@@ -31,7 +32,7 @@ function getAdCellValue(ad: LiveAd, key: string): string {
   }
 }
 
-export default function AdTableRow({ ad, platform, adsetId, columns, actionLoading, onStatusChange, onDuplicate }: AdTableRowProps) {
+export default function AdTableRow({ ad, platform, adsetId, columns, actionLoading, statusOverrides, onStatusChange, onDuplicate }: AdTableRowProps) {
   return (
     <tr className="border-b border-ats-border/20 bg-ats-bg/30">
       <td className="px-4 py-2 pl-16" />
@@ -53,7 +54,7 @@ export default function AdTableRow({ ad, platform, adsetId, columns, actionLoadi
           {ad.ad_id && (
             <>
               <StatusToggle
-                enabled={true}
+                enabled={statusOverrides[`ad:${ad.ad_id}`] ?? true}
                 onToggle={async (enable) => {
                   await onStatusChange(platform, 'ad', ad.ad_id!, enable);
                 }}

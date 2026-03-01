@@ -31,6 +31,7 @@ export default function useCampaignData() {
   const [expandedAds, setExpandedAds] = useState<Record<string, LiveAd[] | 'loading'>>({});
   const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({});
   const [adsetBudgets, setAdsetBudgets] = useState<Record<string, number>>({});
+  const [statusOverrides, setStatusOverrides] = useState<Record<string, boolean>>({});
   const [campaignAccountMap, setCampaignAccountMap] = useState<Record<string, number>>({});
   const [assigningCampaign, setAssigningCampaign] = useState<string | null>(null);
 
@@ -47,6 +48,7 @@ export default function useCampaignData() {
     setError(null);
     setExpanded({});
     setExpandedAds({});
+    setStatusOverrides({});
     try {
       const startDate = dateRange.isToday ? undefined : toIso(dateRange.from);
       const endDate = dateRange.isToday ? undefined : toIso(dateRange.to);
@@ -188,8 +190,14 @@ export default function useCampaignData() {
     setActionLoading(p => ({ ...p, [key]: true }));
     try {
       await updateLiveEntityStatus(platform, entityType, entityId, enable ? 'ENABLE' : 'DISABLE');
+      // Update status locally instead of reloading (which collapses the tree)
+      setStatusOverrides(p => ({ ...p, [`${entityType}:${entityId}`]: enable }));
+      if (entityType === 'campaign') {
+        setCampaigns(prev => prev.map(c =>
+          c.campaign_id === entityId ? { ...c, status: enable ? 'ACTIVE' as const : 'PAUSED' as const } : c
+        ));
+      }
       triggerPlatformSync(platform).catch(() => {});
-      await load();
     } catch (err: any) {
       alert(err.message || 'Failed');
       throw err;
@@ -205,7 +213,6 @@ export default function useCampaignData() {
       await updateLiveEntityBudget(platform, entityId, newBudget, oldBudget);
       setAdsetBudgets(prev => ({ ...prev, [entityId]: newBudget }));
       triggerPlatformSync(platform).catch(() => {});
-      await load();
     } catch (err: any) {
       alert(err.message || 'Failed');
       throw err;
@@ -285,6 +292,7 @@ export default function useCampaignData() {
     expandedAds,
     adsetBudgets,
     actionLoading,
+    statusOverrides,
     campaignAccountMap,
     assigningCampaign,
     dateRange,

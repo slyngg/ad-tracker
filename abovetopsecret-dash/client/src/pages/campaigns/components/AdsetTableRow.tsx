@@ -18,6 +18,7 @@ interface AdsetTableRowProps {
   expandedAds: Record<string, LiveAd[] | 'loading'>;
   adsetBudgets: Record<string, number>;
   actionLoading: Record<string, boolean>;
+  statusOverrides: Record<string, boolean>;
   onToggleAdset: () => void;
   onStatusChange: (platform: string, entityType: string, entityId: string, enable: boolean) => Promise<void>;
   onDuplicate: (platform: string, entityType: string, entityId: string, parentId?: string) => void;
@@ -49,6 +50,7 @@ export default function AdsetTableRow({
   expandedAds,
   adsetBudgets,
   actionLoading,
+  statusOverrides,
   onToggleAdset,
   onStatusChange,
   onDuplicate,
@@ -76,7 +78,7 @@ export default function AdsetTableRow({
         {/* Status */}
         <td className="px-4 py-2.5" onClick={e => e.stopPropagation()}>
           <StatusToggle
-            enabled={true}
+            enabled={statusOverrides[`adset:${as.adset_id}`] ?? true}
             onToggle={async (enable) => {
               await onStatusChange(platform, 'adset', as.adset_id, enable);
             }}
@@ -130,6 +132,7 @@ export default function AdsetTableRow({
           adsetId={as.adset_id}
           columns={columns}
           actionLoading={actionLoading}
+          statusOverrides={statusOverrides}
           onStatusChange={onStatusChange}
           onDuplicate={onDuplicate}
         />

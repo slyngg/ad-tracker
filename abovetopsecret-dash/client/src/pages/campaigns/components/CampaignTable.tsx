@@ -13,6 +13,7 @@ interface CampaignTableProps {
   expandedAds: Record<string, LiveAd[] | 'loading'>;
   adsetBudgets: Record<string, number>;
   actionLoading: Record<string, boolean>;
+  statusOverrides: Record<string, boolean>;
   selectedCampaigns: Set<string>;
   assigningCampaign: string | null;
   campaignAccountMap: Record<string, number>;
@@ -74,6 +75,7 @@ export default function CampaignTable({
   expandedAds,
   adsetBudgets,
   actionLoading,
+  statusOverrides,
   selectedCampaigns,
   assigningCampaign,
   campaignAccountMap,
@@ -139,6 +141,7 @@ export default function CampaignTable({
                 expandedAds={expandedAds}
                 adsetBudgets={adsetBudgets}
                 actionLoading={actionLoading}
+                statusOverrides={statusOverrides}
                 selected={selectedCampaigns.has(c.campaign_id)}
                 assigningCampaign={assigningCampaign}
                 campaignAccountMap={campaignAccountMap}

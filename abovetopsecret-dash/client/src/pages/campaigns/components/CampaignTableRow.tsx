@@ -22,6 +22,7 @@ interface CampaignTableRowProps {
   expandedAds: Record<string, LiveAd[] | 'loading'>;
   adsetBudgets: Record<string, number>;
   actionLoading: Record<string, boolean>;
+  statusOverrides: Record<string, boolean>;
   selected: boolean;
   assigningCampaign: string | null;
   campaignAccountMap: Record<string, number>;
@@ -71,6 +72,7 @@ export default function CampaignTableRow({
   expandedAds,
   adsetBudgets,
   actionLoading,
+  statusOverrides,
   selected,
   assigningCampaign,
   campaignAccountMap,
@@ -181,6 +183,7 @@ export default function CampaignTableRow({
           expandedAds={expandedAds}
           adsetBudgets={adsetBudgets}
           actionLoading={actionLoading}
+          statusOverrides={statusOverrides}
           onToggleAdset={() => onToggleAdset(c.platform, as.adset_id)}
           onStatusChange={onStatusChange}
           onDuplicate={onDuplicate}
