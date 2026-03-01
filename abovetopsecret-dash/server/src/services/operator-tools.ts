@@ -11,6 +11,12 @@ import {
   updateTikTokCampaignStatus,
 } from './tiktok-api';
 import { CheckoutChampClient } from './checkout-champ-client';
+import {
+  updateNewsBreakCampaignStatus,
+  updateNewsBreakAdSetStatus,
+  updateNewsBreakAdStatus,
+  adjustNewsBreakBudget,
+} from './newsbreak-api';
 import { getRealtime } from '../services/realtime';
 
 // ═══════════════════════════════════════════════════════════════
@@ -24,6 +30,10 @@ const WRITE_ACTIONS = new Set([
   'pause_tiktok_adgroup', 'enable_tiktok_adgroup',
   'adjust_tiktok_budget',
   'pause_tiktok_campaign', 'enable_tiktok_campaign',
+  'pause_newsbreak_campaign', 'enable_newsbreak_campaign',
+  'pause_newsbreak_adset', 'enable_newsbreak_adset',
+  'pause_newsbreak_ad', 'enable_newsbreak_ad',
+  'adjust_newsbreak_budget',
   'pause_cc_subscription', 'cancel_cc_subscription',
 ]);
 
@@ -79,6 +89,9 @@ function getEntityLookup(toolName: string): EntityLookup | null {
   const META_CAMPAIGN_TOOLS = ['pause_meta_campaign', 'enable_meta_campaign'];
   const TT_ADGROUP_TOOLS = ['pause_tiktok_adgroup', 'enable_tiktok_adgroup', 'adjust_tiktok_budget'];
   const TT_CAMPAIGN_TOOLS = ['pause_tiktok_campaign', 'enable_tiktok_campaign'];
+  const NB_AD_TOOLS = ['pause_newsbreak_ad', 'enable_newsbreak_ad'];
+  const NB_ADSET_TOOLS = ['pause_newsbreak_adset', 'enable_newsbreak_adset', 'adjust_newsbreak_budget'];
+  const NB_CAMPAIGN_TOOLS = ['pause_newsbreak_campaign', 'enable_newsbreak_campaign'];
 
   if (META_ADSET_TOOLS.includes(toolName))
     return { table: 'fb_ads_today', idCol: 'ad_set_id', nameCol: 'ad_set_name', inputKey: 'adset_id', entityLabel: 'Meta adset' };
@@ -88,6 +101,12 @@ function getEntityLookup(toolName: string): EntityLookup | null {
     return { table: 'tiktok_ads_today', idCol: 'adgroup_id', nameCol: 'adgroup_name', inputKey: 'adgroup_id', entityLabel: 'TikTok ad group' };
   if (TT_CAMPAIGN_TOOLS.includes(toolName))
     return { table: 'tiktok_ads_today', idCol: 'campaign_id', nameCol: 'campaign_name', inputKey: 'campaign_id', entityLabel: 'TikTok campaign' };
+  if (NB_AD_TOOLS.includes(toolName))
+    return { table: 'newsbreak_ads_today', idCol: 'ad_id', nameCol: 'ad_name', inputKey: 'ad_id', entityLabel: 'NewsBreak ad' };
+  if (NB_ADSET_TOOLS.includes(toolName))
+    return { table: 'newsbreak_ads_today', idCol: 'adset_id', nameCol: 'adset_name', inputKey: 'adset_id', entityLabel: 'NewsBreak adset' };
+  if (NB_CAMPAIGN_TOOLS.includes(toolName))
+    return { table: 'newsbreak_ads_today', idCol: 'campaign_id', nameCol: 'campaign_name', inputKey: 'campaign_id', entityLabel: 'NewsBreak campaign' };
   return null; // CC subscriptions — can't validate locally
 }
 
@@ -260,6 +279,20 @@ function buildActionDescription(name: string, input: Record<string, any>, entity
       return `Pause TikTok campaign ${input.campaign_id}${tag}`;
     case 'enable_tiktok_campaign':
       return `Enable TikTok campaign ${input.campaign_id}${tag}`;
+    case 'pause_newsbreak_campaign':
+      return `Pause NewsBreak campaign ${input.campaign_id}${tag}`;
+    case 'enable_newsbreak_campaign':
+      return `Enable NewsBreak campaign ${input.campaign_id}${tag}`;
+    case 'pause_newsbreak_adset':
+      return `Pause NewsBreak adset ${input.adset_id}${tag}`;
+    case 'enable_newsbreak_adset':
+      return `Enable NewsBreak adset ${input.adset_id}${tag}`;
+    case 'pause_newsbreak_ad':
+      return `Pause NewsBreak ad ${input.ad_id}${tag}`;
+    case 'enable_newsbreak_ad':
+      return `Enable NewsBreak ad ${input.ad_id}${tag}`;
+    case 'adjust_newsbreak_budget':
+      return `Set NewsBreak adset ${input.adset_id}${tag} daily budget to $${input.daily_budget}`;
     case 'pause_cc_subscription':
       return `Pause Checkout Champ subscription ${input.purchase_id}`;
     case 'cancel_cc_subscription':
@@ -484,6 +517,95 @@ export const operatorTools = [
       properties: {
         campaign_id: { type: 'string', description: 'The TikTok campaign ID (if known)' },
         name: { type: 'string', description: 'The campaign name to search for' },
+      },
+      required: [] as string[],
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════
+  // NEWSBREAK ADS ACTIONS
+  // ═══════════════════════════════════════════════════════════════
+  {
+    name: 'pause_newsbreak_ad',
+    description: 'Pause a NewsBreak ad. Provide the ad_id OR the ad name.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        ad_id: { type: 'string', description: 'The NewsBreak ad ID (if known)' },
+        name: { type: 'string', description: 'The ad name to search for' },
+      },
+      required: [] as string[],
+    },
+  },
+  {
+    name: 'enable_newsbreak_ad',
+    description: 'Enable a paused NewsBreak ad. Provide the ad_id OR the ad name.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        ad_id: { type: 'string', description: 'The NewsBreak ad ID (if known)' },
+        name: { type: 'string', description: 'The ad name to search for' },
+      },
+      required: [] as string[],
+    },
+  },
+  {
+    name: 'pause_newsbreak_adset',
+    description: 'Pause a NewsBreak adset. Provide the adset_id OR the adset name.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        adset_id: { type: 'string', description: 'The NewsBreak adset ID (if known)' },
+        name: { type: 'string', description: 'The adset name to search for' },
+      },
+      required: [] as string[],
+    },
+  },
+  {
+    name: 'enable_newsbreak_adset',
+    description: 'Enable a paused NewsBreak adset. Provide the adset_id OR the adset name.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        adset_id: { type: 'string', description: 'The NewsBreak adset ID (if known)' },
+        name: { type: 'string', description: 'The adset name to search for' },
+      },
+      required: [] as string[],
+    },
+  },
+  {
+    name: 'pause_newsbreak_campaign',
+    description: 'Pause an entire NewsBreak campaign. Provide the campaign_id OR the campaign name.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        campaign_id: { type: 'string', description: 'The NewsBreak campaign ID (if known)' },
+        name: { type: 'string', description: 'The campaign name to search for' },
+      },
+      required: [] as string[],
+    },
+  },
+  {
+    name: 'enable_newsbreak_campaign',
+    description: 'Enable a paused NewsBreak campaign. Provide the campaign_id OR the campaign name.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        campaign_id: { type: 'string', description: 'The NewsBreak campaign ID (if known)' },
+        name: { type: 'string', description: 'The campaign name to search for' },
+      },
+      required: [] as string[],
+    },
+  },
+  {
+    name: 'adjust_newsbreak_budget',
+    description: 'Change the daily budget of a NewsBreak adset. Provide the adset_id OR name, plus the new daily_budget in dollars (min $5).',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        adset_id: { type: 'string', description: 'The NewsBreak adset ID (if known)' },
+        name: { type: 'string', description: 'The adset name to search for' },
+        daily_budget: { type: 'number', description: 'New daily budget in dollars (min $5)' },
       },
       required: [] as string[],
     },
@@ -1255,6 +1377,50 @@ export async function executeTool(
       if (!userId) return { result: { error: 'No user context' }, summary: 'Failed: no user' };
       const res = await updateTikTokCampaignStatus(input.campaign_id, 'ENABLE', userId);
       return { result: res, summary: `TikTok campaign ${input.campaign_id} enabled` };
+    }
+
+    // ── NewsBreak Actions ──────────────────────────────────────
+
+    case 'pause_newsbreak_ad': {
+      if (!userId) return { result: { error: 'No user context' }, summary: 'Failed: no user' };
+      await updateNewsBreakAdStatus(input.ad_id, 'DISABLE', userId);
+      return { result: { success: true }, summary: `NewsBreak ad ${input.ad_id} paused` };
+    }
+
+    case 'enable_newsbreak_ad': {
+      if (!userId) return { result: { error: 'No user context' }, summary: 'Failed: no user' };
+      await updateNewsBreakAdStatus(input.ad_id, 'ENABLE', userId);
+      return { result: { success: true }, summary: `NewsBreak ad ${input.ad_id} enabled` };
+    }
+
+    case 'pause_newsbreak_adset': {
+      if (!userId) return { result: { error: 'No user context' }, summary: 'Failed: no user' };
+      await updateNewsBreakAdSetStatus(input.adset_id, 'DISABLE', userId);
+      return { result: { success: true }, summary: `NewsBreak ad set ${input.adset_id} paused` };
+    }
+
+    case 'enable_newsbreak_adset': {
+      if (!userId) return { result: { error: 'No user context' }, summary: 'Failed: no user' };
+      await updateNewsBreakAdSetStatus(input.adset_id, 'ENABLE', userId);
+      return { result: { success: true }, summary: `NewsBreak ad set ${input.adset_id} enabled` };
+    }
+
+    case 'pause_newsbreak_campaign': {
+      if (!userId) return { result: { error: 'No user context' }, summary: 'Failed: no user' };
+      await updateNewsBreakCampaignStatus(input.campaign_id, 'DISABLE', userId);
+      return { result: { success: true }, summary: `NewsBreak campaign ${input.campaign_id} paused` };
+    }
+
+    case 'enable_newsbreak_campaign': {
+      if (!userId) return { result: { error: 'No user context' }, summary: 'Failed: no user' };
+      await updateNewsBreakCampaignStatus(input.campaign_id, 'ENABLE', userId);
+      return { result: { success: true }, summary: `NewsBreak campaign ${input.campaign_id} enabled` };
+    }
+
+    case 'adjust_newsbreak_budget': {
+      if (!userId) return { result: { error: 'No user context' }, summary: 'Failed: no user' };
+      await adjustNewsBreakBudget(input.adset_id, input.daily_budget, userId);
+      return { result: { success: true }, summary: `NewsBreak ad set ${input.adset_id} budget set to $${input.daily_budget}/day` };
     }
 
     // ── Checkout Champ Actions ─────────────────────────────────
