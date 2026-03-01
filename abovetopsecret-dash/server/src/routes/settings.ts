@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import https from 'https';
 import { getAllSettings, setSetting, deleteSetting, getSetting } from '../services/settings';
 import { CheckoutChampClient } from '../services/checkout-champ-client';
+import { triggerPlatformSync } from '../services/immediate-sync';
 
 const router = Router();
 
@@ -37,6 +38,11 @@ router.post('/', async (req: Request, res: Response) => {
         await deleteSetting(key, userId);
       }
     }
+    // If Meta token was just saved, trigger immediate sync + auto-backfill
+    if (userId && updates.fb_access_token && updates.fb_access_token.trim()) {
+      triggerPlatformSync(userId, 'meta');
+    }
+
     const settings = await getAllSettings(userId);
     res.json(settings);
   } catch (err) {

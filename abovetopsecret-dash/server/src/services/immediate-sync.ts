@@ -6,7 +6,7 @@
  * Emits WebSocket events on completion so the client knows data is ready.
  */
 
-import { syncFacebook, syncFacebookCreatives } from './facebook-sync';
+import { syncFacebook, syncFacebookCreatives, backfillFacebook } from './facebook-sync';
 import { syncGA4Data } from './ga4-sync';
 import { syncShopifyProducts, syncShopifyCustomers } from './shopify-sync';
 import { syncTikTokAds } from './tiktok-sync';
@@ -116,6 +116,25 @@ async function runPlatformSync(
             }
           })
           .catch(() => {});
+
+        // Auto-backfill if this looks like a new/reconnected account
+        // (token works but no or very little archive data)
+        if (!result.skipped) {
+          try {
+            const archiveCount = await pool.query(
+              'SELECT COUNT(*)::int as cnt FROM fb_ads_archive WHERE user_id = $1',
+              [userId]
+            );
+            const cnt = archiveCount.rows[0]?.cnt || 0;
+            if (cnt < 30) {
+              log.info({ userId, archiveRows: cnt }, 'New Meta connection detected — auto-backfilling 90 days');
+              // Fire-and-forget backfill (deduplicates via ON CONFLICT DO NOTHING)
+              backfillFacebook(userId, 90)
+                .then(bf => log.info({ userId, backfilled: bf.backfilled }, 'Auto-backfill complete'))
+                .catch(err => log.error({ err, userId }, 'Auto-backfill failed'));
+            }
+          } catch { /* ignore */ }
+        }
 
         emitPlatformDone(userId, platform);
         return { success: !result.skipped, detail: `${result.synced} ad rows synced` };
