@@ -8,6 +8,7 @@ import {
   fetchCampaignAccountMap,
   updateLiveEntityStatus,
   updateLiveEntityBudget,
+  updateLiveEntityBidCap,
   duplicateLiveEntity,
   triggerPlatformSync,
   fetchActivityLog,
@@ -31,6 +32,7 @@ export default function useCampaignData() {
   const [expandedAds, setExpandedAds] = useState<Record<string, LiveAd[] | 'loading'>>({});
   const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({});
   const [adsetBudgets, setAdsetBudgets] = useState<Record<string, number>>({});
+  const [adsetBidRates, setAdsetBidRates] = useState<Record<string, number>>({});
   const [statusOverrides, setStatusOverrides] = useState<Record<string, boolean>>({});
   const [campaignAccountMap, setCampaignAccountMap] = useState<Record<string, number>>({});
   const [assigningCampaign, setAssigningCampaign] = useState<string | null>(null);
@@ -162,6 +164,13 @@ export default function useCampaignData() {
           for (const b of budgets) next[b.adgroup_id] = b.budget;
           return next;
         });
+        setAdsetBidRates(prev => {
+          const next = { ...prev };
+          for (const b of budgets) {
+            if (b.bid_rate != null) next[b.adgroup_id] = b.bid_rate;
+          }
+          return next;
+        });
       }
     } catch {
       setExpanded(p => { const n = { ...p }; delete n[key]; return n; });
@@ -212,6 +221,21 @@ export default function useCampaignData() {
     try {
       await updateLiveEntityBudget(platform, entityId, newBudget, oldBudget);
       setAdsetBudgets(prev => ({ ...prev, [entityId]: newBudget }));
+      triggerPlatformSync(platform).catch(() => {});
+    } catch (err: any) {
+      alert(err.message || 'Failed');
+      throw err;
+    } finally {
+      setActionLoading(p => ({ ...p, [key]: false }));
+    }
+  }
+
+  async function handleBidCapSubmit(platform: string, entityId: string, newBidCap: number) {
+    const key = `bid:${entityId}`;
+    setActionLoading(p => ({ ...p, [key]: true }));
+    try {
+      await updateLiveEntityBidCap(platform, entityId, newBidCap);
+      setAdsetBidRates(prev => ({ ...prev, [entityId]: Math.round(newBidCap * 100) }));
       triggerPlatformSync(platform).catch(() => {});
     } catch (err: any) {
       alert(err.message || 'Failed');
@@ -291,6 +315,7 @@ export default function useCampaignData() {
     expanded,
     expandedAds,
     adsetBudgets,
+    adsetBidRates,
     actionLoading,
     statusOverrides,
     campaignAccountMap,
@@ -318,6 +343,7 @@ export default function useCampaignData() {
     toggleAdset,
     handleStatusChange,
     handleBudgetSubmit,
+    handleBidCapSubmit,
     handleDuplicate,
     handleAssignAccount,
     handleBulkAssign,

@@ -17,12 +17,13 @@ interface AdsetTableRowProps {
   columns: ColumnDef[];
   expandedAds: Record<string, LiveAd[] | 'loading'>;
   adsetBudgets: Record<string, number>;
+  adsetBidRates: Record<string, number>;
   actionLoading: Record<string, boolean>;
   statusOverrides: Record<string, boolean>;
   onToggleAdset: () => void;
   onStatusChange: (platform: string, entityType: string, entityId: string, enable: boolean) => Promise<void>;
   onDuplicate: (platform: string, entityType: string, entityId: string, parentId?: string) => void;
-  onBudgetClick: (platform: string, entityId: string, currentBudget?: number) => void;
+  onBudgetClick: (platform: string, entityId: string, currentBudget?: number, currentBidRate?: number) => void;
 }
 
 function getAdsetCellValue(as: LiveAdset, key: string, budget?: number): string {
@@ -49,6 +50,7 @@ export default function AdsetTableRow({
   columns,
   expandedAds,
   adsetBudgets,
+  adsetBidRates,
   actionLoading,
   statusOverrides,
   onToggleAdset,
@@ -60,6 +62,7 @@ export default function AdsetTableRow({
   const ads = expandedAds[asKey];
   const adsOpen = ads && ads !== 'loading';
   const currentBudget = adsetBudgets[as.adset_id];
+  const currentBidRate = adsetBidRates[as.adset_id];
 
   return (
     <Fragment>
@@ -73,6 +76,9 @@ export default function AdsetTableRow({
           <span className="text-[10px] text-ats-text-muted ml-2">{as.ad_count} ads</span>
           {currentBudget !== undefined && (
             <span className="text-[10px] text-emerald-400/70 ml-2 font-mono">{fmt$(currentBudget)}/day</span>
+          )}
+          {currentBidRate !== undefined && (
+            <span className="text-[10px] text-blue-400/70 ml-2 font-mono">bid {fmt$(currentBidRate / 100)}</span>
           )}
         </td>
         {/* Status */}
@@ -102,9 +108,9 @@ export default function AdsetTableRow({
             {actionLoading[`status:adset:${as.adset_id}`] ? <Loader2 className="w-3 h-3 animate-spin text-ats-text-muted" /> : (
               <>
                 <button
-                  onClick={() => onBudgetClick(platform, as.adset_id, currentBudget)}
+                  onClick={() => onBudgetClick(platform, as.adset_id, currentBudget, currentBidRate)}
                   className="flex items-center gap-1 px-2 py-1 rounded-md bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 text-[10px] font-semibold transition-colors"
-                  title="Adjust Budget"
+                  title="Adjust Budget & Bid"
                 >
                   <DollarSign className="w-3 h-3" />
                   {currentBudget !== undefined ? fmt$(currentBudget) : 'Budget'}

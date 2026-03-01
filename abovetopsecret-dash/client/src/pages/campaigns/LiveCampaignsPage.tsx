@@ -23,7 +23,7 @@ export default function LiveCampaignsPage() {
   const [showCreator, setShowCreator] = useState(false);
   const [showFormatLauncher, setShowFormatLauncher] = useState(false);
   const [showAudienceManager, setShowAudienceManager] = useState(false);
-  const [budgetModal, setBudgetModal] = useState<{ platform: string; entityId: string; currentBudget?: number } | null>(null);
+  const [budgetModal, setBudgetModal] = useState<{ platform: string; entityId: string; currentBudget?: number; currentBidRate?: number } | null>(null);
   const [confirmModal, setConfirmModal] = useState<{ title: string; description: string; onConfirm: () => Promise<void> } | null>(null);
 
   // Loading skeleton
@@ -180,6 +180,7 @@ export default function LiveCampaignsPage() {
             expanded={data.expanded}
             expandedAds={data.expandedAds}
             adsetBudgets={data.adsetBudgets}
+            adsetBidRates={data.adsetBidRates}
             actionLoading={data.actionLoading}
             statusOverrides={data.statusOverrides}
             selectedCampaigns={selectedCampaigns}
@@ -196,8 +197,8 @@ export default function LiveCampaignsPage() {
             onDuplicate={(platform, entityType, entityId, parentId) => {
               data.handleDuplicate(platform, entityType, entityId, parentId);
             }}
-            onBudgetClick={(platform, entityId, currentBudget) => {
-              setBudgetModal({ platform, entityId, currentBudget });
+            onBudgetClick={(platform, entityId, currentBudget, currentBidRate) => {
+              setBudgetModal({ platform, entityId, currentBudget, currentBidRate });
             }}
             onAssignCampaign={data.setAssigningCampaign}
             onAssignAccount={data.handleAssignAccount}
@@ -211,10 +212,14 @@ export default function LiveCampaignsPage() {
           platform={budgetModal.platform}
           entityId={budgetModal.entityId}
           currentBudget={budgetModal.currentBudget}
+          currentBidRate={budgetModal.currentBidRate}
           onClose={() => setBudgetModal(null)}
           onSubmit={async (newBudget) => {
             await data.handleBudgetSubmit(budgetModal.platform, budgetModal.entityId, newBudget, budgetModal.currentBudget);
           }}
+          onBidCapSubmit={budgetModal.platform === 'newsbreak' ? async (newBidCap) => {
+            await data.handleBidCapSubmit(budgetModal.platform, budgetModal.entityId, newBidCap);
+          } : undefined}
           onLoadActivityLog={data.loadActivityLog}
         />
       )}

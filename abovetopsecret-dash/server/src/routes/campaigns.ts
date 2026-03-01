@@ -1019,6 +1019,7 @@ import {
   updateNewsBreakAdSetStatus,
   updateNewsBreakAdStatus,
   adjustNewsBreakBudget,
+  adjustNewsBreakBidCap,
   getNewsBreakAdSetBudgets,
   getNewsBreakAuth,
   getNewsBreakCampaignList,
@@ -1221,6 +1222,28 @@ router.post('/live/budget', publishLimiter, async (req: Request, res: Response) 
   }
 });
 
+router.post('/live/bid', publishLimiter, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+    const { platform, entity_id, bid_dollars } = req.body;
+
+    if (!platform || !entity_id || bid_dollars === undefined) {
+      res.status(400).json({ error: 'Missing required fields: platform, entity_id, bid_dollars' });
+      return;
+    }
+
+    if (platform === 'newsbreak') {
+      await adjustNewsBreakBidCap(entity_id, bid_dollars, userId);
+    }
+
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error('Error adjusting bid cap:', err);
+    res.status(500).json({ error: err.message || 'Failed to adjust bid cap' });
+  }
+});
+
 // ── Fetch adgroup budgets from NewsBreak API ──────────────────
 
 router.get('/live/budgets/:platform/:campaignId', async (req: Request, res: Response) => {
@@ -1230,7 +1253,8 @@ router.get('/live/budgets/:platform/:campaignId', async (req: Request, res: Resp
     const { platform, campaignId } = req.params;
     if (platform === 'newsbreak') {
       const budgets = await getNewsBreakAdSetBudgets(campaignId, userId);
-      res.json(budgets);
+      // Map to adgroup_id to match client AdGroupBudget interface
+      res.json(budgets.map(b => ({ adgroup_id: b.adset_id, budget: b.budget, budget_mode: b.budget_mode, status: b.status, bid_rate: b.bid_rate, bid_type: b.bid_type })));
     } else {
       res.json([]);
     }

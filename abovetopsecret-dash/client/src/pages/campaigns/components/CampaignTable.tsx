@@ -12,6 +12,7 @@ interface CampaignTableProps {
   expanded: Record<string, LiveAdset[] | 'loading'>;
   expandedAds: Record<string, LiveAd[] | 'loading'>;
   adsetBudgets: Record<string, number>;
+  adsetBidRates: Record<string, number>;
   actionLoading: Record<string, boolean>;
   statusOverrides: Record<string, boolean>;
   selectedCampaigns: Set<string>;
@@ -24,7 +25,7 @@ interface CampaignTableProps {
   onToggleSelectAll: () => void;
   onStatusChange: (platform: string, entityType: string, entityId: string, enable: boolean) => Promise<void>;
   onDuplicate: (platform: string, entityType: string, entityId: string, parentId?: string) => void;
-  onBudgetClick: (platform: string, entityId: string, currentBudget?: number) => void;
+  onBudgetClick: (platform: string, entityId: string, currentBudget?: number, currentBidRate?: number) => void;
   onAssignCampaign: (campaignId: string | null) => void;
   onAssignAccount: (campaignId: string, accountId: number) => void;
 }
@@ -74,6 +75,7 @@ export default function CampaignTable({
   expanded,
   expandedAds,
   adsetBudgets,
+  adsetBidRates,
   actionLoading,
   statusOverrides,
   selectedCampaigns,
@@ -140,6 +142,7 @@ export default function CampaignTable({
                 adsets={isExpanded ? (adsets as LiveAdset[]) : null}
                 expandedAds={expandedAds}
                 adsetBudgets={adsetBudgets}
+                adsetBidRates={adsetBidRates}
                 actionLoading={actionLoading}
                 statusOverrides={statusOverrides}
                 selected={selectedCampaigns.has(c.campaign_id)}

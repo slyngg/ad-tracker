@@ -338,7 +338,7 @@ export async function adjustNewsBreakBudget(
 export async function getNewsBreakAdSetBudgets(
   campaignId: string,
   userId: number
-): Promise<{ adset_id: string; budget: number; budget_mode: string; status: string }[]> {
+): Promise<{ adset_id: string; budget: number; budget_mode: string; status: string; bid_rate?: number; bid_type?: string }[]> {
   const auth = await getNewsBreakAuth(userId);
   if (!auth) return [];
   try {
@@ -350,6 +350,8 @@ export async function getNewsBreakAdSetBudgets(
       budget: (as.budget || 0),
       budget_mode: as.budgetType || 'DAILY',
       status: as.status || 'UNKNOWN',
+      bid_rate: as.bidRate != null ? as.bidRate : undefined,
+      bid_type: as.bidType || undefined,
     }));
   } catch (err) {
     return [];

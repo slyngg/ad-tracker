@@ -1376,6 +1376,10 @@ export function updateLiveEntityBudget(platform: string, entityId: string, budge
   return request<{ success: boolean }>('/campaigns/live/budget', { method: 'POST', body: JSON.stringify({ platform, entity_id: entityId, budget_dollars: budgetDollars, old_budget: oldBudget ?? null }) });
 }
 
+export function updateLiveEntityBidCap(platform: string, entityId: string, bidDollars: number): Promise<{ success: boolean }> {
+  return request<{ success: boolean }>('/campaigns/live/bid', { method: 'POST', body: JSON.stringify({ platform, entity_id: entityId, bid_dollars: bidDollars }) });
+}
+
 export interface ActivityLogEntry {
   id: number;
   platform: string;
@@ -1396,6 +1400,8 @@ export interface AdGroupBudget {
   budget: number;
   budget_mode: string;
   status: string;
+  bid_rate?: number;
+  bid_type?: string;
 }
 
 export function fetchAdGroupBudgets(platform: string, campaignId: string): Promise<AdGroupBudget[]> {

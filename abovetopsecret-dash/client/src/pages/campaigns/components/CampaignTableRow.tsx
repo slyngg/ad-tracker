@@ -21,6 +21,7 @@ interface CampaignTableRowProps {
   adsets: LiveAdset[] | null;
   expandedAds: Record<string, LiveAd[] | 'loading'>;
   adsetBudgets: Record<string, number>;
+  adsetBidRates: Record<string, number>;
   actionLoading: Record<string, boolean>;
   statusOverrides: Record<string, boolean>;
   selected: boolean;
@@ -32,7 +33,7 @@ interface CampaignTableRowProps {
   onToggleSelect: (campaignId: string) => void;
   onStatusChange: (platform: string, entityType: string, entityId: string, enable: boolean) => Promise<void>;
   onDuplicate: (platform: string, entityType: string, entityId: string, parentId?: string) => void;
-  onBudgetClick: (platform: string, entityId: string, currentBudget?: number) => void;
+  onBudgetClick: (platform: string, entityId: string, currentBudget?: number, currentBidRate?: number) => void;
   onAssignCampaign: (campaignId: string | null) => void;
   onAssignAccount: (campaignId: string, accountId: number) => void;
 }
@@ -71,6 +72,7 @@ export default function CampaignTableRow({
   adsets,
   expandedAds,
   adsetBudgets,
+  adsetBidRates,
   actionLoading,
   statusOverrides,
   selected,
@@ -182,6 +184,7 @@ export default function CampaignTableRow({
           columns={columns}
           expandedAds={expandedAds}
           adsetBudgets={adsetBudgets}
+          adsetBidRates={adsetBidRates}
           actionLoading={actionLoading}
           statusOverrides={statusOverrides}
           onToggleAdset={() => onToggleAdset(c.platform, as.adset_id)}
