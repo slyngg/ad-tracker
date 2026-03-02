@@ -164,6 +164,8 @@ export async function publishNewsBreakCampaignDraft(draftId: number, userId: num
                 call_to_action: cc.cta || 'LEARN_MORE',
                 brand_name: cc.brand_name,
                 button_text: cc.button_text,
+                click_tracking_urls: cc.click_tracking_url ? [cc.click_tracking_url] : undefined,
+                impression_tracking_urls: cc.impression_tracking_url ? [cc.impression_tracking_url] : undefined,
               },
               auth.accessToken
             );

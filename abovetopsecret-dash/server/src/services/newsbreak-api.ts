@@ -217,6 +217,11 @@ export async function createNewsBreakAdSet(
   if (eventType) body.conversion_event = eventType;
   if (bidAmount) body.bid_amount = bidAmount;
 
+  // Tracking pixel / event ID
+  const trackingId = targeting.tracking_id;
+  delete targeting.tracking_id;
+  if (trackingId) body.trackingId = trackingId;
+
   // Audience targeting
   if (audienceList) body.audience_id = audienceList;
 
@@ -238,6 +243,8 @@ export async function createNewsBreakAd(
     call_to_action?: string;
     brand_name?: string;
     button_text?: string;
+    click_tracking_urls?: string[];
+    impression_tracking_urls?: string[];
   },
   accessToken: string
 ): Promise<{ ad_id: string }> {
@@ -261,6 +268,9 @@ export async function createNewsBreakAd(
     name: params.ad_name,
     creative,
   };
+  if (params.click_tracking_urls?.length) body.clickTrackingUrl = params.click_tracking_urls;
+  if (params.impression_tracking_urls?.length) body.impressionTrackingUrl = params.impression_tracking_urls;
+
   const data = await newsbreakRequest('POST', '/business-api/v1/ad/create', accessToken, body);
   return { ad_id: String(data.id || data.ad_id) };
 }
@@ -499,6 +509,40 @@ export async function deleteNewsBreakAudience(
     advertiser_id: auth.accountId,
     audience_id: audienceId,
   });
+}
+
+// ── Event / Pixel management ──────────────────────────────────
+
+export interface NewsBreakEvent {
+  id: string;
+  name: string;
+  type: 'PIXEL' | 'POSTBACK';
+  eventType?: string;
+  os?: string;
+  url?: string;
+  createTime?: number;
+  updateTime?: number;
+}
+
+export async function getNewsBreakEvents(
+  accountId: string,
+  accessToken: string,
+  os?: string
+): Promise<NewsBreakEvent[]> {
+  let path = `/business-api/v1/event/getList/${accountId}`;
+  if (os) path += `?os=${os}`;
+  const data = await newsbreakRequest('GET', path, accessToken);
+  const list = data?.list || data?.rows || [];
+  return list.map((e: any) => ({
+    id: String(e.id),
+    name: e.name || '',
+    type: e.type || 'PIXEL',
+    eventType: e.eventType,
+    os: e.os,
+    url: e.url,
+    createTime: e.createTime,
+    updateTime: e.updateTime,
+  }));
 }
 
 // ── Backward-compat aliases ────────────────────────────────────

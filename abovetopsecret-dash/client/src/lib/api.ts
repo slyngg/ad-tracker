@@ -1284,6 +1284,19 @@ export function deleteNBAudience(audienceId: string, accountId?: string): Promis
   return request<{ success: boolean }>(`/campaigns/newsbreak/audiences/${audienceId}${qs}`, { method: 'DELETE' });
 }
 
+export interface NewsBreakEvent {
+  id: string;
+  name: string;
+  type: 'PIXEL' | 'POSTBACK';
+  eventType?: string;
+  os?: string;
+}
+
+export function fetchNewsBreakEvents(accountId?: number): Promise<NewsBreakEvent[]> {
+  const qs = accountId ? `?account_id=${accountId}` : '';
+  return request<NewsBreakEvent[]>(`/campaigns/newsbreak/events${qs}`);
+}
+
 // Campaign Templates
 export function fetchCampaignTemplates(): Promise<CampaignTemplate[]> {
   return request<CampaignTemplate[]>('/campaigns/templates');
@@ -1475,6 +1488,7 @@ export interface BatchCreateParams {
     targeting?: Record<string, any>;
     placements?: string[];
     event_type?: string;
+    tracking_id?: string;
     schedule_start?: string;
     schedule_end?: string;
   };

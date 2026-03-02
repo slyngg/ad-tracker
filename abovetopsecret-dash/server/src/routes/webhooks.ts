@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
 import pool from '../db';
-import { verifyCheckoutChamp, verifyShopify } from '../middleware/webhook-verify';
+import { verifyCheckoutChamp, verifyShopify, verifyJVZoo, verifyClickBank } from '../middleware/webhook-verify';
 import { getRealtime } from '../services/realtime';
 import { matchOffer } from '../services/offer-matcher';
 import { identifyVisitor, recordEvent, recordTouchpoint } from '../services/identity-graph';
@@ -754,9 +754,536 @@ async function handleShopifyWebhook(req: Request, res: Response) {
   }
 }
 
+// ── JVZoo Event Type Mapping ─────────────────────────────────────
+
+const JVZOO_EVENT_MAP: Record<string, CCEventType> = {
+  SALE: 'new_sale',
+  BILL: 'recurring_order',
+  RFND: 'full_refund',
+  CGBK: 'chargeback',
+  INSF: 'rebill_decline',
+  'CANCEL-REBILL': 'cancel',
+  'UNCANCEL-REBILL': 'reactivate',
+};
+
+// Parse JVZoo's cvendthru field for UTMs/fbclid
+// Can be URLSearchParams, JSON, or raw string
+function parseVendThru(cvendthru: string | undefined): Record<string, string> {
+  if (!cvendthru) return {};
+
+  // Try URLSearchParams (e.g., "utm_source=facebook&fbclid=abc123")
+  try {
+    const params = new URLSearchParams(cvendthru);
+    if (params.has('utm_source') || params.has('fbclid') || params.has('utm_campaign')) {
+      const result: Record<string, string> = {};
+      for (const [k, v] of params.entries()) result[k] = v;
+      return result;
+    }
+  } catch { /* not URLSearchParams */ }
+
+  // Try JSON (e.g., '{"utm_source":"facebook","fbclid":"abc123"}')
+  try {
+    const parsed = JSON.parse(cvendthru);
+    if (typeof parsed === 'object' && parsed !== null) return parsed;
+  } catch { /* not JSON */ }
+
+  // Raw string — return as-is in a 'raw' key
+  return { raw: cvendthru };
+}
+
+// ── Main JVZoo Webhook Handler ──────────────────────────────────
+
+async function handleJVZooWebhook(req: Request, res: Response) {
+  const body = req.body;
+  const tokenResult = await resolveWebhookToken(req.params.webhookToken);
+  const userId = tokenResult?.userId ?? null;
+  const accountId = tokenResult?.accountId ?? null;
+
+  const ctransaction = (body.ctransaction || '').toUpperCase();
+  const eventType = JVZOO_EVENT_MAP[ctransaction] || 'unknown';
+
+  // Parse cvendthru for UTMs/fbclid
+  const vendThru = parseVendThru(body.cvendthru);
+
+  // Split customer name on first space
+  const fullName = body.ccustname || '';
+  const spaceIdx = fullName.indexOf(' ');
+  const firstName = spaceIdx > 0 ? fullName.substring(0, spaceIdx) : fullName;
+  const lastName = spaceIdx > 0 ? fullName.substring(spaceIdx + 1) : '';
+
+  // JVZoo sends amounts in cents — divide by 100
+  const revenue = parseFloat(body.ctransamount || '0') / 100;
+  const orderId = body.ctransreceipt ? `JV-${body.ctransreceipt}` : null;
+  const email = (body.ccustemail || '').toLowerCase();
+  const productId = body.cproditem || null;
+  const offerName = body.cprodtitle || 'Unknown';
+  const conversionTime = body.ctranstime ? new Date(parseInt(body.ctranstime) * 1000).toISOString() : null;
+
+  const utmSource = vendThru.utm_source || '';
+  const utmMedium = vendThru.utm_medium || '';
+  const utmCampaign = vendThru.utm_campaign || '';
+  const utmContent = vendThru.utm_content || '';
+  const utmTerm = vendThru.utm_term || '';
+  const fbclid = vendThru.fbclid || '';
+
+  const trackingData = body.caffitid ? { affiliateId: body.caffitid, vendThru } : (Object.keys(vendThru).length > 0 ? { vendThru } : null);
+
+  const isTest = isTestOrder(email, revenue);
+
+  const fields = {
+    orderId, customerId: null, purchaseId: null, campaignId: null,
+    campaignName: null, offerName, email, firstName, lastName,
+    utmCampaign, utmSource, utmMedium, utmContent, utmTerm,
+    fbclid, subscriptionId: null, ipAddress: null,
+  };
+
+  try {
+    switch (eventType) {
+      case 'new_sale':
+      case 'recurring_order': {
+        const orderStatus = 'completed';
+        const offerId = userId ? await matchOffer(userId, {
+          product_id: productId || undefined,
+          utm_campaign: utmCampaign || undefined,
+        }) : null;
+        const customerName = [firstName, lastName].filter(Boolean).join(' ') || null;
+
+        await pool.query(
+          `INSERT INTO cc_orders_today (order_id, offer_name, revenue, subtotal, tax_amount, order_status, new_customer, utm_campaign, fbclid, subscription_id, quantity, is_core_sku, source, utm_source, utm_medium, utm_content, utm_term, user_id, is_test, account_id, offer_id, customer_email, customer_name, conversion_time, tracking_data)
+           VALUES ($1, $2, $3, $3, 0, $4, true, $5, $6, NULL, 1, true, 'jvzoo', $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+           ON CONFLICT (user_id, order_id) DO UPDATE SET
+             revenue = EXCLUDED.revenue, subtotal = EXCLUDED.subtotal,
+             order_status = EXCLUDED.order_status,
+             utm_source = EXCLUDED.utm_source, utm_medium = EXCLUDED.utm_medium,
+             utm_content = EXCLUDED.utm_content, utm_term = EXCLUDED.utm_term,
+             is_test = EXCLUDED.is_test, account_id = EXCLUDED.account_id, offer_id = EXCLUDED.offer_id,
+             customer_email = COALESCE(EXCLUDED.customer_email, cc_orders_today.customer_email),
+             customer_name = COALESCE(EXCLUDED.customer_name, cc_orders_today.customer_name),
+             conversion_time = COALESCE(EXCLUDED.conversion_time, cc_orders_today.conversion_time),
+             tracking_data = COALESCE(EXCLUDED.tracking_data, cc_orders_today.tracking_data)`,
+          [orderId, offerName, revenue, orderStatus, utmCampaign, fbclid, utmSource, utmMedium, utmContent, utmTerm, userId, isTest, accountId, offerId, email || null, customerName, conversionTime, trackingData ? JSON.stringify(trackingData) : null],
+        );
+
+        // For recurring_order, also log subscription event
+        if (eventType === 'recurring_order') {
+          try {
+            await pool.query(
+              `INSERT INTO cc_subscription_events (user_id, purchase_id, order_id, customer_id, event_type, amount, billing_cycle, next_bill_date, cancel_reason, raw_data)
+               VALUES ($1, NULL, $2, NULL, $3, $4, NULL, NULL, NULL, $5)`,
+              [userId, orderId, eventType, revenue, JSON.stringify(body)],
+            );
+          } catch (err) {
+            console.error('[JVZoo Webhook] Failed to insert subscription event:', err);
+          }
+        }
+
+        // Link to pixel identity graph
+        if (userId && orderStatus === 'completed') {
+          try {
+            await linkOrderToPixel(userId, fields, revenue, orderId);
+          } catch (err) {
+            console.error('[JVZoo Webhook] Pixel identity linking failed (non-fatal):', err);
+          }
+        }
+
+        // Real-time notification
+        if (orderStatus === 'completed' && orderId) {
+          getRealtime()?.emitNewOrder(userId, {
+            orderId, offerName, revenue, status: orderStatus, newCustomer: true, accountId,
+          });
+        }
+        break;
+      }
+
+      case 'full_refund':
+      case 'chargeback': {
+        if (orderId) {
+          const newStatus = eventType === 'chargeback' ? 'refunded' : 'refunded';
+          await pool.query(
+            `UPDATE cc_orders_today SET order_status = $1 WHERE order_id = $2 AND COALESCE(user_id, -1) = COALESCE($3::int, -1)`,
+            [newStatus, orderId, userId],
+          );
+        }
+        break;
+      }
+
+      case 'rebill_decline':
+      case 'cancel':
+      case 'reactivate': {
+        try {
+          await pool.query(
+            `INSERT INTO cc_subscription_events (user_id, purchase_id, order_id, customer_id, event_type, amount, billing_cycle, next_bill_date, cancel_reason, raw_data)
+             VALUES ($1, NULL, $2, NULL, $3, $4, NULL, NULL, NULL, $5)`,
+            [userId, orderId, eventType, revenue, JSON.stringify(body)],
+          );
+        } catch (err) {
+          console.error('[JVZoo Webhook] Failed to insert subscription event:', err);
+        }
+        break;
+      }
+
+      case 'unknown':
+      default:
+        console.warn(`[JVZoo Webhook] Unknown ctransaction: ${ctransaction}`);
+        break;
+    }
+
+    // Log every event for audit trail
+    await logWebhookEvent(userId, accountId, `jvzoo_${ctransaction.toLowerCase()}`, body, orderId, null, null, true);
+
+    res.json({ success: true, event_type: eventType, order_id: orderId });
+  } catch (err: any) {
+    console.error(`[JVZoo Webhook] Error processing ${eventType}:`, err);
+    await logWebhookEvent(userId, accountId, `jvzoo_${ctransaction.toLowerCase()}`, body, orderId, null, null, false, err.message);
+    res.status(500).json({ error: 'Failed to process webhook' });
+  }
+}
+
+// ── ClickBank Event Type Mapping ────────────────────────────────
+
+const CLICKBANK_EVENT_MAP: Record<string, CCEventType | 'abandoned_order'> = {
+  SALE: 'new_sale',
+  TEST_SALE: 'new_sale',
+  BILL: 'recurring_order',
+  TEST_BILL: 'recurring_order',
+  RFND: 'full_refund',
+  TEST_RFND: 'full_refund',
+  CGBK: 'chargeback',
+  INSF: 'rebill_decline',
+  'CANCEL-REBILL': 'cancel',
+  'UNCANCEL-REBILL': 'reactivate',
+  'SUBSCRIPTION-CHG': 'subscription_started',
+  ABANDONED_ORDER: 'abandoned_order',
+};
+
+const CLICKBANK_TEST_TYPES = new Set(['TEST', 'TEST_SALE', 'TEST_BILL', 'TEST_RFND']);
+
+// ── Main ClickBank Webhook Handler ──────────────────────────────
+
+async function handleClickBankWebhook(req: Request, res: Response) {
+  const body = req.body;
+  const tokenResult = await resolveWebhookToken(req.params.webhookToken);
+  const userId = tokenResult?.userId ?? null;
+  const accountId = tokenResult?.accountId ?? null;
+
+  const transactionType = (body.transactionType || '').toUpperCase();
+  const mappedEvent = CLICKBANK_EVENT_MAP[transactionType];
+
+  // Extract customer info
+  const customer = body.customer || {};
+  const email = (customer.email || body.email || '').toLowerCase();
+  const firstName = customer.firstName || customer.first_name || null;
+  const lastName = customer.lastName || customer.last_name || null;
+
+  // Extract product info
+  const lineItems = body.lineItems || [];
+  const offerName = lineItems.length > 0 ? (lineItems[0].productTitle || lineItems[0].itemNo || 'Unknown') : (body.productTitle || 'Unknown');
+  const quantity = lineItems.reduce((sum: number, item: any) => sum + (parseInt(item.quantity || '1', 10)), 0) || 1;
+
+  // Revenue — ClickBank sends in dollars already
+  const revenue = parseFloat(body.totalOrderAmount || body.amount || '0');
+  const taxAmount = parseFloat(body.totalTaxAmount || '0');
+  const subtotal = revenue - taxAmount;
+
+  // Order ID prefixed to avoid collisions
+  const receipt = body.receipt || null;
+  const orderId = receipt ? `CB-${receipt}` : null;
+
+  // v8.0 tracking data
+  const utmSource = body.trafficSource || '';
+  const utmMedium = body.trafficType || '';
+  const utmCampaign = body.campaign || '';
+  const utmContent = body.creative || body.ad || '';
+  const utmTerm = body.adgroup || '';
+  const fbclid = body.fbclid || body.extclid || '';
+
+  // Build tracking_data JSONB from ClickBank v8.0 fields
+  const trackingData: Record<string, any> = {};
+  const trackingFields = ['affSub1', 'affSub2', 'affSub3', 'affSub4', 'affSub5',
+    'clickId', 'deviceType', 'browser', 'os', 'country', 'region', 'affiliate',
+    'trafficSource', 'trafficType', 'campaign', 'creative', 'ad', 'adgroup',
+    'vendor', 'tid', 'hop'];
+  for (const field of trackingFields) {
+    if (body[field]) trackingData[field] = body[field];
+  }
+
+  // Test order detection
+  const isCBTest = CLICKBANK_TEST_TYPES.has(transactionType);
+  const isTest = isCBTest || isTestOrder(email, subtotal);
+
+  const customerName = [firstName, lastName].filter(Boolean).join(' ') || null;
+
+  const fields = {
+    orderId, customerId: null, purchaseId: null, campaignId: null,
+    campaignName: utmCampaign || null, offerName, email, firstName, lastName,
+    utmCampaign, utmSource, utmMedium, utmContent, utmTerm,
+    fbclid, subscriptionId: null, ipAddress: null,
+  };
+
+  try {
+    // Handle ABANDONED_ORDER specially — record as InitiateCheckout pixel event
+    if (mappedEvent === 'abandoned_order') {
+      if (userId && email) {
+        try {
+          // Find or create visitor by email
+          let visitorId: number | null = null;
+          let anonymousId: string | null = null;
+
+          const byEmail = await pool.query(
+            `SELECT id, anonymous_id FROM pixel_visitors
+             WHERE user_id = $1 AND email = $2 AND canonical_id IS NULL
+             ORDER BY last_seen_at DESC LIMIT 1`,
+            [userId, email.toLowerCase()],
+          );
+          if (byEmail.rows.length > 0) {
+            visitorId = byEmail.rows[0].id;
+            anonymousId = byEmail.rows[0].anonymous_id;
+          } else {
+            anonymousId = `cb-abandoned-${receipt || Date.now()}`;
+            const created = await pool.query(
+              `INSERT INTO pixel_visitors (user_id, site_id, anonymous_id, email, first_referrer)
+               VALUES ($1, 0, $2, $3, 'clickbank')
+               ON CONFLICT (user_id, anonymous_id) DO UPDATE SET last_seen_at = NOW()
+               RETURNING id`,
+              [userId, anonymousId, email.toLowerCase()],
+            );
+            if (created.rows.length > 0) visitorId = created.rows[0].id;
+          }
+
+          if (visitorId) {
+            await recordEvent(userId, visitorId, {
+              sessionId: `cb-abandoned-${receipt || Date.now()}`,
+              eventName: 'InitiateCheckout',
+              eventCategory: 'conversion',
+              revenue: revenue,
+              currency: 'USD',
+              fbclid: fbclid || undefined,
+              eventId: `cb-checkout-${receipt || Date.now()}`,
+              properties: {
+                source: 'clickbank',
+                offerName,
+                email,
+                transactionType: 'ABANDONED_ORDER',
+              },
+            });
+          }
+        } catch (err) {
+          console.error('[ClickBank Webhook] ABANDONED_ORDER recording failed (non-fatal):', err);
+        }
+      }
+
+      await logWebhookEvent(userId, accountId, `clickbank_abandoned_order`, body, orderId, null, null, true);
+      res.json({ success: true, event_type: 'abandoned_order', order_id: orderId });
+      return;
+    }
+
+    const eventType = (mappedEvent as CCEventType) || 'unknown';
+
+    switch (eventType) {
+      case 'new_sale':
+      case 'recurring_order': {
+        const orderStatus = 'completed';
+        const productId = lineItems.length > 0 ? (lineItems[0].itemNo || null) : null;
+        const offerId = userId ? await matchOffer(userId, {
+          product_id: productId || undefined,
+          utm_campaign: utmCampaign || undefined,
+          campaign_name: utmCampaign || undefined,
+        }) : null;
+
+        await pool.query(
+          `INSERT INTO cc_orders_today (order_id, offer_name, revenue, subtotal, tax_amount, order_status, new_customer, utm_campaign, fbclid, subscription_id, quantity, is_core_sku, source, utm_source, utm_medium, utm_content, utm_term, user_id, is_test, account_id, offer_id, customer_email, customer_name, conversion_time, tracking_data)
+           VALUES ($1, $2, $3, $4, $5, $6, true, $7, $8, NULL, $9, true, 'clickbank', $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+           ON CONFLICT (user_id, order_id) DO UPDATE SET
+             revenue = EXCLUDED.revenue, subtotal = EXCLUDED.subtotal, tax_amount = EXCLUDED.tax_amount,
+             order_status = EXCLUDED.order_status,
+             utm_source = EXCLUDED.utm_source, utm_medium = EXCLUDED.utm_medium,
+             utm_content = EXCLUDED.utm_content, utm_term = EXCLUDED.utm_term,
+             is_test = EXCLUDED.is_test, account_id = EXCLUDED.account_id, offer_id = EXCLUDED.offer_id,
+             customer_email = COALESCE(EXCLUDED.customer_email, cc_orders_today.customer_email),
+             customer_name = COALESCE(EXCLUDED.customer_name, cc_orders_today.customer_name),
+             conversion_time = COALESCE(EXCLUDED.conversion_time, cc_orders_today.conversion_time),
+             tracking_data = COALESCE(EXCLUDED.tracking_data, cc_orders_today.tracking_data)`,
+          [orderId, offerName, revenue, subtotal, taxAmount, orderStatus, utmCampaign, fbclid, quantity, utmSource, utmMedium, utmContent, utmTerm, userId, isTest, accountId, offerId, email || null, customerName, body.transactionTime || null, Object.keys(trackingData).length > 0 ? JSON.stringify(trackingData) : null],
+        );
+
+        // For recurring_order, also log subscription event
+        if (eventType === 'recurring_order') {
+          try {
+            await pool.query(
+              `INSERT INTO cc_subscription_events (user_id, purchase_id, order_id, customer_id, event_type, amount, billing_cycle, next_bill_date, cancel_reason, raw_data)
+               VALUES ($1, NULL, $2, NULL, $3, $4, NULL, NULL, NULL, $5)`,
+              [userId, orderId, eventType, revenue, JSON.stringify(body)],
+            );
+          } catch (err) {
+            console.error('[ClickBank Webhook] Failed to insert subscription event:', err);
+          }
+        }
+
+        // Link to pixel identity graph
+        if (userId && orderStatus === 'completed') {
+          try {
+            await linkOrderToPixel(userId, fields, subtotal, orderId);
+          } catch (err) {
+            console.error('[ClickBank Webhook] Pixel identity linking failed (non-fatal):', err);
+          }
+        }
+
+        // Real-time notification
+        if (orderStatus === 'completed' && orderId) {
+          getRealtime()?.emitNewOrder(userId, {
+            orderId, offerName, revenue: subtotal, status: orderStatus, newCustomer: true, accountId,
+          });
+        }
+        break;
+      }
+
+      case 'full_refund':
+      case 'chargeback': {
+        if (orderId) {
+          await pool.query(
+            `UPDATE cc_orders_today SET order_status = 'refunded' WHERE order_id = $1 AND COALESCE(user_id, -1) = COALESCE($2::int, -1)`,
+            [orderId, userId],
+          );
+        }
+        break;
+      }
+
+      case 'rebill_decline':
+      case 'cancel':
+      case 'reactivate':
+      case 'subscription_started': {
+        try {
+          await pool.query(
+            `INSERT INTO cc_subscription_events (user_id, purchase_id, order_id, customer_id, event_type, amount, billing_cycle, next_bill_date, cancel_reason, raw_data)
+             VALUES ($1, NULL, $2, NULL, $3, $4, NULL, NULL, NULL, $5)`,
+            [userId, orderId, eventType, revenue || null, JSON.stringify(body)],
+          );
+        } catch (err) {
+          console.error('[ClickBank Webhook] Failed to insert subscription event:', err);
+        }
+        break;
+      }
+
+      case 'unknown':
+      default:
+        console.warn(`[ClickBank Webhook] Unknown transactionType: ${transactionType}`);
+        break;
+    }
+
+    // Log every event for audit trail
+    await logWebhookEvent(userId, accountId, `clickbank_${transactionType.toLowerCase()}`, body, orderId, null, null, true);
+
+    res.json({ success: true, event_type: eventType, order_id: orderId });
+  } catch (err: any) {
+    console.error(`[ClickBank Webhook] Error processing ${transactionType}:`, err);
+    await logWebhookEvent(userId, accountId, `clickbank_${transactionType.toLowerCase()}`, body, orderId, null, null, false, err.message);
+    res.status(500).json({ error: 'Failed to process webhook' });
+  }
+}
+
+// ── ClickBank Order Form Impression Endpoint ────────────────────
+// Lightweight S2S postback for ClickBank's order form impression tracking.
+// Configured in ClickBank Postback/Pixels settings. Token auth only (no AES).
+
+async function handleClickBankImpression(req: Request, res: Response) {
+  const tokenResult = await resolveWebhookToken(req.params.webhookToken);
+  const userId = tokenResult?.userId ?? null;
+
+  if (!userId) {
+    res.status(401).json({ error: 'Invalid webhook token' });
+    return;
+  }
+
+  // Merge query params and body (supports both GET and POST)
+  const data = { ...req.query, ...req.body };
+
+  const clickId = (data.click_id || data.clickId || '') as string;
+  const receiptId = (data.receipt_id || data.receiptId || data.receipt || '') as string;
+  const affiliate = (data.affiliate || '') as string;
+  const tid = (data.tid || '') as string;
+  const fbclid = (data.fbclid || data.extclid || '') as string;
+  const email = ((data.email || '') as string).toLowerCase();
+
+  try {
+    let visitorId: number | null = null;
+    let anonymousId: string | null = null;
+
+    // Try to find existing visitor via fbclid in pixel_sessions
+    if (fbclid) {
+      const byFbclid = await pool.query(
+        `SELECT s.visitor_id, v.anonymous_id
+         FROM pixel_sessions s
+         JOIN pixel_visitors v ON v.id = s.visitor_id AND v.user_id = $1
+         WHERE s.user_id = $1 AND s.fbclid = $2
+         ORDER BY s.started_at DESC LIMIT 1`,
+        [userId, fbclid],
+      );
+      if (byFbclid.rows.length > 0) {
+        visitorId = byFbclid.rows[0].visitor_id;
+        anonymousId = byFbclid.rows[0].anonymous_id;
+      }
+    }
+
+    // If not found via fbclid, try by email
+    if (!visitorId && email) {
+      const byEmail = await pool.query(
+        `SELECT id, anonymous_id FROM pixel_visitors
+         WHERE user_id = $1 AND email = $2 AND canonical_id IS NULL
+         ORDER BY last_seen_at DESC LIMIT 1`,
+        [userId, email],
+      );
+      if (byEmail.rows.length > 0) {
+        visitorId = byEmail.rows[0].id;
+        anonymousId = byEmail.rows[0].anonymous_id;
+      }
+    }
+
+    // Create a new visitor if needed
+    if (!visitorId) {
+      anonymousId = `cb-impression-${clickId || receiptId || Date.now()}`;
+      const created = await pool.query(
+        `INSERT INTO pixel_visitors (user_id, site_id, anonymous_id, email, first_referrer)
+         VALUES ($1, 0, $2, $3, 'clickbank')
+         ON CONFLICT (user_id, anonymous_id) DO UPDATE SET last_seen_at = NOW()
+         RETURNING id`,
+        [userId, anonymousId, email || null],
+      );
+      if (created.rows.length > 0) visitorId = created.rows[0].id;
+    }
+
+    if (visitorId) {
+      await recordEvent(userId, visitorId, {
+        sessionId: `cb-impression-${clickId || Date.now()}`,
+        eventName: 'InitiateCheckout',
+        eventCategory: 'conversion',
+        fbclid: fbclid || undefined,
+        eventId: `cb-impression-${clickId || receiptId || Date.now()}`,
+        properties: {
+          source: 'clickbank_impression',
+          affiliate,
+          tid,
+          clickId,
+          receiptId,
+        },
+      });
+    }
+
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error('[ClickBank Impression] Error:', err);
+    res.status(500).json({ error: 'Failed to process impression' });
+  }
+}
+
 // Token-based routes (preferred)
 router.post('/checkout-champ/:webhookToken', verifyCheckoutChamp, handleCCWebhook);
 router.post('/shopify/:webhookToken', verifyShopify, handleShopifyWebhook);
+router.post('/jvzoo/:webhookToken', verifyJVZoo, handleJVZooWebhook);
+router.post('/jvzoo', verifyJVZoo, handleJVZooWebhook);
+router.post('/clickbank/:webhookToken', verifyClickBank, handleClickBankWebhook);
+router.post('/clickbank', verifyClickBank, handleClickBankWebhook);
+router.post('/clickbank-impression/:webhookToken', handleClickBankImpression);
+router.get('/clickbank-impression/:webhookToken', handleClickBankImpression);
 
 // Legacy routes (backward compat)
 router.post('/checkout-champ', verifyCheckoutChamp, handleCCWebhook);

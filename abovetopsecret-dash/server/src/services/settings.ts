@@ -6,6 +6,8 @@ const SENSITIVE_KEYS = [
   'cc_password',
   'cc_webhook_secret',
   'shopify_webhook_secret',
+  'jvzoo_secret_key',
+  'clickbank_secret_key',
   'auth_token',
   'newsbreak_api_key',
 ];
@@ -18,6 +20,8 @@ const ENV_FALLBACKS: Record<string, string> = {
   cc_password: 'CC_PASSWORD',
   cc_webhook_secret: 'CC_WEBHOOK_SECRET',
   shopify_webhook_secret: 'SHOPIFY_WEBHOOK_SECRET',
+  jvzoo_secret_key: 'JVZOO_SECRET_KEY',
+  clickbank_secret_key: 'CLICKBANK_SECRET_KEY',
   auth_token: 'AUTH_TOKEN',
   newsbreak_api_key: 'NEWSBREAK_API_KEY',
   newsbreak_account_id: 'NEWSBREAK_ACCOUNT_ID',
