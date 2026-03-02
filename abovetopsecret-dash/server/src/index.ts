@@ -1,5 +1,6 @@
 import { createServer } from 'http';
 import express from 'express';
+import path from 'path';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import metricsRouter from './routes/metrics';
@@ -139,6 +140,12 @@ app.use('/api/auth/login', loginLimiter);
 app.use('/api/auth/register', loginLimiter);
 app.use('/api/auth', authReadLimiter);
 app.use('/api', apiLimiter);
+
+// Serve uploaded media files (campaign images/videos) publicly under /api so Caddy proxies them
+app.use('/api/media', express.static(path.join(__dirname, '../uploads/campaign-media'), {
+  maxAge: '7d',
+  immutable: true,
+}));
 
 // Basic health check (no auth); data health requires auth and is mounted below
 app.get('/api/health', (_req, res) => {

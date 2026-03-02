@@ -11,8 +11,10 @@ import {
   batchCreateCampaign,
   uploadCampaignMedia,
   fetchNewsBreakAudiences,
+  fetchNewsBreakEvents,
 } from '../../../lib/api';
 import type { Account, NewsBreakAudience } from '../types';
+import type { NewsBreakEvent } from '../../../lib/api';
 import { OBJECTIVES, CTA_OPTIONS, EVENTS, NB_PLACEMENTS, FORMAT_PRESETS, PLATFORM_BADGE } from '../constants';
 import { fmt$ } from '../formatters';
 
@@ -72,7 +74,16 @@ export default function FormatLauncher({ onClose, onSuccess, accounts }: {
   const [languages, setLanguages] = useState('');
   const [audienceList, setAudienceList] = useState('');
   const [nbAudiences2, setNbAudiences2] = useState<NewsBreakAudience[]>([]);
-  useEffect(() => { if (platform === 'newsbreak') fetchNewsBreakAudiences().then(setNbAudiences2).catch(() => {}); }, [platform]);
+  const [nbEvents, setNbEvents] = useState<NewsBreakEvent[]>([]);
+  const [trackingId, setTrackingId] = useState('');
+  const [clickTrackingUrl, setClickTrackingUrl] = useState('');
+  const [impressionTrackingUrl, setImpressionTrackingUrl] = useState('');
+  useEffect(() => {
+    if (platform === 'newsbreak') {
+      fetchNewsBreakAudiences().then(setNbAudiences2).catch(() => {});
+      fetchNewsBreakEvents(accountId).then(setNbEvents).catch(() => {});
+    }
+  }, [platform, accountId]);
   const [optimizationGoal, setOptimizationGoal] = useState('CONVERSIONS');
   const [bidType, setBidType] = useState('LOWEST_COST_WITHOUT_CAP');
   const [bidAmount, setBidAmount] = useState('');
@@ -119,17 +130,23 @@ export default function FormatLauncher({ onClose, onSuccess, accounts }: {
     const newFiles = Array.from(e.target.files || []);
     if (newFiles.length === 0) return;
     setUploading(true);
+    const results = await Promise.allSettled(
+      newFiles.map(f => uploadCampaignMedia(f, accountId))
+    );
     const ids: number[] = [...mediaIds];
-    for (const f of newFiles) {
-      try {
-        const res = await uploadCampaignMedia(f, accountId);
-        ids.push(res.id);
-      } catch (err: any) {
-        alert(`Failed to upload ${f.name}: ${err.message}`);
+    const succeeded: File[] = [];
+    const errors: string[] = [];
+    results.forEach((r, i) => {
+      if (r.status === 'fulfilled') {
+        ids.push(r.value.id);
+        succeeded.push(newFiles[i]);
+      } else {
+        errors.push(`${newFiles[i].name}: ${r.reason?.message || 'upload failed'}`);
       }
-    }
+    });
+    if (errors.length > 0) alert(`Failed uploads:\n${errors.join('\n')}`);
     setMediaIds(ids);
-    setFiles(prev => [...prev, ...newFiles]);
+    setFiles(prev => [...prev, ...succeeded]);
     setUploading(false);
   }
 
@@ -163,6 +180,7 @@ export default function FormatLauncher({ onClose, onSuccess, accounts }: {
           targeting: Object.keys(targeting).length > 0 ? targeting : undefined,
           placements: batchPlacements.includes('ALL') ? undefined : batchPlacements,
           event_type: eventType || undefined,
+          tracking_id: trackingId || undefined,
           schedule_start: scheduleStart || undefined,
           schedule_end: scheduleEnd || undefined,
         },
@@ -173,13 +191,20 @@ export default function FormatLauncher({ onClose, onSuccess, accounts }: {
           cta: cta,
           brand_name: brandName.trim() || undefined,
           button_text: buttonText.trim() || undefined,
+          click_tracking_url: clickTrackingUrl.trim() || undefined,
+          impression_tracking_url: impressionTrackingUrl.trim() || undefined,
         },
         media_ids: mediaIds.length > 0 ? mediaIds : undefined,
         auto_publish: true,
       });
-      setResult({ success: res.success });
-      if (res.success) {
+      // Check individual draft results for publish failures
+      const failedDrafts = (res.results || []).filter((r: any) => r.published === false);
+      if (res.success && failedDrafts.length === 0) {
+        setResult({ success: true });
         setTimeout(() => { onSuccess(); onClose(); }, 1200);
+      } else {
+        const errors = failedDrafts.map((r: any) => r.error || 'Unknown publish error');
+        setResult({ success: false, error: `Publishing failed: ${errors.join('; ')}` });
       }
     } catch (err: any) {
       setResult({ success: false, error: err.message });
@@ -338,6 +363,26 @@ export default function FormatLauncher({ onClose, onSuccess, accounts }: {
                 {EVENTS.map(ev => <option key={ev.value} value={ev.value}>{ev.label}</option>)}
               </select>
             </div>
+
+            {/* Conversion Pixel */}
+            {platform === 'newsbreak' && (
+              <div>
+                <Label>Conversion Pixel</Label>
+                {nbEvents.length > 0 ? (
+                  <select value={trackingId} onChange={(e) => setTrackingId(e.target.value)} className={inputCls}>
+                    <option value="">No pixel (none)</option>
+                    {nbEvents.map(ev => (
+                      <option key={ev.id} value={ev.id}>
+                        {ev.name} ({ev.type}{ev.eventType ? ` — ${ev.eventType}` : ''})
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input value={trackingId} onChange={(e) => setTrackingId(e.target.value)} placeholder="Tracking event ID" className={inputCls} />
+                )}
+                <Hint>NewsBreak tracking event/pixel ID for conversion tracking on ad sets</Hint>
+              </div>
+            )}
 
             {/* Placements */}
             <div>
@@ -508,6 +553,23 @@ export default function FormatLauncher({ onClose, onSuccess, accounts }: {
                 {CTA_OPTIONS.map(c => <option key={c} value={c}>{c.replace(/_/g, ' ')}</option>)}
               </select>
             </div>
+
+            {/* Tracking Pixels (Ad-level) */}
+            {platform === 'newsbreak' && (
+              <>
+                <SectionDivider label="Tracking Pixels" />
+                <div>
+                  <Label>Click Tracking URL</Label>
+                  <input value={clickTrackingUrl} onChange={(e) => setClickTrackingUrl(e.target.value)} placeholder="https://tracker.example.com/click?..." className={inputCls} />
+                  <Hint>Third-party click tracking pixel URL (applied to each ad)</Hint>
+                </div>
+                <div>
+                  <Label>Impression Tracking URL</Label>
+                  <input value={impressionTrackingUrl} onChange={(e) => setImpressionTrackingUrl(e.target.value)} placeholder="https://tracker.example.com/imp?..." className={inputCls} />
+                  <Hint>Third-party impression tracking pixel URL (applied to each ad)</Hint>
+                </div>
+              </>
+            )}
 
             {/* Batch file upload */}
             <SectionDivider label="Batch Media Upload" />

@@ -505,10 +505,16 @@ router.post('/media/upload', upload.single('file'), async (req: Request, res: Re
       if (acctCheck.rows.length === 0) { res.status(403).json({ error: 'Account not found' }); return; }
     }
 
+    // Build public URL — served via /api/media/<filename> (proxied through Caddy)
+    const filename = path.basename(file.path);
+    const proto = req.protocol;
+    const host = req.get('host') || `localhost:${process.env.PORT || 4000}`;
+    const publicUrl = `${proto}://${host}/api/media/${filename}`;
+
     const result = await pool.query(
-      `INSERT INTO campaign_media_uploads (user_id, account_id, filename, mime_type, file_size, file_path)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, user_id, account_id, filename, mime_type, file_size, status, created_at`,
-      [userId, accountId, file.originalname, file.mimetype, file.size, file.path]
+      `INSERT INTO campaign_media_uploads (user_id, account_id, filename, mime_type, file_size, file_path, public_url)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, user_id, account_id, filename, mime_type, file_size, status, public_url, created_at`,
+      [userId, accountId, file.originalname, file.mimetype, file.size, file.path, publicUrl]
     );
     res.json(result.rows[0]);
   } catch (err) {
@@ -708,6 +714,15 @@ router.delete('/templates/:id', async (req: Request, res: Response) => {
 
 // ── Live Campaigns (across all platforms) ─────────────────
 
+/** Normalize platform-specific status values to ACTIVE/PAUSED */
+function normalizeStatus(raw: string | null | undefined): string {
+  if (!raw) return 'UNKNOWN';
+  const s = raw.toUpperCase().trim();
+  if (s === 'ACTIVE' || s === 'ON' || s === 'ENABLE' || s === 'ENABLED') return 'ACTIVE';
+  if (s === 'PAUSED' || s === 'OFF' || s === 'DISABLE' || s === 'DISABLED') return 'PAUSED';
+  return s;
+}
+
 router.get('/live', async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
@@ -850,7 +865,7 @@ router.get('/live', async (req: Request, res: Response) => {
       cpa: parseInt(r.conversions) > 0 ? (parseFloat(r.spend) || 0) / parseInt(r.conversions) : 0,
       adset_count: parseInt(r.adset_count) || 0,
       ad_count: parseInt(r.ad_count) || 0,
-      status: r.status || 'UNKNOWN',
+      status: normalizeStatus(r.status),
       daily_budget: parseFloat(r.daily_budget) || null,
     })));
   } catch (err) {
@@ -1022,6 +1037,7 @@ import {
   adjustNewsBreakBidCap,
   getNewsBreakAdSetBudgets,
   getNewsBreakAuth,
+  getAllNewsBreakAuth,
   getNewsBreakCampaignList,
   getNewsBreakAdSetList,
   getNewsBreakAdList,
@@ -1029,6 +1045,7 @@ import {
   createNewsBreakAdSet,
   createNewsBreakAd,
   getNewsBreakAudiences,
+  getNewsBreakEvents,
   createNewsBreakCustomAudience,
   uploadNewsBreakAudienceData,
   createNewsBreakLookalikeAudience,
@@ -1118,6 +1135,40 @@ router.delete('/newsbreak/audiences/:id', publishLimiter, async (req: Request, r
   } catch (err: any) {
     console.error('Error deleting NB audience:', err);
     res.status(500).json({ error: err.message || 'Failed to delete audience' });
+  }
+});
+
+// ── NewsBreak Events / Pixels ─────────────────────────────────
+
+router.get('/newsbreak/events', async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+    const accountId = req.query.account_id as string | undefined;
+
+    // Resolve auth — prefer specified account, fallback to default
+    let auth = null;
+    if (accountId) {
+      const acctRes = await pool.query(
+        `SELECT platform_account_id, access_token_encrypted FROM accounts
+         WHERE id = $1 AND user_id = $2 AND platform = 'newsbreak' AND status = 'active'`,
+        [accountId, userId]
+      );
+      if (acctRes.rows.length > 0 && acctRes.rows[0].access_token_encrypted) {
+        auth = { accessToken: acctRes.rows[0].access_token_encrypted, accountId: acctRes.rows[0].platform_account_id };
+      }
+    }
+    if (!auth) {
+      const { getNewsBreakAuth } = await import('../services/newsbreak-api');
+      auth = await getNewsBreakAuth(userId);
+    }
+    if (!auth) { res.status(400).json({ error: 'No NewsBreak credentials configured' }); return; }
+
+    const events = await getNewsBreakEvents(auth.accountId, auth.accessToken);
+    res.json(events);
+  } catch (err: any) {
+    console.error('Error fetching NB events:', err);
+    res.status(500).json({ error: err.message || 'Failed to fetch events' });
   }
 });
 
@@ -1479,54 +1530,78 @@ router.post('/duplicate', async (req: Request, res: Response) => {
 
     // ── Live NewsBreak entity duplication (via NB API) ──────────
     if (platform === 'newsbreak') {
-      const auth = await getNewsBreakAuth(userId);
-      if (!auth) { res.status(400).json({ error: 'No NewsBreak credentials configured' }); return; }
+      // Helper to find NB entity by ID — the API may use different field names
+      function findNbEntity(list: any[], targetId: string): any {
+        return list.find((item: any) =>
+          String(item.id) === targetId ||
+          String(item.campaignId) === targetId ||
+          String(item.campaign_id) === targetId ||
+          String(item.adSetId) === targetId ||
+          String(item.adset_id) === targetId ||
+          String(item.adId) === targetId ||
+          String(item.ad_id) === targetId
+        );
+      }
 
-      // NB API getList returns `id` and `name` (not campaign_id/campaign_name etc.)
-      // Ad creative fields are nested under `creative` object
+      function getNbName(item: any): string {
+        return item.name || item.campaign_name || item.campaignName || item.adset_name || item.adSetName || item.ad_name || item.adName || 'Entity';
+      }
+
+      function getNbId(item: any): string {
+        return String(item.id || item.campaignId || item.campaign_id || item.adSetId || item.adset_id || item.adId || item.ad_id || '');
+      }
+
+      // Try all NB accounts in case entity belongs to a different advertiser
+      const allAuths = await getAllNewsBreakAuth(userId);
+      if (allAuths.length === 0) { res.status(400).json({ error: 'No NewsBreak credentials configured' }); return; }
 
       if (entity_type === 'campaign') {
-        const campaigns = await getNewsBreakCampaignList(auth.accountId, auth.accessToken);
-        const campaign = campaigns.find((c: any) => String(c.id) === String(entity_id));
-        if (!campaign) { res.status(404).json({ error: 'Campaign not found on NewsBreak' }); return; }
+        let campaign: any = null;
+        let useAuth = allAuths[0];
+        for (const a of allAuths) {
+          const campaigns = await getNewsBreakCampaignList(a.accountId, a.accessToken);
+          console.log(`[NB Dup] Campaign search: entity_id=${entity_id}, accountId=${a.accountId}, listCount=${campaigns.length}, sampleIds=${JSON.stringify(campaigns.slice(0, 3).map((c: any) => ({ id: c.id, campaignId: c.campaignId })))}`);
+          campaign = findNbEntity(campaigns, String(entity_id));
+          if (campaign) { useAuth = a; break; }
+        }
+        if (!campaign) { res.status(404).json({ error: `Campaign not found on NewsBreak (searched ${allAuths.length} account(s) for id=${entity_id})` }); return; }
 
         const newCampaign = await createNewsBreakCampaign(
-          auth.accountId,
+          useAuth.accountId,
           {
-            campaign_name: `${campaign.name} (Copy)`,
+            campaign_name: `${getNbName(campaign)} (Copy)`,
             objective: campaign.objective || 'TRAFFIC',
             daily_budget: campaign.budget || 50,
           },
-          auth.accessToken
+          useAuth.accessToken
         );
 
         // Duplicate all ad sets + ads under this campaign
-        const adSets = await getNewsBreakAdSetList(auth.accountId, String(entity_id), auth.accessToken);
+        const adSets = await getNewsBreakAdSetList(useAuth.accountId, String(entity_id), useAuth.accessToken);
         const adsetResults: any[] = [];
         for (const adSet of adSets) {
           try {
             const newAdSet = await createNewsBreakAdSet(
-              auth.accountId,
+              useAuth.accountId,
               {
                 campaign_id: newCampaign.campaign_id,
-                adset_name: `${adSet.name} (Copy)`,
+                adset_name: `${getNbName(adSet)} (Copy)`,
                 budget: adSet.budget || 5000,
                 budget_mode: adSet.budgetType || 'DAILY',
                 targeting: adSet.targeting || {},
               },
-              auth.accessToken
+              useAuth.accessToken
             );
 
-            // Duplicate ads under this ad set
-            const ads = await getNewsBreakAdList(auth.accountId, String(adSet.id), auth.accessToken);
+            const ads = await getNewsBreakAdList(useAuth.accountId, getNbId(adSet), useAuth.accessToken);
             for (const ad of ads) {
               try {
                 const cr = ad.creative || {};
                 await createNewsBreakAd(
-                  auth.accountId,
+                  useAuth.accountId,
                   {
                     adset_id: newAdSet.adset_id,
-                    ad_name: `${ad.name} (Copy)`,
+                    ad_name: `${getNbName(ad)} (Copy)`,
                     ad_text: cr.description || '',
                     headline: cr.headline,
                     image_url: cr.type === 'IMAGE' ? cr.assetUrl : undefined,
@@ -1536,15 +1611,15 @@ router.post('/duplicate', async (req: Request, res: Response) => {
                     call_to_action: cr.callToAction,
                     brand_name: cr.brandName,
                   },
-                  auth.accessToken
+                  useAuth.accessToken
                 );
               } catch (adErr: any) {
-                console.error(`Error duplicating NB ad ${ad.id}:`, adErr.message);
+                console.error(`Error duplicating NB ad ${getNbId(ad)}:`, adErr.message);
               }
             }
             adsetResults.push({ adset_id: newAdSet.adset_id });
           } catch (asErr: any) {
-            console.error(`Error duplicating NB adset ${adSet.id}:`, asErr.message);
+            console.error(`Error duplicating NB adset ${getNbId(adSet)}:`, asErr.message);
           }
         }
 
@@ -1561,32 +1636,38 @@ router.post('/duplicate', async (req: Request, res: Response) => {
           campaignId = syncRes.rows[0].campaign_id;
         }
 
-        const adSets = await getNewsBreakAdSetList(auth.accountId, campaignId, auth.accessToken);
-        const adSet = adSets.find((as: any) => String(as.id) === String(entity_id));
-        if (!adSet) { res.status(404).json({ error: 'Ad set not found on NewsBreak' }); return; }
+        let adSet: any = null;
+        let useAuth = allAuths[0];
+        for (const a of allAuths) {
+          const adSets = await getNewsBreakAdSetList(a.accountId, campaignId, a.accessToken);
+          console.log(`[NB Dup] AdSet search: entity_id=${entity_id}, campaignId=${campaignId}, accountId=${a.accountId}, listCount=${adSets.length}, sampleIds=${JSON.stringify(adSets.slice(0, 3).map((s: any) => ({ id: s.id, adSetId: s.adSetId })))}`);
+          adSet = findNbEntity(adSets, String(entity_id));
+          if (adSet) { useAuth = a; break; }
+        }
+        if (!adSet) { res.status(404).json({ error: `Ad set not found on NewsBreak (searched ${allAuths.length} account(s) for id=${entity_id}, campaign=${campaignId})` }); return; }
 
         const newAdSet = await createNewsBreakAdSet(
-          auth.accountId,
+          useAuth.accountId,
           {
             campaign_id: campaignId,
-            adset_name: `${adSet.name} (Copy)`,
+            adset_name: `${getNbName(adSet)} (Copy)`,
             budget: adSet.budget || 5000,
             budget_mode: adSet.budgetType || 'DAILY',
             targeting: adSet.targeting || {},
           },
-          auth.accessToken
+          useAuth.accessToken
         );
 
         // Duplicate ads under this ad set
-        const ads = await getNewsBreakAdList(auth.accountId, String(entity_id), auth.accessToken);
+        const ads = await getNewsBreakAdList(useAuth.accountId, String(entity_id), useAuth.accessToken);
         for (const ad of ads) {
           try {
             const cr = ad.creative || {};
             await createNewsBreakAd(
-              auth.accountId,
+              useAuth.accountId,
               {
                 adset_id: newAdSet.adset_id,
-                ad_name: `${ad.name} (Copy)`,
+                ad_name: `${getNbName(ad)} (Copy)`,
                 ad_text: cr.description || '',
                 headline: cr.headline,
                 image_url: cr.type === 'IMAGE' ? cr.assetUrl : undefined,
@@ -1596,29 +1677,42 @@ router.post('/duplicate', async (req: Request, res: Response) => {
                 call_to_action: cr.callToAction,
                 brand_name: cr.brandName,
               },
-              auth.accessToken
+              useAuth.accessToken
             );
           } catch (adErr: any) {
-            console.error(`Error duplicating NB ad ${ad.id}:`, adErr.message);
+            console.error(`Error duplicating NB ad ${getNbId(ad)}:`, adErr.message);
           }
         }
 
         res.json({ success: true, new_id: newAdSet.adset_id });
 
       } else if (entity_type === 'ad') {
-        const parentAdsetId = target_parent_id;
-        if (!parentAdsetId) { res.status(400).json({ error: 'target_parent_id (adset_id) is required when duplicating an ad' }); return; }
+        let parentAdsetId = target_parent_id;
+        if (!parentAdsetId) {
+          const syncRes = await pool.query(
+            `SELECT adset_id FROM newsbreak_ads_today WHERE user_id = $1 AND ad_id = $2 LIMIT 1`,
+            [userId, String(entity_id)]
+          );
+          if (syncRes.rows.length === 0) { res.status(400).json({ error: 'Cannot determine parent ad set for this ad' }); return; }
+          parentAdsetId = syncRes.rows[0].adset_id;
+        }
 
-        const ads = await getNewsBreakAdList(auth.accountId, String(parentAdsetId), auth.accessToken);
-        const ad = ads.find((a: any) => String(a.id) === String(entity_id));
-        if (!ad) { res.status(404).json({ error: 'Ad not found on NewsBreak' }); return; }
+        let ad: any = null;
+        let useAuth = allAuths[0];
+        for (const a of allAuths) {
+          const ads = await getNewsBreakAdList(a.accountId, String(parentAdsetId), a.accessToken);
+          console.log(`[NB Dup] Ad search: entity_id=${entity_id}, parentAdsetId=${parentAdsetId}, accountId=${a.accountId}, listCount=${ads.length}, sampleIds=${JSON.stringify(ads.slice(0, 3).map((x: any) => ({ id: x.id, adId: x.adId })))}`);
+          ad = findNbEntity(ads, String(entity_id));
+          if (ad) { useAuth = a; break; }
+        }
+        if (!ad) { res.status(404).json({ error: `Ad not found on NewsBreak (searched ${allAuths.length} account(s) for id=${entity_id}, adset=${parentAdsetId})` }); return; }
 
         const cr = ad.creative || {};
         const newAd = await createNewsBreakAd(
-          auth.accountId,
+          useAuth.accountId,
           {
             adset_id: String(parentAdsetId),
-            ad_name: `${ad.name} (Copy)`,
+            ad_name: `${getNbName(ad)} (Copy)`,
             ad_text: cr.description || '',
             headline: cr.headline,
             image_url: cr.type === 'IMAGE' ? cr.assetUrl : undefined,
@@ -1628,7 +1722,7 @@ router.post('/duplicate', async (req: Request, res: Response) => {
             call_to_action: cr.callToAction,
             brand_name: cr.brandName,
           },
-          auth.accessToken
+          useAuth.accessToken
         );
         res.json({ success: true, new_id: newAd.ad_id });
       } else {
@@ -1785,6 +1879,7 @@ router.post('/batch-create', publishLimiter, async (req: Request, res: Response)
         if (ac.event_type) targetingObj.event_type = ac.event_type;
         if (ac.optimization_goal) targetingObj.optimization_goal = ac.optimization_goal;
         if (ac.bid_amount) targetingObj.bid_amount = ac.bid_amount;
+        if (ac.tracking_id) targetingObj.tracking_id = ac.tracking_id;
 
         const adsetRes = await pool.query(
           `INSERT INTO campaign_adsets (draft_id, name, budget_type, budget_cents, bid_strategy, targeting, schedule_start, schedule_end)
@@ -1830,7 +1925,8 @@ router.post('/batch-create', publishLimiter, async (req: Request, res: Response)
       }
     }
 
-    res.json({ success: true, results });
+    const allPublished = results.every(r => r.published !== false);
+    res.json({ success: allPublished, results });
   } catch (err: any) {
     console.error('Error in batch-create:', err);
     res.status(500).json({ error: err.message || 'Failed to batch create' });
